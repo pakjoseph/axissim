@@ -26,6 +26,7 @@ flowchart LR
 - Per-operation and per-byte energy accounting
 - Mean/P99 latency, deadline misses, engine utilization, pipeline concurrency, traffic, energy/frame, and CSV traces
 - CTest smoke coverage for valid and invalid configurations
+- Reference-data calibration reports with public/reproduced provenance labels
 
 ## What the baseline study finds
 
@@ -58,6 +59,24 @@ ctest --test-dir build --output-on-failure
 ```
 
 GitHub Actions runs the same configure, build, and CTest workflow on every push and pull request; see [CI workflow](.github/workflows/ci.yml).
+
+## Desktop explorer
+
+When Qt 6 Widgets is available, CMake also builds `axissim-gui`, a native desktop front end for opening/editing/saving scenario manifests, launching the same CLI model, and viewing result metrics with the first-frame task timeline.
+
+```sh
+cmake -S . -B build -DAXISSIM_BUILD_GUI=ON
+cmake --build build
+./build/axissim-gui
+```
+
+The UI calls the checked-in CLI executable and reads its JSON/trace artifacts, so it does not have a separate performance model. Save edited manifests before running; included config paths remain relative to the manifest's saved directory. The Qt target is optional (`-DAXISSIM_BUILD_GUI=OFF`) for headless CI and minimal CLI builds.
+
+For a non-interactive GUI initialization check on a machine with Qt, run:
+
+```sh
+QT_QPA_PLATFORM=offscreen ./build/axissim-gui --smoke-test
+```
 
 ## Configuration layers
 
@@ -105,6 +124,18 @@ Generate a CSV for a reproducible architecture experiment:
 `sweep` accepts any supported configuration key. Use `--set` for constants shared by every point—for example, sweep `npu_macs` while holding a larger SRAM/tile mapping fixed.
 
 Each result also includes a vector/NPU-arithmetic/DRAM/DMA energy breakdown. The NPU arithmetic scale is deliberately an independent hypothetical input, not a claim about a particular technology or full-system power reduction.
+
+## RVV calibration workflow
+
+`calibrate` compares the model's mean end-to-end latency against a traceable lane-scaling reference CSV. It reports predicted and reference latency plus absolute and relative error for every point:
+
+```sh
+./build/axissim calibrate configs/baseline/manifest.conf \
+  --reference reference_data/ara/ara_latency_template.csv \
+  --csv experiments/ara_calibration.csv
+```
+
+The checked-in CSV is deliberately an empty template: no value is treated as Ara data until it has a source URL, source revision/date, workload mapping, and either `published` or `reproduced` status. The test fixture in `tests/reference/` exercises the command but is synthetic and is not calibration evidence. See [the Ara reference-data contract](reference_data/ara/README.md) and [the implementation plan](plan.md).
 
 ## Fixed-priority control runtime
 

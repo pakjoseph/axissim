@@ -540,13 +540,70 @@ void write_sweep_csv(const std::string& config_path, const std::map<std::string,
   }
 }
 
+void write_calibration_csv(const std::string& config_path, const std::map<std::string, std::string>& base_overrides,
+                           const std::string& reference_path, std::ostream& output) {
+  std::ifstream input(reference_path);
+  if (!input) throw std::runtime_error("Unable to open reference data: " + reference_path);
+  std::string header;
+  if (!std::getline(input, header)) throw std::runtime_error("Reference data is empty");
+  const auto columns = split_csv_values(header);
+  const auto find_column = [&columns](const std::string& name) {
+    const auto position = std::find(columns.begin(), columns.end(), name);
+    if (position == columns.end()) throw std::runtime_error("Reference data missing column: " + name);
+    return static_cast<std::size_t>(position - columns.begin());
+  };
+  const auto id_column = find_column("reference_id");
+  const auto status_column = find_column("status");
+  const auto source_url_column = find_column("source_url");
+  const auto source_revision_column = find_column("source_revision");
+  const auto benchmark_column = find_column("benchmark");
+  const auto lanes_column = find_column("lanes");
+  const auto frequency_column = find_column("frequency_ghz");
+  const auto workload_column = find_column("axis_workload");
+  const auto unit_column = find_column("unit");
+  const auto extraction_column = find_column("extraction_method");
+  const auto latency_column = find_column("reference_latency_us");
+  output << "reference_id,status,lanes,reference_latency_us,predicted_latency_us,absolute_error_us,relative_error_percent\n";
+  output << std::fixed << std::setprecision(3);
+  std::string line;
+  while (std::getline(input, line)) {
+    if (trim(line).empty() || trim(line).starts_with('#')) continue;
+    const auto row = split_csv_values(line);
+    if (row.size() != columns.size()) throw std::runtime_error("Reference row has wrong column count");
+    for (const auto column : {id_column, source_url_column, source_revision_column, benchmark_column, lanes_column,
+                              frequency_column, workload_column, unit_column, extraction_column, latency_column}) {
+      if (row[column].empty()) throw std::runtime_error("Reference row has an empty provenance field");
+    }
+    if (row[status_column] != "published" && row[status_column] != "reproduced") {
+      throw std::runtime_error("Reference status must be published or reproduced");
+    }
+    if (row[unit_column] != "us") throw std::runtime_error("Reference latency unit must be us");
+    if (std::stoi(row[lanes_column]) <= 0 || std::stod(row[frequency_column]) <= 0.0 || std::stod(row[latency_column]) <= 0.0) {
+      throw std::runtime_error("Reference lanes, frequency, and latency must be positive");
+    }
+    auto overrides = base_overrides;
+    overrides["rvv_lanes"] = row[lanes_column];
+    const Config config = load_config(config_path, overrides);
+    validate(config);
+    Simulator simulator(config);
+    simulator.run();
+    const auto& latencies = simulator.latencies_us();
+    const double predicted = std::accumulate(latencies.begin(), latencies.end(), 0.0) / latencies.size();
+    const double reference = std::stod(row[latency_column]);
+    const double absolute_error = std::abs(predicted - reference);
+    const double relative_error = reference == 0.0 ? 0.0 : 100.0 * absolute_error / std::abs(reference);
+    output << row[id_column] << ',' << row[status_column] << ',' << row[lanes_column] << ',' << reference << ','
+           << predicted << ',' << absolute_error << ',' << relative_error << '\n';
+  }
+}
+
 }  // namespace axissim
 
 int main(int argc, char** argv) {
   using namespace axissim;
   try {
     if (argc < 3) {
-      std::cerr << "Usage: axissim <validate|run|sweep> <config.conf> [options]\n";
+      std::cerr << "Usage: axissim <validate|run|sweep|calibrate> <config.conf> [options]\n";
       return 2;
     }
     const std::string command = argv[1];
@@ -554,6 +611,7 @@ int main(int argc, char** argv) {
     std::optional<std::string> json_path;
     std::optional<std::string> output_path;
     std::optional<std::string> sweep_assignment;
+    std::optional<std::string> reference_path;
     std::map<std::string, std::string> overrides;
     for (int argument = 3; argument < argc; ++argument) {
       const std::string option = argv[argument];
@@ -569,6 +627,9 @@ int main(int argc, char** argv) {
       } else if (option == "--sweep") {
         if (++argument >= argc || sweep_assignment.has_value()) throw std::runtime_error("--sweep requires one key=value1,value2,... assignment and may appear once");
         sweep_assignment = argv[argument];
+      } else if (option == "--reference") {
+        if (++argument >= argc || reference_path.has_value()) throw std::runtime_error("--reference requires one CSV path and may appear once");
+        reference_path = argv[argument];
       } else if (option == "--set") {
         if (++argument >= argc) throw std::runtime_error("--set requires key=value");
         const std::string assignment = argv[argument];
@@ -597,7 +658,18 @@ int main(int argc, char** argv) {
       }
       return 0;
     }
-    if (output_path || sweep_assignment) throw std::runtime_error("--csv and --sweep are only valid with the sweep command");
+    if (command == "calibrate") {
+      if (!reference_path || trace_path || json_path || sweep_assignment) throw std::runtime_error("calibrate requires --reference and does not support --trace, --json, or --sweep");
+      if (output_path) {
+        std::ofstream output(*output_path);
+        if (!output) throw std::runtime_error("Unable to write CSV: " + *output_path);
+        write_calibration_csv(argv[2], overrides, *reference_path, output);
+      } else {
+        write_calibration_csv(argv[2], overrides, *reference_path, std::cout);
+      }
+      return 0;
+    }
+    if (output_path || sweep_assignment || reference_path) throw std::runtime_error("--csv, --sweep, and --reference are only valid with sweep or calibrate");
     const Config config = load_config(argv[2], overrides);
     validate(config);
     if (command == "validate") {

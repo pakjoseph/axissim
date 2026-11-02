@@ -8,6 +8,18 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_executable(axissim src/main.cpp)
 target_compile_options(axissim PRIVATE -Wall -Wextra -Wpedantic -Werror)
 
+option(AXISSIM_BUILD_GUI "Build the Qt 6 desktop explorer when Qt Widgets is available" ON)
+if(AXISSIM_BUILD_GUI)
+  find_package(Qt6 COMPONENTS Widgets QUIET)
+  if(Qt6Widgets_FOUND)
+    add_executable(axissim-gui src/gui/main.cpp)
+    target_link_libraries(axissim-gui PRIVATE Qt6::Widgets)
+    target_compile_options(axissim-gui PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  else()
+    message(STATUS "Qt 6 Widgets not found; axissim-gui will not be built")
+  endif()
+endif()
+
 include(CTest)
 if(BUILD_TESTING)
   add_test(NAME baseline_smoke
@@ -38,4 +50,9 @@ if(BUILD_TESTING)
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/tests/tiny_pipeline.conf)
   set_tests_properties(tiny_pipeline_matches_hand_calculation PROPERTIES
                        PASS_REGULAR_EXPRESSION "latency mean / P99:  0.28 / 0.28 us")
+  add_test(NAME calibration_fixture_smoke
+           COMMAND axissim calibrate ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
+                   --reference ${CMAKE_SOURCE_DIR}/tests/reference/synthetic_latency.csv)
+  set_tests_properties(calibration_fixture_smoke PROPERTIES
+                       PASS_REGULAR_EXPRESSION "synthetic_2,reproduced,2")
 endif()

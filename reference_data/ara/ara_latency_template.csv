@@ -1,0 +1,2 @@
+reference_id,status,source_url,source_revision,benchmark,lanes,frequency_ghz,axis_workload,unit,extraction_method,reference_latency_us
+# Populate only with cited published or locally reproduced measurements.

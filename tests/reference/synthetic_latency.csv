@@ -1,0 +1,3 @@
+reference_id,status,source_url,source_revision,benchmark,lanes,frequency_ghz,axis_workload,unit,extraction_method,reference_latency_us
+synthetic_2,reproduced,https://example.invalid,fixture,saxpy,2,1.0,baseline,us,test fixture,100.0
+synthetic_4,reproduced,https://example.invalid,fixture,saxpy,4,1.0,baseline,us,test fixture,50.0
