@@ -1,6 +1,6 @@
 # Model assumptions
 
-AxisSim reserves resources on a deterministic simulated-time calendar. A transfer reserves both the DMA engine and the shared DRAM interface. Compute stages reserve their relevant engine after their input dependency completes.
+AxisSim uses one deterministic, non-preemptive discrete-event scheduler for every workload. A transfer uses the DMA+shared-DRAM resource; compute stages use the RVV or NPU resource after their input dependency completes. Normal pipeline tasks share priority and dispatch first-come, first-served. When enabled, `safety_control` has higher priority at each resource-dispatch point, but cannot preempt an operation already in flight.
 
 Frames release at `frame_period_us`. Therefore, operations from different frames may overlap when they use distinct resources. `max concurrent tasks` counts simultaneous trace intervals across all resources; utilization is total busy time for a resource divided by simulation makespan.
 

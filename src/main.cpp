@@ -178,20 +178,14 @@ void validate(const Config& c) {
   if (c.vector_op_pj < 0 || c.npu_mac_pj < 0 || c.npu_arithmetic_energy_scale <= 0 || c.dram_byte_pj < 0 || c.dma_byte_pj < 0) throw std::runtime_error("Energy values must be non-negative (scale must be positive)");
 }
 
-struct Resource { std::string name; double available_us = 0.0; };
 struct TraceEvent { int frame; std::string task; std::string resource; double start_us; double end_us; };
-struct Stage { double ready_us; double energy_pj; };
 
 class Simulator {
  public:
   explicit Simulator(Config config) : c_(std::move(config)) {}
 
   void run() {
-    if (c_.control_period_us > 0.0) {
-      run_with_fixed_priority_scheduler();
-      return;
-    }
-    for (int frame = 0; frame < c_.frames; ++frame) run_frame(frame);
+    run_event_scheduler();
   }
 
   [[nodiscard]] const std::vector<TraceEvent>& trace() const { return trace_; }
@@ -318,14 +312,16 @@ class Simulator {
     return c_.dma_setup_us + static_cast<double>(bytes) / c_.dram_bandwidth_gbps / 1000.0;
   }
 
-  void run_with_fixed_priority_scheduler() {
+  void run_event_scheduler() {
     std::priority_queue<RuntimeTask, std::vector<RuntimeTask>, FutureTaskOrder> future;
     std::priority_queue<Completion, std::vector<Completion>, CompletionOrder> completions;
     std::array<std::vector<RuntimeTask>, 3> pending;
     std::array<bool, 3> busy = {false, false, false};
     for (int frame = 0; frame < c_.frames; ++frame) future.push(make_runtime_task(frame, RuntimeStage::Camera, frame * c_.frame_period_us, frame * c_.frame_period_us));
-    const double horizon_us = c_.frames * c_.frame_period_us;
-    for (double release = 0.0; release < horizon_us; release += c_.control_period_us) future.push(make_runtime_task(-1, RuntimeStage::Control, release, release));
+    if (c_.control_period_us > 0.0) {
+      const double horizon_us = c_.frames * c_.frame_period_us;
+      for (double release = 0.0; release < horizon_us; release += c_.control_period_us) future.push(make_runtime_task(-1, RuntimeStage::Control, release, release));
+    }
     auto resource_name = [](RuntimeResource resource) { return resource == RuntimeResource::Dma ? "DMA+DRAM" : resource == RuntimeResource::Rvv ? "RVV" : "NPU"; };
     double time = 0.0;
     while (!future.empty() || !completions.empty()) {
@@ -384,70 +380,7 @@ class Simulator {
     return cycles / (c_.rvv_frequency_ghz * 1000.0);
   }
 
-  Stage reserve(int frame, const std::string& task, Resource& resource, double dependency_us, double duration_us, double energy_pj = 0.0) {
-    const double start = std::max(dependency_us, resource.available_us);
-    const double end = start + duration_us;
-    resource.available_us = end;
-    trace_.push_back({frame, task, resource.name, start, end});
-    return {end, energy_pj};
-  }
-
-  Stage memory_transfer(int frame, const std::string& task, double dependency_us, std::uint64_t bytes) {
-    // GB/s equals bytes/ns; therefore bytes / GB/s / 1000 yields microseconds.
-    const double duration = c_.dma_setup_us + static_cast<double>(bytes) / c_.dram_bandwidth_gbps / 1000.0;
-    const double dram_energy = static_cast<double>(bytes) * c_.dram_byte_pj;
-    const double dma_energy = static_cast<double>(bytes) * c_.dma_byte_pj;
-    const double energy = dram_energy + dma_energy;
-    dram_energy_pj_ += dram_energy;
-    dma_energy_pj_ += dma_energy;
-    total_dram_bytes_ += bytes;
-    const double start = std::max({dependency_us, dram_.available_us, dma_.available_us});
-    const double end = start + duration;
-    dram_.available_us = end;
-    dma_.available_us = end;
-    trace_.push_back({frame, task, "DMA+DRAM", start, end});
-    return {end, energy};
-  }
-
-  void run_frame(int frame) {
-    const double release = frame * c_.frame_period_us;
-    double energy = 0.0;
-    auto input = memory_transfer(frame, "camera_ingest", release, c_.input_bytes); energy += input.energy_pj;
-
-    const auto preprocess_read = memory_transfer(frame, "preprocess_read", input.ready_us, c_.input_bytes); energy += preprocess_read.energy_pj;
-    const double vector_us = vector_duration_us(c_.preprocess_elements, c_.preprocess_ops_per_element);
-    const double preprocess_energy = static_cast<double>(c_.preprocess_elements) * c_.preprocess_ops_per_element * c_.vector_op_pj;
-    auto preprocess = reserve(frame, "rvv_preprocess", vector_, preprocess_read.ready_us, vector_us, preprocess_energy);
-    vector_energy_pj_ += preprocess.energy_pj;
-    energy += preprocess.energy_pj;
-    const auto preprocessed = memory_transfer(frame, "preprocess_write", preprocess.ready_us, c_.preprocess_output_bytes); energy += preprocessed.energy_pj;
-
-    const auto npu_data = memory_transfer(frame, "npu_tiled_operands", preprocessed.ready_us, npu_dram_bytes_per_frame()); energy += npu_data.energy_pj;
-    const double macs = static_cast<double>(c_.gemm_m) * c_.gemm_n * c_.gemm_k;
-    const double npu_cycles = std::ceil(macs / c_.npu_macs);
-    const double npu_us = npu_cycles / (c_.npu_frequency_ghz * 1000.0);
-    auto inference = reserve(frame, "npu_gemm", npu_, npu_data.ready_us, npu_us, macs * c_.npu_mac_pj * c_.npu_arithmetic_energy_scale);
-    npu_arithmetic_energy_pj_ += inference.energy_pj;
-    energy += inference.energy_pj;
-
-    const auto post_read = memory_transfer(frame, "postprocess_read", inference.ready_us, c_.postprocess_bytes); energy += post_read.energy_pj;
-    const double post_us = vector_duration_us(c_.postprocess_elements, c_.postprocess_ops_per_element);
-    const double postprocess_energy = static_cast<double>(c_.postprocess_elements) * c_.postprocess_ops_per_element * c_.vector_op_pj;
-    auto postprocess = reserve(frame, "rvv_postprocess", vector_, post_read.ready_us, post_us, postprocess_energy);
-    vector_energy_pj_ += postprocess.energy_pj;
-    energy += postprocess.energy_pj;
-
-    const double latency = postprocess.ready_us - release;
-    latencies_us_.push_back(latency);
-    if (latency > c_.deadline_us) ++deadline_misses_;
-    total_energy_pj_ += energy;
-  }
-
   Config c_;
-  Resource dram_{"DRAM"};
-  Resource dma_{"DMA"};
-  Resource vector_{"RVV"};
-  Resource npu_{"NPU"};
   std::vector<TraceEvent> trace_;
   std::vector<double> latencies_us_;
   int deadline_misses_ = 0;

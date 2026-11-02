@@ -19,7 +19,7 @@ flowchart LR
 ## Capabilities
 
 - Layered, validated `key = value` configuration manifests
-- Multi-frame pipeline with resource calendars for DMA, DRAM, RVV, and NPU
+- Unified discrete-event runtime for normal and control-enabled workloads
 - Shared DRAM/DMA contention and explicit task dependencies
 - RVV-style strip-mined kernels with configurable VLEN, SEW, LMUL, lanes, setup overhead, and tail utilization
 - Output-stationary tiled GEMM with SRAM-fit validation and explicit tensor traffic
