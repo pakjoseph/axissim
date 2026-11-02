@@ -42,6 +42,7 @@ struct Config {
   int rvv_ops_per_lane_cycle = 1;
   double rvv_frequency_ghz = 1.0;
   double rvv_stripmine_overhead_cycles = 1.0;
+  std::uint64_t rvv_chunk_elements = 0;
   int npu_macs = 1024;
   double npu_frequency_ghz = 1.0;
   std::uint64_t input_bytes = 921'600;
@@ -132,7 +133,7 @@ template <typename T>
 [[nodiscard]] const std::set<std::string>& supported_keys() {
   static const std::set<std::string> keys = {
       "scenario_name", "model_version", "scheduler_policy", "frames", "frame_period_us", "deadline_us", "dram_bandwidth_gbps", "dma_setup_us", "control_period_us", "control_deadline_us", "control_ops",
-      "rvv_vlen_bits", "rvv_sew_bits", "rvv_lmul", "rvv_lanes", "rvv_ops_per_lane_cycle", "rvv_frequency_ghz", "rvv_stripmine_overhead_cycles",
+      "rvv_vlen_bits", "rvv_sew_bits", "rvv_lmul", "rvv_lanes", "rvv_ops_per_lane_cycle", "rvv_frequency_ghz", "rvv_stripmine_overhead_cycles", "rvv_chunk_elements",
       "npu_macs", "npu_frequency_ghz", "input_bytes", "preprocess_elements", "preprocess_ops_per_element", "preprocess_output_bytes",
       "gemm_m", "gemm_n", "gemm_k", "npu_tile_m", "npu_tile_n", "npu_tile_k",
       "npu_element_bytes", "npu_accumulator_bytes", "sram_capacity_bytes", "npu_weights_resident", "weight_sram_capacity_bytes", "dma_double_buffering",
@@ -156,7 +157,7 @@ template <typename T>
   AXISSIM_LOAD(frames); AXISSIM_LOAD(frame_period_us); AXISSIM_LOAD(deadline_us);
   AXISSIM_LOAD(dram_bandwidth_gbps); AXISSIM_LOAD(dma_setup_us); AXISSIM_LOAD(control_period_us); AXISSIM_LOAD(control_deadline_us); AXISSIM_LOAD(control_ops);
   AXISSIM_LOAD(rvv_vlen_bits); AXISSIM_LOAD(rvv_sew_bits); AXISSIM_LOAD(rvv_lmul); AXISSIM_LOAD(rvv_lanes);
-  AXISSIM_LOAD(rvv_ops_per_lane_cycle); AXISSIM_LOAD(rvv_frequency_ghz); AXISSIM_LOAD(rvv_stripmine_overhead_cycles);
+  AXISSIM_LOAD(rvv_ops_per_lane_cycle); AXISSIM_LOAD(rvv_frequency_ghz); AXISSIM_LOAD(rvv_stripmine_overhead_cycles); AXISSIM_LOAD(rvv_chunk_elements);
   AXISSIM_LOAD(npu_macs); AXISSIM_LOAD(npu_frequency_ghz);
   AXISSIM_LOAD(input_bytes); AXISSIM_LOAD(preprocess_elements); AXISSIM_LOAD(preprocess_ops_per_element); AXISSIM_LOAD(preprocess_output_bytes);
   AXISSIM_LOAD(gemm_m); AXISSIM_LOAD(gemm_n); AXISSIM_LOAD(gemm_k);
@@ -305,6 +306,8 @@ class Simulator {
     double vector_energy_pj = 0.0;
     double npu_energy_pj = 0.0;
     std::uint64_t transfer_bytes = 0;
+    std::uint64_t vector_offset = 0;
+    std::uint64_t vector_elements = 0;
     int priority = 1;
     std::string name;
   };
@@ -317,30 +320,43 @@ class Simulator {
     bool operator()(const Completion& left, const Completion& right) const { return left.end_us > right.end_us; }
   };
 
-  [[nodiscard]] RuntimeTask make_runtime_task(int frame, RuntimeStage stage, double release_us, double ready_us) const {
+  [[nodiscard]] std::uint64_t vector_chunk_size(std::uint64_t total_elements, std::uint64_t offset) const {
+    const auto remaining = total_elements - offset;
+    return c_.rvv_chunk_elements == 0 ? remaining : std::min(remaining, c_.rvv_chunk_elements);
+  }
+
+  [[nodiscard]] RuntimeTask make_runtime_task(int frame, RuntimeStage stage, double release_us, double ready_us, std::uint64_t vector_offset = 0) const {
     RuntimeTask task;
     task.frame = frame;
     task.stage = stage;
     task.release_us = release_us;
     task.ready_us = ready_us;
     switch (stage) {
-      case RuntimeStage::Camera: task = {frame, stage, RuntimeResource::Dma, release_us, ready_us, transfer_duration_us(c_.input_bytes), 0.0, 0.0, c_.input_bytes, 1, "camera_ingest"}; break;
-      case RuntimeStage::PreRead: task = {frame, stage, RuntimeResource::Dma, release_us, ready_us, transfer_duration_us(c_.input_bytes), 0.0, 0.0, c_.input_bytes, 1, "preprocess_read"}; break;
-      case RuntimeStage::Preprocess: task = {frame, stage, RuntimeResource::Rvv, release_us, ready_us, vector_duration_us(c_.preprocess_elements, c_.preprocess_ops_per_element), static_cast<double>(c_.preprocess_elements) * c_.preprocess_ops_per_element * c_.vector_op_pj, 0.0, 0, 1, "rvv_preprocess"}; break;
-      case RuntimeStage::PreWrite: task = {frame, stage, RuntimeResource::Dma, release_us, ready_us, transfer_duration_us(c_.preprocess_output_bytes), 0.0, 0.0, c_.preprocess_output_bytes, 1, "preprocess_write"}; break;
+      case RuntimeStage::Camera: task = {frame, stage, RuntimeResource::Dma, release_us, ready_us, transfer_duration_us(c_.input_bytes), 0.0, 0.0, c_.input_bytes, 0, 0, 1, "camera_ingest"}; break;
+      case RuntimeStage::PreRead: task = {frame, stage, RuntimeResource::Dma, release_us, ready_us, transfer_duration_us(c_.input_bytes), 0.0, 0.0, c_.input_bytes, 0, 0, 1, "preprocess_read"}; break;
+      case RuntimeStage::Preprocess: {
+        const auto elements = vector_chunk_size(c_.preprocess_elements, vector_offset);
+        task = {frame, stage, RuntimeResource::Rvv, release_us, ready_us, vector_duration_us(elements, c_.preprocess_ops_per_element), static_cast<double>(elements) * c_.preprocess_ops_per_element * c_.vector_op_pj, 0.0, 0, vector_offset, elements, 1, "rvv_preprocess"};
+        break;
+      }
+      case RuntimeStage::PreWrite: task = {frame, stage, RuntimeResource::Dma, release_us, ready_us, transfer_duration_us(c_.preprocess_output_bytes), 0.0, 0.0, c_.preprocess_output_bytes, 0, 0, 1, "preprocess_write"}; break;
       case RuntimeStage::NpuData: {
         const auto bytes = npu_transfer_bytes(frame);
-        task = {frame, stage, RuntimeResource::Dma, release_us, ready_us, transfer_duration_us(bytes), 0.0, 0.0, bytes, 1, "npu_tiled_operands"};
+        task = {frame, stage, RuntimeResource::Dma, release_us, ready_us, transfer_duration_us(bytes), 0.0, 0.0, bytes, 0, 0, 1, "npu_tiled_operands"};
         break;
       }
       case RuntimeStage::NpuCompute: {
         const double macs = static_cast<double>(c_.gemm_m) * c_.gemm_n * c_.gemm_k;
-        task = {frame, stage, RuntimeResource::Npu, release_us, ready_us, std::ceil(macs / c_.npu_macs) / (c_.npu_frequency_ghz * 1000.0), 0.0, macs * c_.npu_mac_pj * c_.npu_arithmetic_energy_scale, 0, 1, "npu_gemm"};
+        task = {frame, stage, RuntimeResource::Npu, release_us, ready_us, std::ceil(macs / c_.npu_macs) / (c_.npu_frequency_ghz * 1000.0), 0.0, macs * c_.npu_mac_pj * c_.npu_arithmetic_energy_scale, 0, 0, 0, 1, "npu_gemm"};
         break;
       }
-      case RuntimeStage::PostRead: task = {frame, stage, RuntimeResource::Dma, release_us, ready_us, transfer_duration_us(c_.postprocess_bytes), 0.0, 0.0, c_.postprocess_bytes, 1, "postprocess_read"}; break;
-      case RuntimeStage::Postprocess: task = {frame, stage, RuntimeResource::Rvv, release_us, ready_us, vector_duration_us(c_.postprocess_elements, c_.postprocess_ops_per_element), static_cast<double>(c_.postprocess_elements) * c_.postprocess_ops_per_element * c_.vector_op_pj, 0.0, 0, 1, "rvv_postprocess"}; break;
-      case RuntimeStage::Control: task = {-1, stage, RuntimeResource::Rvv, release_us, ready_us, vector_duration_us(c_.control_ops, 1), static_cast<double>(c_.control_ops) * c_.vector_op_pj, 0.0, 0, 0, "safety_control"}; break;
+      case RuntimeStage::PostRead: task = {frame, stage, RuntimeResource::Dma, release_us, ready_us, transfer_duration_us(c_.postprocess_bytes), 0.0, 0.0, c_.postprocess_bytes, 0, 0, 1, "postprocess_read"}; break;
+      case RuntimeStage::Postprocess: {
+        const auto elements = vector_chunk_size(c_.postprocess_elements, vector_offset);
+        task = {frame, stage, RuntimeResource::Rvv, release_us, ready_us, vector_duration_us(elements, c_.postprocess_ops_per_element), static_cast<double>(elements) * c_.postprocess_ops_per_element * c_.vector_op_pj, 0.0, 0, vector_offset, elements, 1, "rvv_postprocess"};
+        break;
+      }
+      case RuntimeStage::Control: task = {-1, stage, RuntimeResource::Rvv, release_us, ready_us, vector_duration_us(c_.control_ops, 1), static_cast<double>(c_.control_ops) * c_.vector_op_pj, 0.0, 0, 0, 0, 0, "safety_control"}; break;
     }
     return task;
   }
@@ -377,7 +393,10 @@ class Simulator {
         Completion completion = completions.top(); completions.pop();
         busy[static_cast<std::size_t>(completion.resource)] = false;
         const RuntimeTask& task = completion.task;
-        if (task.stage == RuntimeStage::Postprocess) {
+        const auto total_vector_elements = task.stage == RuntimeStage::Preprocess ? c_.preprocess_elements : task.stage == RuntimeStage::Postprocess ? c_.postprocess_elements : 0;
+        if (total_vector_elements > 0 && task.vector_offset + task.vector_elements < total_vector_elements) {
+          future.push(make_runtime_task(task.frame, task.stage, task.release_us, completion.end_us, task.vector_offset + task.vector_elements));
+        } else if (task.stage == RuntimeStage::Postprocess) {
           const double latency = completion.end_us - task.release_us;
           latencies_us_.push_back(latency);
           if (latency > c_.deadline_us) ++deadline_misses_;

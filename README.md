@@ -116,6 +116,15 @@ Compare policies by adding, for example, `--set scheduler_policy=edf`.
 
 In the included stressed-control experiment, fixed priority improves control deadline misses relative to FCFS, while EDF does not; long non-preemptive RVV operations still block urgent work. This distinguishes policy selection from the need for bounded execution chunks or preemption.
 
+Set `rvv_chunk_elements` to split vector stages into independently scheduled work units. In the stressed configuration below, 20,000-element chunks reduce fixed-priority control misses from 45/50 to 0/50, at the cost of greater vision latency and additional runtime overhead:
+
+```sh
+./build/axissim run configs/baseline/manifest.conf \
+  --set frames=20 --set frame_period_us=500 --set deadline_us=500 \
+  --set control_period_us=200 --set control_deadline_us=80 --set control_ops=200000 \
+  --set rvv_chunk_elements=20000
+```
+
 This models deadline-sensitive resource contention; it is not a functional-safety certification model.
 
 ## Weight residency and frame buffering

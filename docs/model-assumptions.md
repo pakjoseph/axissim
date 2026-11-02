@@ -14,6 +14,8 @@ RVV-style stages have an explicitly modeled element count and operations per ele
 
 `dma_double_buffering=1` releases camera frames according to their configured period and lets distinct resources operate concurrently. A value of `0` permits only one frame in the pipeline at a time, providing a serial reference configuration.
 
+`rvv_chunk_elements=0` models each vector pipeline stage as one non-preemptive runtime operation. A positive value partitions preprocessing and postprocessing into chunks that re-enter the scheduler between operations. This bounds control-task blocking but adds strip-mining/runtime overhead and can increase vision latency.
+
 Energy is accumulated as configured activity counts times pJ/action. `npu_arithmetic_energy_scale` affects only NPU arithmetic energy. It must not be interpreted as a whole-system power reduction.
 
 ## Hand-verifiable validation case

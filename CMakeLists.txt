@@ -30,6 +30,10 @@ if(BUILD_TESTING)
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf --set control_period_us=1000 --set control_deadline_us=250 --set control_ops=400)
   add_test(NAME edf_control_smoke
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf --set scheduler_policy=edf --set control_period_us=1000 --set control_deadline_us=250 --set control_ops=400)
+  add_test(NAME vector_chunking_bounds_control_blocking
+           COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf --set frames=20 --set frame_period_us=500 --set deadline_us=500 --set control_period_us=200 --set control_deadline_us=80 --set control_ops=200000 --set rvv_chunk_elements=20000)
+  set_tests_properties(vector_chunking_bounds_control_blocking PROPERTIES
+                       PASS_REGULAR_EXPRESSION "control deadline misses: 0 / 50")
   add_test(NAME tiny_pipeline_matches_hand_calculation
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/tests/tiny_pipeline.conf)
   set_tests_properties(tiny_pipeline_matches_hand_calculation PROPERTIES
