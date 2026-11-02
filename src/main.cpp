@@ -56,6 +56,9 @@ struct Config {
   int npu_element_bytes = 2;
   int npu_accumulator_bytes = 4;
   std::uint64_t sram_capacity_bytes = 131'072;
+  int npu_weights_resident = 0;
+  std::uint64_t weight_sram_capacity_bytes = 0;
+  int dma_double_buffering = 1;
   std::uint64_t postprocess_elements = 100'001;
   int postprocess_ops_per_element = 3;
   std::uint64_t postprocess_bytes = 4'096;
@@ -131,7 +134,7 @@ template <typename T>
       "rvv_vlen_bits", "rvv_sew_bits", "rvv_lmul", "rvv_lanes", "rvv_ops_per_lane_cycle", "rvv_frequency_ghz", "rvv_stripmine_overhead_cycles",
       "npu_macs", "npu_frequency_ghz", "input_bytes", "preprocess_elements", "preprocess_ops_per_element", "preprocess_output_bytes",
       "gemm_m", "gemm_n", "gemm_k", "npu_tile_m", "npu_tile_n", "npu_tile_k",
-      "npu_element_bytes", "npu_accumulator_bytes", "sram_capacity_bytes",
+      "npu_element_bytes", "npu_accumulator_bytes", "sram_capacity_bytes", "npu_weights_resident", "weight_sram_capacity_bytes", "dma_double_buffering",
       "postprocess_elements", "postprocess_ops_per_element", "postprocess_bytes", "vector_op_pj", "npu_mac_pj",
       "npu_arithmetic_energy_scale", "dram_byte_pj", "dma_byte_pj"};
   return keys;
@@ -157,6 +160,7 @@ template <typename T>
   AXISSIM_LOAD(gemm_m); AXISSIM_LOAD(gemm_n); AXISSIM_LOAD(gemm_k);
   AXISSIM_LOAD(npu_tile_m); AXISSIM_LOAD(npu_tile_n); AXISSIM_LOAD(npu_tile_k);
   AXISSIM_LOAD(npu_element_bytes); AXISSIM_LOAD(npu_accumulator_bytes); AXISSIM_LOAD(sram_capacity_bytes);
+  AXISSIM_LOAD(npu_weights_resident); AXISSIM_LOAD(weight_sram_capacity_bytes); AXISSIM_LOAD(dma_double_buffering);
   AXISSIM_LOAD(postprocess_elements); AXISSIM_LOAD(postprocess_ops_per_element); AXISSIM_LOAD(postprocess_bytes);
   AXISSIM_LOAD(vector_op_pj); AXISSIM_LOAD(npu_mac_pj); AXISSIM_LOAD(npu_arithmetic_energy_scale);
   AXISSIM_LOAD(dram_byte_pj); AXISSIM_LOAD(dma_byte_pj);
@@ -175,6 +179,9 @@ void validate(const Config& c) {
   const auto tile_k = static_cast<std::uint64_t>(std::min(c.gemm_k, c.npu_tile_k));
   const auto working_set = (tile_m * tile_k + tile_k * tile_n) * c.npu_element_bytes + tile_m * tile_n * c.npu_accumulator_bytes;
   if (c.sram_capacity_bytes < working_set) throw std::runtime_error("SRAM capacity cannot hold the configured NPU tile working set (requires " + std::to_string(working_set) + " bytes)");
+  const auto unique_weight_bytes = static_cast<std::uint64_t>(c.gemm_k) * c.gemm_n * c.npu_element_bytes;
+  if ((c.npu_weights_resident != 0 && c.npu_weights_resident != 1) || (c.dma_double_buffering != 0 && c.dma_double_buffering != 1)) throw std::runtime_error("Boolean architecture settings must be 0 or 1");
+  if (c.npu_weights_resident == 1 && c.weight_sram_capacity_bytes < unique_weight_bytes) throw std::runtime_error("Weight SRAM cannot hold the configured NPU weight tensor (requires " + std::to_string(unique_weight_bytes) + " bytes)");
   if (c.vector_op_pj < 0 || c.npu_mac_pj < 0 || c.npu_arithmetic_energy_scale <= 0 || c.dram_byte_pj < 0 || c.dma_byte_pj < 0) throw std::runtime_error("Energy values must be non-negative (scale must be positive)");
 }
 
@@ -210,7 +217,23 @@ class Simulator {
     const auto tile_k = static_cast<std::uint64_t>(std::min(c_.gemm_k, c_.npu_tile_k));
     return (tile_m * tile_k + tile_k * tile_n) * c_.npu_element_bytes + tile_m * tile_n * c_.npu_accumulator_bytes;
   }
-  [[nodiscard]] std::uint64_t npu_dram_bytes_per_frame() const {
+  [[nodiscard]] std::uint64_t unique_weight_bytes() const {
+    return static_cast<std::uint64_t>(c_.gemm_k) * c_.gemm_n * c_.npu_element_bytes;
+  }
+  [[nodiscard]] std::uint64_t npu_weight_tile_bytes_per_frame() const {
+    std::uint64_t bytes = 0;
+    for (int m0 = 0; m0 < c_.gemm_m; m0 += c_.npu_tile_m) {
+      for (int n0 = 0; n0 < c_.gemm_n; n0 += c_.npu_tile_n) {
+        const auto n = static_cast<std::uint64_t>(std::min(c_.npu_tile_n, c_.gemm_n - n0));
+        for (int k0 = 0; k0 < c_.gemm_k; k0 += c_.npu_tile_k) {
+          const auto k = static_cast<std::uint64_t>(std::min(c_.npu_tile_k, c_.gemm_k - k0));
+          bytes += k * n * c_.npu_element_bytes;
+        }
+      }
+    }
+    return bytes;
+  }
+  [[nodiscard]] std::uint64_t npu_activation_output_bytes_per_frame() const {
     std::uint64_t bytes = 0;
     for (int m0 = 0; m0 < c_.gemm_m; m0 += c_.npu_tile_m) {
       const auto m = static_cast<std::uint64_t>(std::min(c_.npu_tile_m, c_.gemm_m - m0));
@@ -218,12 +241,19 @@ class Simulator {
         const auto n = static_cast<std::uint64_t>(std::min(c_.npu_tile_n, c_.gemm_n - n0));
         for (int k0 = 0; k0 < c_.gemm_k; k0 += c_.npu_tile_k) {
           const auto k = static_cast<std::uint64_t>(std::min(c_.npu_tile_k, c_.gemm_k - k0));
-          bytes += (m * k + k * n) * c_.npu_element_bytes;
+          bytes += m * k * c_.npu_element_bytes;
         }
         bytes += m * n * c_.npu_accumulator_bytes;
       }
     }
     return bytes;
+  }
+  [[nodiscard]] std::uint64_t npu_transfer_bytes(int frame) const {
+    const auto weights = c_.npu_weights_resident == 1 ? (frame == 0 ? unique_weight_bytes() : 0) : npu_weight_tile_bytes_per_frame();
+    return npu_activation_output_bytes_per_frame() + weights;
+  }
+  [[nodiscard]] std::uint64_t npu_steady_state_dram_bytes_per_frame() const {
+    return npu_transfer_bytes(c_.npu_weights_resident == 1 ? 1 : 0);
   }
   [[nodiscard]] double makespan_us() const {
     if (trace_.empty()) return 0.0;
@@ -295,7 +325,11 @@ class Simulator {
       case RuntimeStage::PreRead: task = {frame, stage, RuntimeResource::Dma, release_us, ready_us, transfer_duration_us(c_.input_bytes), 0.0, 0.0, c_.input_bytes, 1, "preprocess_read"}; break;
       case RuntimeStage::Preprocess: task = {frame, stage, RuntimeResource::Rvv, release_us, ready_us, vector_duration_us(c_.preprocess_elements, c_.preprocess_ops_per_element), static_cast<double>(c_.preprocess_elements) * c_.preprocess_ops_per_element * c_.vector_op_pj, 0.0, 0, 1, "rvv_preprocess"}; break;
       case RuntimeStage::PreWrite: task = {frame, stage, RuntimeResource::Dma, release_us, ready_us, transfer_duration_us(c_.preprocess_output_bytes), 0.0, 0.0, c_.preprocess_output_bytes, 1, "preprocess_write"}; break;
-      case RuntimeStage::NpuData: task = {frame, stage, RuntimeResource::Dma, release_us, ready_us, transfer_duration_us(npu_dram_bytes_per_frame()), 0.0, 0.0, npu_dram_bytes_per_frame(), 1, "npu_tiled_operands"}; break;
+      case RuntimeStage::NpuData: {
+        const auto bytes = npu_transfer_bytes(frame);
+        task = {frame, stage, RuntimeResource::Dma, release_us, ready_us, transfer_duration_us(bytes), 0.0, 0.0, bytes, 1, "npu_tiled_operands"};
+        break;
+      }
       case RuntimeStage::NpuCompute: {
         const double macs = static_cast<double>(c_.gemm_m) * c_.gemm_n * c_.gemm_k;
         task = {frame, stage, RuntimeResource::Npu, release_us, ready_us, std::ceil(macs / c_.npu_macs) / (c_.npu_frequency_ghz * 1000.0), 0.0, macs * c_.npu_mac_pj * c_.npu_arithmetic_energy_scale, 0, 1, "npu_gemm"};
@@ -317,7 +351,11 @@ class Simulator {
     std::priority_queue<Completion, std::vector<Completion>, CompletionOrder> completions;
     std::array<std::vector<RuntimeTask>, 3> pending;
     std::array<bool, 3> busy = {false, false, false};
-    for (int frame = 0; frame < c_.frames; ++frame) future.push(make_runtime_task(frame, RuntimeStage::Camera, frame * c_.frame_period_us, frame * c_.frame_period_us));
+    if (c_.dma_double_buffering == 1) {
+      for (int frame = 0; frame < c_.frames; ++frame) future.push(make_runtime_task(frame, RuntimeStage::Camera, frame * c_.frame_period_us, frame * c_.frame_period_us));
+    } else {
+      future.push(make_runtime_task(0, RuntimeStage::Camera, 0.0, 0.0));
+    }
     if (c_.control_period_us > 0.0) {
       const double horizon_us = c_.frames * c_.frame_period_us;
       for (double release = 0.0; release < horizon_us; release += c_.control_period_us) future.push(make_runtime_task(-1, RuntimeStage::Control, release, release));
@@ -340,6 +378,10 @@ class Simulator {
           const double latency = completion.end_us - task.release_us;
           latencies_us_.push_back(latency);
           if (latency > c_.deadline_us) ++deadline_misses_;
+          if (c_.dma_double_buffering == 0 && task.frame + 1 < c_.frames) {
+            const double next_release = (task.frame + 1) * c_.frame_period_us;
+            future.push(make_runtime_task(task.frame + 1, RuntimeStage::Camera, next_release, std::max(next_release, completion.end_us)));
+          }
         } else if (task.stage == RuntimeStage::Control) {
           ++control_tasks_;
           if (completion.end_us - task.release_us > c_.control_deadline_us) ++control_deadline_misses_;
@@ -429,7 +471,10 @@ void print_results(const Simulator& simulator, const Config& config) {
             << "  RVV tail utilization (pre/post): " << 100.0 * simulator.tail_utilization(config.preprocess_elements) << "% / "
             << 100.0 * simulator.tail_utilization(config.postprocess_elements) << "%\n"
             << "  NPU tile / SRAM:     " << simulator.npu_tile_working_set_bytes() << " / " << config.sram_capacity_bytes << " bytes\n"
-            << "  NPU DRAM / frame:    " << static_cast<double>(simulator.npu_dram_bytes_per_frame()) / 1'000'000.0 << " MB\n"
+            << "  NPU DRAM first/steady frame: " << static_cast<double>(simulator.npu_transfer_bytes(0)) / 1'000'000.0 << " / "
+            << static_cast<double>(simulator.npu_steady_state_dram_bytes_per_frame()) / 1'000'000.0 << " MB\n"
+            << "  persistent weights / double buffer: " << (config.npu_weights_resident == 1 ? "on" : "off") << " / "
+            << (config.dma_double_buffering == 1 ? "on" : "off") << "\n"
             << "  latency mean / P99:  " << mean << " / " << percentile(latency, 0.99) << " us\n"
             << "  latency min / max:   " << *std::min_element(latency.begin(), latency.end()) << " / " << *std::max_element(latency.begin(), latency.end()) << " us\n"
             << "  max concurrent tasks:" << simulator.max_concurrent_tasks() << "\n"

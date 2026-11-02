@@ -114,6 +114,18 @@ Set all three control parameters to enable a periodic, high-priority control wor
 
 This models deadline-sensitive resource contention; it is not a functional-safety certification model.
 
+## Weight residency and frame buffering
+
+The baseline reloads tiled NPU weights from DRAM for each frame and permits two frames to overlap. To model a dedicated persistent weight store, enable residency only when it can hold the complete weight tensor:
+
+```sh
+./build/axissim run configs/baseline/manifest.conf \
+  --set npu_weights_resident=1 \
+  --set weight_sram_capacity_bytes=262144
+```
+
+For this baseline, the model predicts 2.36 MB NPU traffic per first/steady-state frame without weight residency, versus 1.57/1.31 MB with it. `dma_double_buffering=0` serializes frame execution; the default `1` permits frame N+1 ingest to overlap work on frame N.
+
 See [experiments/README.md](experiments/README.md) for the questions each study answers and how to generate charts.
 
 The arithmetic-energy scenario changes NPU arithmetic energy only; it intentionally does not claim the same scaling for DRAM, DMA, SRAM, or full-system energy.

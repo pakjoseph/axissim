@@ -10,6 +10,10 @@ The NPU model executes one GEMM with `M * N * K` MACs using output-stationary ti
 
 RVV-style stages have an explicitly modeled element count and operations per element. `VLMAX = (VLEN / SEW) * LMUL`; the model adds configurable strip-mined-loop overhead for each `ceil(elements / VLMAX)` iteration. Compute work is limited by lanes and issue rate. The final iteration's active-element ratio is reported as tail utilization.
 
+`npu_weights_resident=1` models a dedicated weight store that holds the complete unique GEMM weight tensor across frames. The first frame loads the unique tensor once; steady-state frames incur no weight traffic. It is distinct from the tiled operand SRAM and requires `weight_sram_capacity_bytes` to hold the full tensor. This is an idealized residency model: it does not yet model eviction, banking, coherency, or multiple model layers.
+
+`dma_double_buffering=1` releases camera frames according to their configured period and lets distinct resources operate concurrently. A value of `0` permits only one frame in the pipeline at a time, providing a serial reference configuration.
+
 Energy is accumulated as configured activity counts times pJ/action. `npu_arithmetic_energy_scale` affects only NPU arithmetic energy. It must not be interpreted as a whole-system power reduction.
 
 ## Hand-verifiable validation case

@@ -21,6 +21,9 @@ if(BUILD_TESTING)
   add_test(NAME rejects_tile_that_does_not_fit_sram
            COMMAND axissim validate ${CMAKE_SOURCE_DIR}/tests/insufficient_sram.conf)
   set_tests_properties(rejects_tile_that_does_not_fit_sram PROPERTIES WILL_FAIL TRUE)
+  add_test(NAME rejects_weight_residency_that_does_not_fit_sram
+           COMMAND axissim validate ${CMAKE_SOURCE_DIR}/tests/insufficient_weight_sram.conf)
+  set_tests_properties(rejects_weight_residency_that_does_not_fit_sram PROPERTIES WILL_FAIL TRUE)
   add_test(NAME bandwidth_sweep_smoke
            COMMAND axissim sweep ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf --sweep dram_bandwidth_gbps=0.15,20.0)
   add_test(NAME fixed_priority_control_smoke
