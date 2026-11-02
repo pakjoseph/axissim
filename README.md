@@ -44,6 +44,8 @@ Reproduce the complete data set with:
 ./experiments/run_initial_study.sh
 ```
 
+Read the [baseline results report](docs/results.md) for the experiment data, interpretations, and figure-generation commands.
+
 ## Build and run
 
 ```sh
@@ -153,3 +155,11 @@ At `0.15 GB/s`, the baseline workload requires more DRAM service per frame than 
 This is a timing-aware architectural model, not a cycle-accurate RTL model or a functional RISC-V instruction-set simulator. Values in a configuration file are explicitly assumptions. Energy results are modeled estimates, not measured silicon power.
 
 `(rvv_vlen_bits / rvv_sew_bits) * rvv_lmul` determines VLMAX. The vector model accounts for lane-limited execution, per-strip-mined-iteration overhead, and a partial final iteration. It remains a timing model, rather than a functional instruction-set simulator.
+
+## Future work
+
+- Calibrate timing and energy parameters against target-independent microbenchmarks, traces, or an external architecture model.
+- Replace the single serialized DRAM model with channels, interconnect contention, and QoS behavior.
+- Model multi-layer weight residency, eviction, SRAM banks, and capacity sharing.
+- Explore preemptive execution and runtime overheads beyond bounded non-preemptive RVV chunks.
+- Continue modularizing configuration parsing, engine models, runtime scheduling, metrics, and CLI code.
