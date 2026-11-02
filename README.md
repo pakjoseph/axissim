@@ -1,5 +1,16 @@
 # AxisSim
 
+AxisSim is a C++ tool for exploring how AI hardware and software choices affect speed, reliability, and energy use before a chip is built. It models a hypothetical real-time vision system and helps answer practical design questions: Should we add more compute, improve memory bandwidth, change the workload mapping, or adjust scheduling?
+
+### At a glance
+
+- Models an end-to-end AI vision pipeline, from data movement and image processing through neural-network inference.
+- Compares compute, memory, scheduling, and energy tradeoffs with reproducible experiments.
+- Identifies bottlenecks such as memory saturation and missed real-time deadlines.
+- Includes automated tests, machine-readable results, and an optional desktop interface for interactive exploration.
+
+## Technical overview
+
 AxisSim is a configurable, deterministic simulator for a **hypothetical Physical AI SoC**. It estimates latency, deadline reliability, shared-DRAM traffic, and energy for a camera-to-inference pipeline comprising DMA, an RVV-style vector engine, and a tiled GEMM NPU.
 
 The project is an independent architecture-exploration tool. Its arithmetic-energy scale is a hypothetical parameter inspired by public discussion of lower-power arithmetic; it does not model or disclose any proprietary implementation.
