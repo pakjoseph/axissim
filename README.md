@@ -51,6 +51,7 @@ cmake -S . -B build
 cmake --build build
 ./build/axissim validate configs/baseline/manifest.conf
 ./build/axissim run configs/baseline/manifest.conf --trace frame_trace.csv
+./build/axissim run configs/baseline/manifest.conf --json result.json
 ctest --test-dir build --output-on-failure
 ```
 
@@ -68,6 +69,8 @@ The baseline scenario is a manifest rather than one monolithic parameter file:
 | `energy.conf` | Activity-energy assumptions and arithmetic-energy scale |
 
 `manifest.conf` composes the layers and identifies the scenario/model version. This makes architectural facts distinct from timing and energy assumptions.
+
+`--json result.json` emits a schema-versioned machine-readable result artifact containing scenario provenance, latency, deadline, traffic, and energy metrics.
 
 ## First experiments
 

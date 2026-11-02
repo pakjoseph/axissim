@@ -1,5 +1,6 @@
 build/
 *.csv
+experiments/*.json
 experiments/figures/
 .DS_Store
 __pycache__/

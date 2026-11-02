@@ -434,6 +434,38 @@ void write_trace_csv(const std::string& path, const std::vector<TraceEvent>& tra
   }
 }
 
+[[nodiscard]] std::string json_escape(const std::string& value) {
+  std::string escaped;
+  escaped.reserve(value.size());
+  for (const char character : value) {
+    if (character == '"' || character == '\\') escaped.push_back('\\');
+    escaped.push_back(character);
+  }
+  return escaped;
+}
+
+void write_result_json(const std::string& path, const Simulator& simulator, const Config& config) {
+  std::ofstream output(path);
+  if (!output) throw std::runtime_error("Unable to write JSON: " + path);
+  const auto& latency = simulator.latencies_us();
+  const double mean = std::accumulate(latency.begin(), latency.end(), 0.0) / latency.size();
+  const double energy_per_frame_uj = simulator.total_energy_pj() / latency.size() / 1'000'000.0;
+  output << std::fixed << std::setprecision(6);
+  output << "{\n"
+         << "  \"schema_version\": \"1.0\",\n"
+         << "  \"scenario_name\": \"" << json_escape(config.scenario_name) << "\",\n"
+         << "  \"model_version\": \"" << json_escape(config.model_version) << "\",\n"
+         << "  \"scheduler_policy\": \"" << json_escape(config.scheduler_policy) << "\",\n"
+         << "  \"latency\": {\"mean_us\": " << mean << ", \"p99_us\": " << percentile(latency, 0.99) << "},\n"
+         << "  \"deadlines\": {\"vision_misses\": " << simulator.deadline_misses() << ", \"vision_jobs\": " << latency.size()
+         << ", \"control_misses\": " << simulator.control_deadline_misses() << ", \"control_jobs\": " << simulator.control_tasks() << "},\n"
+         << "  \"traffic\": {\"dram_bytes\": " << simulator.total_dram_bytes() << "},\n"
+         << "  \"energy\": {\"per_frame_uj\": " << energy_per_frame_uj << ", \"vector_pj\": " << simulator.vector_energy_pj()
+         << ", \"npu_arithmetic_pj\": " << simulator.npu_arithmetic_energy_pj() << ", \"dram_pj\": " << simulator.dram_energy_pj()
+         << ", \"dma_pj\": " << simulator.dma_energy_pj() << "}\n"
+         << "}\n";
+}
+
 void print_results(const Simulator& simulator, const Config& config) {
   const auto& latency = simulator.latencies_us();
   const double mean = std::accumulate(latency.begin(), latency.end(), 0.0) / latency.size();
@@ -519,6 +551,7 @@ int main(int argc, char** argv) {
     }
     const std::string command = argv[1];
     std::optional<std::string> trace_path;
+    std::optional<std::string> json_path;
     std::optional<std::string> output_path;
     std::optional<std::string> sweep_assignment;
     std::map<std::string, std::string> overrides;
@@ -527,6 +560,9 @@ int main(int argc, char** argv) {
       if (option == "--trace") {
         if (++argument >= argc || trace_path.has_value()) throw std::runtime_error("--trace requires one path and may appear once");
         trace_path = argv[argument];
+      } else if (option == "--json") {
+        if (++argument >= argc || json_path.has_value()) throw std::runtime_error("--json requires one path and may appear once");
+        json_path = argv[argument];
       } else if (option == "--csv") {
         if (++argument >= argc || output_path.has_value()) throw std::runtime_error("--csv requires one path and may appear once");
         output_path = argv[argument];
@@ -545,7 +581,7 @@ int main(int argc, char** argv) {
       }
     }
     if (command == "sweep") {
-      if (!sweep_assignment || trace_path) throw std::runtime_error("sweep requires --sweep and does not support --trace");
+      if (!sweep_assignment || trace_path || json_path) throw std::runtime_error("sweep requires --sweep and does not support --trace or --json");
       const auto separator = sweep_assignment->find('=');
       if (separator == std::string::npos || separator == 0 || separator == sweep_assignment->size() - 1) throw std::runtime_error("Expected key=value1,value2,... after --sweep");
       const std::string key = sweep_assignment->substr(0, separator);
@@ -575,6 +611,10 @@ int main(int argc, char** argv) {
     if (trace_path) {
       write_trace_csv(*trace_path, simulator.trace());
       std::cout << "  trace:               " << *trace_path << '\n';
+    }
+    if (json_path) {
+      write_result_json(*json_path, simulator, config);
+      std::cout << "  result JSON:         " << *json_path << '\n';
     }
     return 0;
   } catch (const std::exception& error) {
