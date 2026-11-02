@@ -25,6 +25,7 @@ namespace axissim {
 struct Config {
   std::string scenario_name = "unnamed";
   std::string model_version = "0.1";
+  std::string scheduler_policy = "fixed_priority";
   int frames = 30;
   double frame_period_us = 33'333.0;
   double deadline_us = 33'333.0;
@@ -130,7 +131,7 @@ template <typename T>
 
 [[nodiscard]] const std::set<std::string>& supported_keys() {
   static const std::set<std::string> keys = {
-      "scenario_name", "model_version", "frames", "frame_period_us", "deadline_us", "dram_bandwidth_gbps", "dma_setup_us", "control_period_us", "control_deadline_us", "control_ops",
+      "scenario_name", "model_version", "scheduler_policy", "frames", "frame_period_us", "deadline_us", "dram_bandwidth_gbps", "dma_setup_us", "control_period_us", "control_deadline_us", "control_ops",
       "rvv_vlen_bits", "rvv_sew_bits", "rvv_lmul", "rvv_lanes", "rvv_ops_per_lane_cycle", "rvv_frequency_ghz", "rvv_stripmine_overhead_cycles",
       "npu_macs", "npu_frequency_ghz", "input_bytes", "preprocess_elements", "preprocess_ops_per_element", "preprocess_output_bytes",
       "gemm_m", "gemm_n", "gemm_k", "npu_tile_m", "npu_tile_n", "npu_tile_k",
@@ -150,6 +151,7 @@ template <typename T>
   Config c;
   if (values.contains("scenario_name")) c.scenario_name = values.at("scenario_name");
   if (values.contains("model_version")) c.model_version = values.at("model_version");
+  if (values.contains("scheduler_policy")) c.scheduler_policy = values.at("scheduler_policy");
 #define AXISSIM_LOAD(field) c.field = parse_number(values, #field, c.field)
   AXISSIM_LOAD(frames); AXISSIM_LOAD(frame_period_us); AXISSIM_LOAD(deadline_us);
   AXISSIM_LOAD(dram_bandwidth_gbps); AXISSIM_LOAD(dma_setup_us); AXISSIM_LOAD(control_period_us); AXISSIM_LOAD(control_deadline_us); AXISSIM_LOAD(control_ops);
@@ -170,6 +172,7 @@ template <typename T>
 
 void validate(const Config& c) {
   if (c.frames < 1 || c.frame_period_us <= 0 || c.deadline_us <= 0) throw std::runtime_error("Frame configuration must be positive");
+  if (c.scheduler_policy != "fcfs" && c.scheduler_policy != "fixed_priority" && c.scheduler_policy != "edf") throw std::runtime_error("scheduler_policy must be fcfs, fixed_priority, or edf");
   if (c.control_period_us < 0 || c.control_deadline_us < 0 || (c.control_period_us == 0 && (c.control_deadline_us != 0 || c.control_ops != 0)) || (c.control_period_us > 0 && (c.control_deadline_us <= 0 || c.control_ops == 0))) throw std::runtime_error("Control workload must be fully disabled or have positive period, deadline, and operation count");
   if (c.dram_bandwidth_gbps <= 0 || c.rvv_frequency_ghz <= 0 || c.npu_frequency_ghz <= 0) throw std::runtime_error("Bandwidth and frequencies must be positive");
   if (c.rvv_vlen_bits <= 0 || c.rvv_sew_bits <= 0 || c.rvv_vlen_bits % c.rvv_sew_bits != 0 || c.rvv_lmul < 1 || c.rvv_lanes < 1 || c.rvv_ops_per_lane_cycle < 1 || c.rvv_stripmine_overhead_cycles < 0 || c.preprocess_ops_per_element < 1 || c.postprocess_ops_per_element < 1) throw std::runtime_error("Invalid RVV configuration");
@@ -392,8 +395,13 @@ class Simulator {
       for (std::size_t index = 0; index < pending.size(); ++index) {
         if (busy[index] || pending[index].empty()) continue;
         auto& queue = pending[index];
-        const auto selected = std::min_element(queue.begin(), queue.end(), [](const RuntimeTask& left, const RuntimeTask& right) {
-          if (left.priority != right.priority) return left.priority < right.priority;
+        const auto selected = std::min_element(queue.begin(), queue.end(), [this](const RuntimeTask& left, const RuntimeTask& right) {
+          if (c_.scheduler_policy == "fixed_priority" && left.priority != right.priority) return left.priority < right.priority;
+          if (c_.scheduler_policy == "edf") {
+            const double left_deadline = left.release_us + (left.stage == RuntimeStage::Control ? c_.control_deadline_us : c_.deadline_us);
+            const double right_deadline = right.release_us + (right.stage == RuntimeStage::Control ? c_.control_deadline_us : c_.deadline_us);
+            if (left_deadline != right_deadline) return left_deadline < right_deadline;
+          }
           return left.ready_us < right.ready_us;
         });
         RuntimeTask task = *selected;
@@ -466,6 +474,7 @@ void print_results(const Simulator& simulator, const Config& config) {
   std::cout << std::fixed << std::setprecision(2);
   std::cout << "AxisSim results\n"
             << "  scenario / model:    " << config.scenario_name << " / " << config.model_version << "\n"
+            << "  scheduler policy:    " << config.scheduler_policy << "\n"
             << "  frames:              " << latency.size() << "\n"
             << "  RVV VLMAX:           " << simulator.vlmax() << " elements\n"
             << "  RVV tail utilization (pre/post): " << 100.0 * simulator.tail_utilization(config.preprocess_elements) << "% / "

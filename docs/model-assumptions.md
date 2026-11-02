@@ -1,6 +1,6 @@
 # Model assumptions
 
-AxisSim uses one deterministic, non-preemptive discrete-event scheduler for every workload. A transfer uses the DMA+shared-DRAM resource; compute stages use the RVV or NPU resource after their input dependency completes. Normal pipeline tasks share priority and dispatch first-come, first-served. When enabled, `safety_control` has higher priority at each resource-dispatch point, but cannot preempt an operation already in flight.
+AxisSim uses one deterministic, non-preemptive discrete-event scheduler for every workload. A transfer uses the DMA+shared-DRAM resource; compute stages use the RVV or NPU resource after their input dependency completes. `fcfs` dispatches by ready time, `fixed_priority` gives `safety_control` precedence at dispatch points, and `edf` dispatches the ready task with the earliest absolute deadline. None can preempt an operation already in flight.
 
 Frames release at `frame_period_us`. Therefore, operations from different frames may overlap when they use distinct resources. `max concurrent tasks` counts simultaneous trace intervals across all resources; utilization is total busy time for a resource divided by simulation makespan.
 

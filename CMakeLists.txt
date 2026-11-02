@@ -28,6 +28,8 @@ if(BUILD_TESTING)
            COMMAND axissim sweep ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf --sweep dram_bandwidth_gbps=0.15,20.0)
   add_test(NAME fixed_priority_control_smoke
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf --set control_period_us=1000 --set control_deadline_us=250 --set control_ops=400)
+  add_test(NAME edf_control_smoke
+           COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf --set scheduler_policy=edf --set control_period_us=1000 --set control_deadline_us=250 --set control_ops=400)
   add_test(NAME tiny_pipeline_matches_hand_calculation
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/tests/tiny_pipeline.conf)
   set_tests_properties(tiny_pipeline_matches_hand_calculation PROPERTIES

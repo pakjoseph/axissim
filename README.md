@@ -103,7 +103,7 @@ Each result also includes a vector/NPU-arithmetic/DRAM/DMA energy breakdown. The
 
 ## Fixed-priority control runtime
 
-Set all three control parameters to enable a periodic, high-priority control workload. The runtime dispatches ready tasks non-preemptively, giving `safety_control` precedence over normal RVV pipeline work at each scheduling point.
+Set all three control parameters to enable a periodic control workload. The unified non-preemptive runtime supports `fcfs`, `fixed_priority` (the default), and `edf` policies. Under fixed priority, `safety_control` takes precedence over normal RVV pipeline work at each scheduling point.
 
 ```sh
 ./build/axissim run configs/baseline/manifest.conf \
@@ -111,6 +111,10 @@ Set all three control parameters to enable a periodic, high-priority control wor
   --set control_deadline_us=250 \
   --set control_ops=400
 ```
+
+Compare policies by adding, for example, `--set scheduler_policy=edf`.
+
+In the included stressed-control experiment, fixed priority improves control deadline misses relative to FCFS, while EDF does not; long non-preemptive RVV operations still block urgent work. This distinguishes policy selection from the need for bounded execution chunks or preemption.
 
 This models deadline-sensitive resource contention; it is not a functional-safety certification model.
 
