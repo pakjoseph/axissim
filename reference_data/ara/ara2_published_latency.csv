@@ -1,0 +1,2 @@
+reference_id,status,source_url,source_revision,benchmark,lanes,frequency_ghz,axis_workload,axis_config,unit,extraction_method,reference_latency_us
+ara2_table_iv_fmatmul64_4lane,published,https://arxiv.org/abs/2311.07493,arXiv:2311.07493v2,fmatmul64_256x256,4,1.35,rvv_compute_only_fma_stream,../../configs/calibration/ara2_fmatmul64_4lane.conf,us,Derived from Table IV with 2*256^3 FP operations divided by 10.7 GOPS,3135.928

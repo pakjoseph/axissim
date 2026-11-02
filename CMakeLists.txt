@@ -54,5 +54,10 @@ if(BUILD_TESTING)
            COMMAND axissim calibrate ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
                    --reference ${CMAKE_SOURCE_DIR}/tests/reference/synthetic_latency.csv)
   set_tests_properties(calibration_fixture_smoke PROPERTIES
-                       PASS_REGULAR_EXPRESSION "synthetic_2,reproduced,2")
+                       PASS_REGULAR_EXPRESSION "synthetic_2,reproduced,.,2")
+  add_test(NAME ara2_published_reference_smoke
+           COMMAND axissim calibrate ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
+                   --reference ${CMAKE_SOURCE_DIR}/reference_data/ara/ara2_published_latency.csv)
+  set_tests_properties(ara2_published_reference_smoke PROPERTIES
+                       PASS_REGULAR_EXPRESSION "ara2_table_iv_fmatmul64_4lane,published")
 endif()

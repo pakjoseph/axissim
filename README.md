@@ -137,6 +137,8 @@ Each result also includes a vector/NPU-arithmetic/DRAM/DMA energy breakdown. The
 
 The checked-in CSV is deliberately an empty template: no value is treated as Ara data until it has a source URL, source revision/date, workload mapping, and either `published` or `reproduced` status. The test fixture in `tests/reference/` exercises the command but is synthetic and is not calibration evidence. See [the Ara reference-data contract](reference_data/ara/README.md) and [the implementation plan](plan.md).
 
+AxisSim includes one public Ara2 reference point in `reference_data/ara/ara2_published_latency.csv`. It is a compute-only normalization of the paper's 4-lane, 1.35 GHz, 256×256 `fmatmul64` result: latency is derived from its published 10.7 GOPS throughput. The matching `rvv_stream` profile excludes CVA6 dispatch, cache behavior, Ara's VLSU, and all Physical-AI pipeline stages. Its close roofline estimate demonstrates arithmetic-rate consistency only—it is **not** a claim of end-to-end Ara accuracy or a calibrated power model.
+
 ## Fixed-priority control runtime
 
 Set all three control parameters to enable a periodic control workload. The unified non-preemptive runtime supports `fcfs`, `fixed_priority` (the default), and `edf` policies. Under fixed priority, `safety_control` takes precedence over normal RVV pipeline work at each scheduling point.

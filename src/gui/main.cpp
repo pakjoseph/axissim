@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QDir>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -46,12 +47,14 @@ class AxisSimWindow final : public QMainWindow {
     auto* save_as = new QPushButton("Save As…", root);
     auto* run = new QPushButton("Run scenario", root);
     auto* sweep = new QPushButton("Sweep RVV lanes", root);
+    auto* ara_check = new QPushButton("Check published Ara2 point", root);
     toolbar->addWidget(new QLabel("Scenario:", root));
     toolbar->addWidget(scenario_, 1);
     toolbar->addWidget(browse);
     toolbar->addWidget(save_as);
     toolbar->addWidget(run);
     toolbar->addWidget(sweep);
+    toolbar->addWidget(ara_check);
     layout->addLayout(toolbar);
 
     auto* splitter = new QSplitter(Qt::Horizontal, root);
@@ -91,6 +94,7 @@ class AxisSimWindow final : public QMainWindow {
     connect(save_as, &QPushButton::clicked, this, [this] { saveAs(); });
     connect(run, &QPushButton::clicked, this, [this] { runScenario(); });
     connect(sweep, &QPushButton::clicked, this, [this] { runLaneSweep(); });
+    connect(ara_check, &QPushButton::clicked, this, [this] { runAra2Check(); });
     loadScenario(scenario_->currentData().toString());
   }
 
@@ -183,6 +187,32 @@ class AxisSimWindow final : public QMainWindow {
             });
     process_->start(executable, {"sweep", scenario_path_, "--sweep", "rvv_lanes=2,4,8,16,32"});
     statusBar()->showMessage("Sweeping RVV lanes…");
+  }
+
+  void runAra2Check() {
+    const QString executable = QCoreApplication::applicationDirPath() + "/axissim";
+    const QDir project_root(QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(".."));
+    const QString config = project_root.filePath("configs/baseline/manifest.conf");
+    const QString reference = project_root.filePath("reference_data/ara/ara2_published_latency.csv");
+    if (!QFileInfo::exists(executable) || !QFileInfo::exists(config) || !QFileInfo::exists(reference)) {
+      QMessageBox::critical(this, "AxisSim", "The checked-in CLI, calibration config, or Ara2 reference CSV was not found. Run from the CMake build directory.");
+      return;
+    }
+    process_ = std::make_unique<QProcess>(this);
+    process_->setWorkingDirectory(project_root.absolutePath());
+    connect(process_.get(), qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
+            [this](int exit_code, QProcess::ExitStatus exit_status) {
+              const QString output = QString::fromUtf8(process_->readAllStandardOutput() + process_->readAllStandardError());
+              if (exit_status != QProcess::NormalExit || exit_code != 0) {
+                QMessageBox::critical(this, "Ara2 reference check failed", output);
+                return;
+              }
+              summary_->setPlainText("Published Ara2 compute-only consistency check\n\n" + output +
+                                     "\nThis compares a normalized vector-FMA stream to a value derived from Table IV of the Ara2 paper. It is not an end-to-end Ara or power-model validation.");
+              statusBar()->showMessage("Published Ara2 reference check complete");
+            });
+    process_->start(executable, {"calibrate", config, "--reference", reference});
+    statusBar()->showMessage("Checking published Ara2 reference…");
   }
 
   void showResult(const QString& json_path, const QString& trace_path, const QString& cli_output) {

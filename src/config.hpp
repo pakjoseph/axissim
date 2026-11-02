@@ -10,6 +10,7 @@ namespace axissim {
 struct Config {
   std::string scenario_name = "unnamed";
   std::string model_version = "0.1";
+  std::string workload_mode = "physical_ai";
   std::string scheduler_policy = "fixed_priority";
   int frames = 30;
   double frame_period_us = 33'333.0;

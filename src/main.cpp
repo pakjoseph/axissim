@@ -85,7 +85,7 @@ template <typename T>
 
 [[nodiscard]] const std::set<std::string>& supported_keys() {
   static const std::set<std::string> keys = {
-      "scenario_name", "model_version", "scheduler_policy", "frames", "frame_period_us", "deadline_us", "dram_bandwidth_gbps", "dma_setup_us", "control_period_us", "control_deadline_us", "control_ops",
+      "scenario_name", "model_version", "workload_mode", "scheduler_policy", "frames", "frame_period_us", "deadline_us", "dram_bandwidth_gbps", "dma_setup_us", "control_period_us", "control_deadline_us", "control_ops",
       "rvv_vlen_bits", "rvv_sew_bits", "rvv_lmul", "rvv_lanes", "rvv_ops_per_lane_cycle", "rvv_frequency_ghz", "rvv_stripmine_overhead_cycles", "rvv_chunk_elements",
       "npu_macs", "npu_frequency_ghz", "input_bytes", "preprocess_elements", "preprocess_ops_per_element", "preprocess_output_bytes",
       "gemm_m", "gemm_n", "gemm_k", "npu_tile_m", "npu_tile_n", "npu_tile_k",
@@ -105,6 +105,7 @@ template <typename T>
   Config c;
   if (values.contains("scenario_name")) c.scenario_name = values.at("scenario_name");
   if (values.contains("model_version")) c.model_version = values.at("model_version");
+  if (values.contains("workload_mode")) c.workload_mode = values.at("workload_mode");
   if (values.contains("scheduler_policy")) c.scheduler_policy = values.at("scheduler_policy");
 #define AXISSIM_LOAD(field) c.field = parse_number(values, #field, c.field)
   AXISSIM_LOAD(frames); AXISSIM_LOAD(frame_period_us); AXISSIM_LOAD(deadline_us);
@@ -126,6 +127,7 @@ template <typename T>
 
 void validate(const Config& c) {
   if (c.frames < 1 || c.frame_period_us <= 0 || c.deadline_us <= 0) throw std::runtime_error("Frame configuration must be positive");
+  if (c.workload_mode != "physical_ai" && c.workload_mode != "rvv_stream") throw std::runtime_error("workload_mode must be physical_ai or rvv_stream");
   if (c.scheduler_policy != "fcfs" && c.scheduler_policy != "fixed_priority" && c.scheduler_policy != "edf") throw std::runtime_error("scheduler_policy must be fcfs, fixed_priority, or edf");
   if (c.control_period_us < 0 || c.control_deadline_us < 0 || (c.control_period_us == 0 && (c.control_deadline_us != 0 || c.control_ops != 0)) || (c.control_period_us > 0 && (c.control_deadline_us <= 0 || c.control_ops == 0))) throw std::runtime_error("Control workload must be fully disabled or have positive period, deadline, and operation count");
   if (c.dram_bandwidth_gbps <= 0 || c.rvv_frequency_ghz <= 0 || c.npu_frequency_ghz <= 0) throw std::runtime_error("Bandwidth and frequencies must be positive");
@@ -247,7 +249,7 @@ class Simulator {
 
  private:
   enum class RuntimeResource : std::size_t { Dma = 0, Rvv = 1, Npu = 2 };
-  enum class RuntimeStage : int { Camera = 0, PreRead, Preprocess, PreWrite, NpuData, NpuCompute, PostRead, Postprocess, Control };
+  enum class RuntimeStage : int { Camera = 0, PreRead, Preprocess, PreWrite, NpuData, NpuCompute, PostRead, Postprocess, Control, VectorKernel };
 
   struct RuntimeTask {
     int frame = 0;
@@ -310,6 +312,11 @@ class Simulator {
         break;
       }
       case RuntimeStage::Control: task = {-1, stage, RuntimeResource::Rvv, release_us, ready_us, vector_duration_us(c_.control_ops, 1), static_cast<double>(c_.control_ops) * c_.vector_op_pj, 0.0, 0, 0, 0, 0, "safety_control"}; break;
+      case RuntimeStage::VectorKernel: {
+        const auto elements = vector_chunk_size(c_.preprocess_elements, vector_offset);
+        task = {frame, stage, RuntimeResource::Rvv, release_us, ready_us, vector_duration_us(elements, c_.preprocess_ops_per_element), static_cast<double>(elements) * c_.preprocess_ops_per_element * c_.vector_op_pj, 0.0, 0, vector_offset, elements, 1, "rvv_stream_kernel"};
+        break;
+      }
     }
     return task;
   }
@@ -323,10 +330,11 @@ class Simulator {
     std::priority_queue<Completion, std::vector<Completion>, CompletionOrder> completions;
     std::array<std::vector<RuntimeTask>, 3> pending;
     std::array<bool, 3> busy = {false, false, false};
+    const auto initial_stage = c_.workload_mode == "rvv_stream" ? RuntimeStage::VectorKernel : RuntimeStage::Camera;
     if (c_.dma_double_buffering == 1) {
-      for (int frame = 0; frame < c_.frames; ++frame) future.push(make_runtime_task(frame, RuntimeStage::Camera, frame * c_.frame_period_us, frame * c_.frame_period_us));
+      for (int frame = 0; frame < c_.frames; ++frame) future.push(make_runtime_task(frame, initial_stage, frame * c_.frame_period_us, frame * c_.frame_period_us));
     } else {
-      future.push(make_runtime_task(0, RuntimeStage::Camera, 0.0, 0.0));
+      future.push(make_runtime_task(0, initial_stage, 0.0, 0.0));
     }
     if (c_.control_period_us > 0.0) {
       const double horizon_us = c_.frames * c_.frame_period_us;
@@ -346,16 +354,16 @@ class Simulator {
         Completion completion = completions.top(); completions.pop();
         busy[static_cast<std::size_t>(completion.resource)] = false;
         const RuntimeTask& task = completion.task;
-        const auto total_vector_elements = task.stage == RuntimeStage::Preprocess ? c_.preprocess_elements : task.stage == RuntimeStage::Postprocess ? c_.postprocess_elements : 0;
+        const auto total_vector_elements = (task.stage == RuntimeStage::Preprocess || task.stage == RuntimeStage::VectorKernel) ? c_.preprocess_elements : task.stage == RuntimeStage::Postprocess ? c_.postprocess_elements : 0;
         if (total_vector_elements > 0 && task.vector_offset + task.vector_elements < total_vector_elements) {
           future.push(make_runtime_task(task.frame, task.stage, task.release_us, completion.end_us, task.vector_offset + task.vector_elements));
-        } else if (task.stage == RuntimeStage::Postprocess) {
+        } else if (task.stage == RuntimeStage::Postprocess || task.stage == RuntimeStage::VectorKernel) {
           const double latency = completion.end_us - task.release_us;
           latencies_us_.push_back(latency);
           if (latency > c_.deadline_us) ++deadline_misses_;
           if (c_.dma_double_buffering == 0 && task.frame + 1 < c_.frames) {
             const double next_release = (task.frame + 1) * c_.frame_period_us;
-            future.push(make_runtime_task(task.frame + 1, RuntimeStage::Camera, next_release, std::max(next_release, completion.end_us)));
+            future.push(make_runtime_task(task.frame + 1, initial_stage, next_release, std::max(next_release, completion.end_us)));
           }
         } else if (task.stage == RuntimeStage::Control) {
           ++control_tasks_;
@@ -455,6 +463,7 @@ void write_result_json(const std::string& path, const Simulator& simulator, cons
          << "  \"schema_version\": \"1.0\",\n"
          << "  \"scenario_name\": \"" << json_escape(config.scenario_name) << "\",\n"
          << "  \"model_version\": \"" << json_escape(config.model_version) << "\",\n"
+         << "  \"workload_mode\": \"" << json_escape(config.workload_mode) << "\",\n"
          << "  \"scheduler_policy\": \"" << json_escape(config.scheduler_policy) << "\",\n"
          << "  \"latency\": {\"mean_us\": " << mean << ", \"p99_us\": " << percentile(latency, 0.99) << "},\n"
          << "  \"deadlines\": {\"vision_misses\": " << simulator.deadline_misses() << ", \"vision_jobs\": " << latency.size()
@@ -478,17 +487,22 @@ void print_results(const Simulator& simulator, const Config& config) {
   std::cout << std::fixed << std::setprecision(2);
   std::cout << "AxisSim results\n"
             << "  scenario / model:    " << config.scenario_name << " / " << config.model_version << "\n"
+            << "  workload mode:        " << config.workload_mode << "\n"
             << "  scheduler policy:    " << config.scheduler_policy << "\n"
             << "  frames:              " << latency.size() << "\n"
             << "  RVV VLMAX:           " << simulator.vlmax() << " elements\n"
-            << "  RVV tail utilization (pre/post): " << 100.0 * simulator.tail_utilization(config.preprocess_elements) << "% / "
-            << 100.0 * simulator.tail_utilization(config.postprocess_elements) << "%\n"
-            << "  NPU tile / SRAM:     " << simulator.npu_tile_working_set_bytes() << " / " << config.sram_capacity_bytes << " bytes\n"
-            << "  NPU DRAM first/steady frame: " << static_cast<double>(simulator.npu_transfer_bytes(0)) / 1'000'000.0 << " / "
-            << static_cast<double>(simulator.npu_steady_state_dram_bytes_per_frame()) / 1'000'000.0 << " MB\n"
-            << "  persistent weights / double buffer: " << (config.npu_weights_resident == 1 ? "on" : "off") << " / "
-            << (config.dma_double_buffering == 1 ? "on" : "off") << "\n"
-            << "  latency mean / P99:  " << mean << " / " << percentile(latency, 0.99) << " us\n"
+            << "  RVV tail utilization: " << 100.0 * simulator.tail_utilization(config.preprocess_elements) << "%";
+  if (config.workload_mode == "physical_ai") {
+    std::cout << " / " << 100.0 * simulator.tail_utilization(config.postprocess_elements) << "%\n"
+              << "  NPU tile / SRAM:     " << simulator.npu_tile_working_set_bytes() << " / " << config.sram_capacity_bytes << " bytes\n"
+              << "  NPU DRAM first/steady frame: " << static_cast<double>(simulator.npu_transfer_bytes(0)) / 1'000'000.0 << " / "
+              << static_cast<double>(simulator.npu_steady_state_dram_bytes_per_frame()) / 1'000'000.0 << " MB\n"
+              << "  persistent weights / double buffer: " << (config.npu_weights_resident == 1 ? "on" : "off") << " / "
+              << (config.dma_double_buffering == 1 ? "on" : "off") << "\n";
+  } else {
+    std::cout << "\n  stream scope:         RVV compute only (no DMA, cache, scalar, or NPU stages)\n";
+  }
+  std::cout << "  latency mean / P99:  " << mean << " / " << percentile(latency, 0.99) << " us\n"
             << "  latency min / max:   " << *std::min_element(latency.begin(), latency.end()) << " / " << *std::max_element(latency.begin(), latency.end()) << " us\n"
             << "  max concurrent tasks:" << simulator.max_concurrent_tasks() << "\n"
             << "  utilization DMA/RVV/NPU: " << utilization("DMA+DRAM") << "% / " << utilization("RVV") << "% / " << utilization("NPU") << "%\n"
@@ -544,6 +558,7 @@ void write_calibration_csv(const std::string& config_path, const std::map<std::s
                            const std::string& reference_path, std::ostream& output) {
   std::ifstream input(reference_path);
   if (!input) throw std::runtime_error("Unable to open reference data: " + reference_path);
+  const auto reference_directory = std::filesystem::path(reference_path).parent_path();
   std::string header;
   if (!std::getline(input, header)) throw std::runtime_error("Reference data is empty");
   const auto columns = split_csv_values(header);
@@ -560,10 +575,11 @@ void write_calibration_csv(const std::string& config_path, const std::map<std::s
   const auto lanes_column = find_column("lanes");
   const auto frequency_column = find_column("frequency_ghz");
   const auto workload_column = find_column("axis_workload");
+  const auto config_column = find_column("axis_config");
   const auto unit_column = find_column("unit");
   const auto extraction_column = find_column("extraction_method");
   const auto latency_column = find_column("reference_latency_us");
-  output << "reference_id,status,lanes,reference_latency_us,predicted_latency_us,absolute_error_us,relative_error_percent\n";
+  output << "reference_id,status,axis_config,lanes,reference_latency_us,predicted_latency_us,absolute_error_us,relative_error_percent\n";
   output << std::fixed << std::setprecision(3);
   std::string line;
   while (std::getline(input, line)) {
@@ -571,7 +587,7 @@ void write_calibration_csv(const std::string& config_path, const std::map<std::s
     const auto row = split_csv_values(line);
     if (row.size() != columns.size()) throw std::runtime_error("Reference row has wrong column count");
     for (const auto column : {id_column, source_url_column, source_revision_column, benchmark_column, lanes_column,
-                              frequency_column, workload_column, unit_column, extraction_column, latency_column}) {
+                              frequency_column, workload_column, config_column, unit_column, extraction_column, latency_column}) {
       if (row[column].empty()) throw std::runtime_error("Reference row has an empty provenance field");
     }
     if (row[status_column] != "published" && row[status_column] != "reproduced") {
@@ -583,7 +599,8 @@ void write_calibration_csv(const std::string& config_path, const std::map<std::s
     }
     auto overrides = base_overrides;
     overrides["rvv_lanes"] = row[lanes_column];
-    const Config config = load_config(config_path, overrides);
+    const auto axis_config = row[config_column] == "." ? config_path : (reference_directory / row[config_column]).lexically_normal().string();
+    const Config config = load_config(axis_config, overrides);
     validate(config);
     Simulator simulator(config);
     simulator.run();
@@ -592,7 +609,7 @@ void write_calibration_csv(const std::string& config_path, const std::map<std::s
     const double reference = std::stod(row[latency_column]);
     const double absolute_error = std::abs(predicted - reference);
     const double relative_error = reference == 0.0 ? 0.0 : 100.0 * absolute_error / std::abs(reference);
-    output << row[id_column] << ',' << row[status_column] << ',' << row[lanes_column] << ',' << reference << ','
+    output << row[id_column] << ',' << row[status_column] << ',' << row[config_column] << ',' << row[lanes_column] << ',' << reference << ','
            << predicted << ',' << absolute_error << ',' << relative_error << '\n';
   }
 }
