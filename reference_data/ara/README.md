@@ -13,3 +13,7 @@ Each row must identify a source URL, revision/date, benchmark, lane count, frequ
 `ara2_published_latency.csv` contains one source-derived value from Table IV of the [Ara2 paper](https://arxiv.org/abs/2311.07493): a 4-lane design at 1.35 GHz reports 10.7 GOPS for `fmatmul64` on 256×256 matrices. The stored 3,135.928 µs latency is calculated as `(2 × 256³ floating-point operations) ÷ 10.7 GOPS`. The source reports throughput to three significant digits, so this value is appropriate as a roofline-consistency check, not a high-precision cycle-count comparison.
 
 The matching `rvv_stream` configuration models only a vector FMA stream at the source lane count, clock, and arithmetic issue rate. It intentionally excludes the scalar core, cache, vector-memory system, and physical-AI pipeline. To claim lane-scaling validation, add four or more pinned `reproduced` rows from Ara's own `scripts/benchmark.sh`, including the raw hardware-cycle logs.
+
+## Included reproduced RTL point
+
+`ara_rtl_reproduced_latency.csv` contains an AxisSim-maintainer reproduction from the pinned Ara source revision above: FP64 `fmatmul` at 128³, 4 lanes, and VLEN 4096. The unmodified public RTL simulation completed successfully with `532,392` `[hw-cycles]`; its raw log and hashes live in `reproductions/`. The 394.364444 µs CSV value is `532,392 / 1.35 GHz`, used only to compare a stated cycle model at the same nominal normalization frequency. It is not a measured Ara clock period, power result, or silicon-validation claim.

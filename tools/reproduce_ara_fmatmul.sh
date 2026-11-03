@@ -62,11 +62,11 @@ simulator="$ara_dir/hardware/build/verilator/Vara_tb_verilator"
 [[ -x "$simulator" ]] || { echo "Missing Verilated Ara simulator: $simulator. Re-run with --build after preparing prerequisites." >&2; exit 1; }
 
 mkdir -p "$ara_dir/apps/benchmarks/data"
-python3 "$ara_dir/apps/fmatmul/script/gen_data.py" 256 256 256 > "$ara_dir/apps/benchmarks/data/data.S"
+python3 "$ara_dir/apps/fmatmul/script/gen_data.py" 128 128 128 > "$ara_dir/apps/benchmarks/data/data.S"
 config="${lanes}_lanes" ENV_DEFINES="-DFMATMUL=1" make -C "$ara_dir/apps" bin/benchmarks
 
-raw_log="$output_dir/ara_fmatmul64_256_lanes${lanes}.raw.log"
-metadata="$output_dir/ara_fmatmul64_256_lanes${lanes}.metadata.txt"
+raw_log="$output_dir/ara_fmatmul64_128_lanes${lanes}.raw.log"
+metadata="$output_dir/ara_fmatmul64_128_lanes${lanes}.metadata.txt"
 config="${lanes}_lanes" make -C "$ara_dir/hardware" simv app=benchmarks > "$raw_log"
 
 hardware_cycles=$(awk -F: '/\[hw-cycles\]/ { gsub(/ /, "", $2); print $2; exit }' "$raw_log")
@@ -78,9 +78,9 @@ if [[ "$build" == 1 ]]; then command_suffix=" --build"; fi
 {
   echo "source_url=https://github.com/pulp-platform/ara"
   echo "source_revision=$revision"
-  echo "benchmark=fmatmul64_256x256"
+  echo "benchmark=fmatmul64_128x128"
   echo "lanes=$lanes"
-  echo "matrix_dimensions=256x256x256"
+  echo "matrix_dimensions=128x128x128"
   echo "hardware_cycles=$hardware_cycles"
   echo "raw_log=$raw_log"
   echo "command=$0 --ara-dir $ara_dir --lanes $lanes --output-dir $output_dir$command_suffix"
