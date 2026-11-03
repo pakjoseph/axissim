@@ -1,0 +1,2 @@
+reference_id,status,source_url,source_revision,benchmark,lanes,frequency_ghz,axis_workload,axis_config,unit,extraction_method,reference_cycles,reference_latency_us
+ara_rtl_fmatmul64_128_2lane_holdout,reproduced,https://github.com/pulp-platform/ara,34bd3bc152421b4601a7bf3d6e8e91ffb545c99e,fmatmul64_128x128,2,1.35,rvv_compute_only_fma_stream,../../configs/calibration/ara_fmatmul64_128_2lane.conf,us,Raw Verilator [hw-cycles]=1064052; held-out lane configuration; 1.35 GHz is a chosen comparison normalization; see lane_holdout metadata,1064052,788.186667

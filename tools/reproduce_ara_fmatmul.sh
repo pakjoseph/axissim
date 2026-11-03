@@ -73,6 +73,12 @@ if [[ "$build" == 1 ]]; then
   else
     make -C "$ara_dir/hardware" apply-patches
   fi
+  verilator_build_dir="$ara_dir/hardware/build/verilator"
+  verilator_makefile="$verilator_build_dir/Vara_tb_verilator.mk"
+  if [[ -f "$verilator_makefile" ]] && ! grep -Fq -- "-DNR_LANES=$lanes" "$verilator_makefile"; then
+    echo "Existing Verilated binary uses a different lane configuration; rebuilding it for $lanes lanes."
+    rm -rf "$verilator_build_dir"
+  fi
   make -C "$ara_dir/hardware" config="${lanes}_lanes" veril_path="$(dirname "$verilator_path")" verilate
 fi
 

@@ -74,4 +74,9 @@ if(BUILD_TESTING)
                    --reference ${CMAKE_SOURCE_DIR}/reference_data/ara/ara_rtl_4lane_size_controls.csv)
   set_tests_properties(ara_rtl_4lane_size_controls_smoke PROPERTIES
                         PASS_REGULAR_EXPRESSION "ara_rtl_fmatmul64_128_4lane_control_rerun,reproduced,../../configs/calibration/ara_fmatmul64_128_4lane.conf,4,532392.000,524288.000")
+  add_test(NAME ara_rtl_lane_holdout_smoke
+           COMMAND axissim calibrate ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
+                   --reference ${CMAKE_SOURCE_DIR}/reference_data/ara/ara_rtl_lane_holdout.csv)
+  set_tests_properties(ara_rtl_lane_holdout_smoke PROPERTIES
+                        PASS_REGULAR_EXPRESSION "ara_rtl_fmatmul64_128_2lane_holdout,reproduced,../../configs/calibration/ara_fmatmul64_128_2lane.conf,2,1064052.000,1048576.000")
 endif()

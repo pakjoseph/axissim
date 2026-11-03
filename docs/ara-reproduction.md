@@ -50,6 +50,8 @@ For a fixed-configuration size control, use `--matrix-size 32`, `64`, `96`, and 
 
 After the first configuration, omit `--build` only if the selected configuration's Verilated binary has already been produced. Preserve every `.raw.log` and `.metadata.txt` file. Treat cycles as primary. Convert them to microseconds only with a clearly stated normalization frequency and record its provenance. AxisSim's 1.35 GHz conversion is explicitly a comparison normalization, not a measured clock rate.
 
+`--build` detects a Verilated binary built for a different lane count and rebuilds that exact, scoped build directory. This avoids accidentally pairing an application compiled for one lane configuration with RTL compiled for another.
+
 ## Interpretation boundary
 
 The raw cycles validate a specific Ara revision, benchmark binary, RTL configuration, and simulation path. They do not validate a real physical chip's clock frequency, silicon power, or Velaura hardware. AxisSim should compare lane-scaling shape and stated timing assumptions; it must not be tuned blindly to minimize a single-point error.
