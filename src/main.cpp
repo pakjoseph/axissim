@@ -166,6 +166,10 @@ class Simulator {
   [[nodiscard]] double dma_energy_pj() const { return dma_energy_pj_; }
   [[nodiscard]] std::uint64_t total_dram_bytes() const { return total_dram_bytes_; }
   [[nodiscard]] int vlmax() const { return (c_.rvv_vlen_bits / c_.rvv_sew_bits) * c_.rvv_lmul; }
+  [[nodiscard]] double rvv_stream_compute_cycles() const {
+    if (c_.workload_mode != "rvv_stream") throw std::runtime_error("RVV stream cycle reporting requires workload_mode=rvv_stream");
+    return vector_cycles(c_.preprocess_elements, c_.preprocess_ops_per_element);
+  }
   [[nodiscard]] double tail_utilization(std::uint64_t elements) const {
     const auto iterations = (elements + static_cast<std::uint64_t>(vlmax()) - 1) / static_cast<std::uint64_t>(vlmax());
     return static_cast<double>(elements) / static_cast<double>(iterations * static_cast<std::uint64_t>(vlmax()));
@@ -403,11 +407,14 @@ class Simulator {
   }
 
   [[nodiscard]] double vector_duration_us(std::uint64_t elements, int ops_per_element) const {
+    return vector_cycles(elements, ops_per_element) / (c_.rvv_frequency_ghz * 1000.0);
+  }
+
+  [[nodiscard]] double vector_cycles(std::uint64_t elements, int ops_per_element) const {
     const double lane_rate = static_cast<double>(c_.rvv_lanes) * c_.rvv_ops_per_lane_cycle;
     const double compute_cycles = std::ceil(static_cast<double>(elements) * ops_per_element / lane_rate);
     const auto iterations = (elements + static_cast<std::uint64_t>(vlmax()) - 1) / static_cast<std::uint64_t>(vlmax());
-    const double cycles = compute_cycles + iterations * c_.rvv_stripmine_overhead_cycles;
-    return cycles / (c_.rvv_frequency_ghz * 1000.0);
+    return compute_cycles + iterations * c_.rvv_stripmine_overhead_cycles;
   }
 
   Config c_;
@@ -579,7 +586,11 @@ void write_calibration_csv(const std::string& config_path, const std::map<std::s
   const auto unit_column = find_column("unit");
   const auto extraction_column = find_column("extraction_method");
   const auto latency_column = find_column("reference_latency_us");
-  output << "reference_id,status,axis_config,lanes,reference_latency_us,predicted_latency_us,absolute_error_us,relative_error_percent\n";
+  const auto cycle_position = std::find(columns.begin(), columns.end(), "reference_cycles");
+  const std::optional<std::size_t> cycle_column = cycle_position == columns.end()
+      ? std::nullopt
+      : std::optional<std::size_t>(static_cast<std::size_t>(cycle_position - columns.begin()));
+  output << "reference_id,status,axis_config,lanes,reference_cycles,predicted_cycles,absolute_error_cycles,relative_error_cycles_percent,reference_latency_us,predicted_latency_us,absolute_error_us,relative_error_percent\n";
   output << std::fixed << std::setprecision(3);
   std::string line;
   while (std::getline(input, line)) {
@@ -597,11 +608,18 @@ void write_calibration_csv(const std::string& config_path, const std::map<std::s
     if (std::stoi(row[lanes_column]) <= 0 || std::stod(row[frequency_column]) <= 0.0 || std::stod(row[latency_column]) <= 0.0) {
       throw std::runtime_error("Reference lanes, frequency, and latency must be positive");
     }
+    if (cycle_column && !row[*cycle_column].empty() && std::stod(row[*cycle_column]) <= 0.0) {
+      throw std::runtime_error("Reference cycles must be positive when supplied");
+    }
     auto overrides = base_overrides;
     overrides["rvv_lanes"] = row[lanes_column];
     const auto axis_config = row[config_column] == "." ? config_path : (reference_directory / row[config_column]).lexically_normal().string();
     const Config config = load_config(axis_config, overrides);
     validate(config);
+    const double reference_frequency = std::stod(row[frequency_column]);
+    if (std::abs(config.rvv_frequency_ghz - reference_frequency) > 1e-12) {
+      throw std::runtime_error("Reference frequency does not match the selected AxisSim configuration");
+    }
     Simulator simulator(config);
     simulator.run();
     const auto& latencies = simulator.latencies_us();
@@ -609,8 +627,18 @@ void write_calibration_csv(const std::string& config_path, const std::map<std::s
     const double reference = std::stod(row[latency_column]);
     const double absolute_error = std::abs(predicted - reference);
     const double relative_error = reference == 0.0 ? 0.0 : 100.0 * absolute_error / std::abs(reference);
-    output << row[id_column] << ',' << row[status_column] << ',' << row[config_column] << ',' << row[lanes_column] << ',' << reference << ','
-           << predicted << ',' << absolute_error << ',' << relative_error << '\n';
+    output << row[id_column] << ',' << row[status_column] << ',' << row[config_column] << ',' << row[lanes_column] << ',';
+    if (cycle_column && !row[*cycle_column].empty()) {
+      if (config.workload_mode != "rvv_stream") throw std::runtime_error("Reference cycles require workload_mode=rvv_stream");
+      const double reference_cycles = std::stod(row[*cycle_column]);
+      const double predicted_cycles = simulator.rvv_stream_compute_cycles();
+      const double absolute_cycle_error = std::abs(predicted_cycles - reference_cycles);
+      const double relative_cycle_error = 100.0 * absolute_cycle_error / std::abs(reference_cycles);
+      output << reference_cycles << ',' << predicted_cycles << ',' << absolute_cycle_error << ',' << relative_cycle_error << ',';
+    } else {
+      output << ",,,,";
+    }
+    output << reference << ',' << predicted << ',' << absolute_error << ',' << relative_error << '\n';
   }
 }
 

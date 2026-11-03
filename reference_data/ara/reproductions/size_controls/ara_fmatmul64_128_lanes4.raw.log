@@ -1,0 +1,27 @@
+make: Entering directory '/workspace/ara/hardware'
+build/verilator/Vara_tb_verilator  -l ram,/workspace/ara/apps/bin/benchmarks,elf
+Program header number 0 in `/workspace/ara/apps/bin/benchmarks' low is 80000000
+Program header number 0 in `/workspace/ara/apps/bin/benchmarks' high is 800017f3
+Program header number 1 in `/workspace/ara/apps/bin/benchmarks' high is 8008181f
+Program header number 2 in `/workspace/ara/apps/bin/benchmarks' high is 80081c0f
+Program header number 3 in `/workspace/ara/apps/bin/benchmarks' high is 80081c17
+Program header number 4 in `/workspace/ara/apps/bin/benchmarks' is not of type PT_LOAD; ignoring.
+Program header number 5 in `/workspace/ara/apps/bin/benchmarks' is not of type PT_LOAD; ignoring.
+Set `ram TOP.ara_tb_verilator.dut.i_ara_soc.i_dram 10 0x80000000 0x100000 write with offset: 0x0 write with size: 0x81c18
+Simulation of Ara
+=================
+
+
+Simulation running, end by pressing CTRL-c.
+[sw-cycles]: 532619
+[hw-cycles]:      532392
+[2136172] -Info: ara_tb_verilator.sv:51: TOP.ara_tb_verilator: Core Test *** SUCCESS *** (tohost = 0)
+- /workspace/ara/hardware/tb/ara_tb_verilator.sv:54: Verilog $finish
+Received $finish() from Verilog, shutting down simulation.
+
+Simulation statistics
+=====================
+Executed cycles:  104c36
+Wallclock time:   229.494 s
+Simulation speed: 4654.09 cycles/s (4.65409 kHz)
+make: Leaving directory '/workspace/ara/hardware'

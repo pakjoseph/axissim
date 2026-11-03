@@ -55,6 +55,10 @@ if(BUILD_TESTING)
                    --reference ${CMAKE_SOURCE_DIR}/tests/reference/synthetic_latency.csv)
   set_tests_properties(calibration_fixture_smoke PROPERTIES
                        PASS_REGULAR_EXPRESSION "synthetic_2,reproduced,.,2")
+  add_test(NAME rejects_calibration_frequency_mismatch
+           COMMAND axissim calibrate ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
+                   --reference ${CMAKE_SOURCE_DIR}/tests/reference/mismatched_frequency.csv)
+  set_tests_properties(rejects_calibration_frequency_mismatch PROPERTIES WILL_FAIL TRUE)
   add_test(NAME ara2_published_reference_smoke
            COMMAND axissim calibrate ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
                    --reference ${CMAKE_SOURCE_DIR}/reference_data/ara/ara2_published_latency.csv)
@@ -64,5 +68,10 @@ if(BUILD_TESTING)
            COMMAND axissim calibrate ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
                    --reference ${CMAKE_SOURCE_DIR}/reference_data/ara/ara_rtl_reproduced_latency.csv)
   set_tests_properties(ara_rtl_reproduced_reference_smoke PROPERTIES
-                        PASS_REGULAR_EXPRESSION "ara_rtl_fmatmul64_128_4lane,reproduced")
+                        PASS_REGULAR_EXPRESSION "ara_rtl_fmatmul64_128_4lane,reproduced,../../configs/calibration/ara_fmatmul64_128_4lane.conf,4,532392.000,524288.000")
+  add_test(NAME ara_rtl_4lane_size_controls_smoke
+           COMMAND axissim calibrate ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
+                   --reference ${CMAKE_SOURCE_DIR}/reference_data/ara/ara_rtl_4lane_size_controls.csv)
+  set_tests_properties(ara_rtl_4lane_size_controls_smoke PROPERTIES
+                        PASS_REGULAR_EXPRESSION "ara_rtl_fmatmul64_128_4lane_control_rerun,reproduced,../../configs/calibration/ara_fmatmul64_128_4lane.conf,4,532392.000,524288.000")
 endif()

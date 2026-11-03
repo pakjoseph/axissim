@@ -1,12 +1,12 @@
-# Ara/Ara2 hardware-cycle reproduction
+# Ara hardware-cycle reproduction
 
-AxisSim's checked-in Ara2 point is a public throughput-derived roofline check. This procedure produces the stronger evidence needed for lane-scaling validation: raw `[hw-cycles]` records from Ara's own Verilator flow.
+This procedure produces raw `[hw-cycles]` records from Ara's own Verilator flow. AxisSim also includes a public 4-lane size-control evidence set; it is a narrow compute-envelope check, not a general timing or power validation.
 
 ## Pinned target
 
 - Repository: <https://github.com/pulp-platform/ara>
 - Revision: `34bd3bc152421b4601a7bf3d6e8e91ffb545c99e`
-- Kernel: FP64 `fmatmul`, 128 × 128 × 128
+- Kernel: FP64 `fmatmul`, up to 128 × 128 × 128
 - Lane sweep: 2, 4, 8, 16
 
 Ara's benchmark script uses `[hw-cycles]` markers from the RTL simulation, and its repository documents the Verilator build flow. The project exposes 2–16 lane configurations and calculates VLEN from 1024 bits per lane. [Ara documentation](https://github.com/pulp-platform/ara/blob/main/docs/source/modules/ara.md)
@@ -22,7 +22,7 @@ git -C /path/to/ara submodule update --init --recursive
 make -C /path/to/ara all
 ```
 
-`make all` is large and may take substantial time. It is intentionally kept outside this repository.
+The full build is large and may take substantial time. It is intentionally kept outside this repository. In environments where the upstream all-in-one target is unavailable, complete Ara's documented prerequisite/toolchain steps and record the exact build path in the metadata.
 
 For a Linux-compatible, dependency-pinned host environment, build the supplied base image from the AxisSim root:
 
@@ -36,7 +36,7 @@ The Dockerfile supplies the host build dependencies (including Clang, Flex heade
 
 ## Collect raw cycles
 
-The harness does not change Ara sources. It generates the 128³ input, compiles the benchmark for a selected lane configuration, runs the Verilated RTL model, preserves stdout, and extracts the `[hw-cycles]` marker. This size fits the pinned testbench's default 1 MiB memory window. The separate 256³ Ara2 row remains a published throughput-derived check, not an RTL reproduction.
+The harness does not change Ara sources. It generates a selected 1³–128³ input, compiles the benchmark for a selected lane configuration, runs the Verilated RTL model, preserves stdout, and extracts the `[hw-cycles]` marker. The upper bound fits the pinned testbench's default 1 MiB memory window.
 
 ```sh
 for lanes in 2 4 8 16; do
@@ -46,7 +46,9 @@ for lanes in 2 4 8 16; do
 done
 ```
 
-After the first configuration, omit `--build` only if the selected configuration's Verilated binary has already been produced. Preserve every `.raw.log` and `.metadata.txt` file. Convert cycles to microseconds using a clearly stated normalization frequency, record its provenance, and add the row as `reproduced` in the calibration CSV. AxisSim includes one independently reproduced 4-lane reference (`532,392` hardware cycles); its 1.35 GHz conversion is explicitly a normalization, not a measured clock rate.
+For a fixed-configuration size control, use `--matrix-size 32`, `64`, `96`, and `128`. The checked-in 4-lane evidence is in [`reference_data/ara/reproductions/size_controls`](../reference_data/ara/reproductions/size_controls/README.md). When running Docker under emulation, set `AXISSIM_EXECUTION_CONTEXT` to state that explicitly; metadata records it along with the container architecture.
+
+After the first configuration, omit `--build` only if the selected configuration's Verilated binary has already been produced. Preserve every `.raw.log` and `.metadata.txt` file. Treat cycles as primary. Convert them to microseconds only with a clearly stated normalization frequency and record its provenance. AxisSim's 1.35 GHz conversion is explicitly a comparison normalization, not a measured clock rate.
 
 ## Interpretation boundary
 
