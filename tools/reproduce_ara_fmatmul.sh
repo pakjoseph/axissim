@@ -66,7 +66,13 @@ if [[ "$build" == 1 ]]; then
   [[ -x "$verilator_path" ]] || { echo "--build requires Ara's installed Verilator or AXISSIM_VERILATOR_PATH" >&2; exit 1; }
   make -C "$ara_dir/hardware" bender
   make -C "$ara_dir/hardware" checkout
-  make -C "$ara_dir/hardware" apply-patches
+  patch_file="$ara_dir/hardware/patches/0001-tech-cells-generic-sram.patch"
+  patch_dir="$ara_dir/hardware/deps/tech_cells_generic"
+  if git -C "$patch_dir" apply --reverse --check "$patch_file"; then
+    echo "Ara tech-cells patch already applied; preserving existing checkout."
+  else
+    make -C "$ara_dir/hardware" apply-patches
+  fi
   make -C "$ara_dir/hardware" config="${lanes}_lanes" veril_path="$(dirname "$verilator_path")" verilate
 fi
 
