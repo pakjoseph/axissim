@@ -20,6 +20,8 @@ Energy is accumulated as configured activity counts times pJ/action. `npu_arithm
 
 `rvv_memory_accounting=pipeline_dma` is the default for the Physical AI pipeline: its DMA stages already own modeled DRAM traffic. `extra_traffic` adds `rvv_memory_bytes_per_element` once for every RVV preprocess, postprocess, or standalone stream element. This is an energy/traffic ledger choice; it does not add a second scheduled DMA transfer or DRAM-contention delay.
 
+`arithmetic_voltage_ratio` is an optional voltage-inspired NPU arithmetic-energy sensitivity: AxisSim multiplies NPU arithmetic energy by the square of this ratio. It does not alter frequency, latency, yield, soft-error behavior, timing closure, or reliability, and is not a low-voltage circuit model.
+
 ## Hand-verifiable validation case
 
 `tests/tiny_pipeline.conf` is a one-frame regression configuration with a manually derived end-to-end latency of **0.281 µs**: 0.100 µs camera ingest, 0.100 µs preprocessing read, 0.006 µs RVV preprocessing, 0.050 µs write, 0.012 µs NPU-tile operands, 0.008 µs GEMM, 0.001 µs postprocess read, and 0.004 µs RVV postprocessing. CTest verifies the two-decimal rendered result, 0.28 µs.

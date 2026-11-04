@@ -57,6 +57,7 @@ struct Config {
   double vector_op_pj = 0.40;
   double npu_mac_pj = 0.20;
   double npu_arithmetic_energy_scale = 1.0;
+  double arithmetic_voltage_ratio = 1.0;
   double dram_byte_pj = 15.0;
   double dma_byte_pj = 1.5;
   double static_power_w = 0.0;

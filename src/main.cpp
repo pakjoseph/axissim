@@ -91,7 +91,7 @@ template <typename T>
       "gemm_m", "gemm_n", "gemm_k", "npu_tile_m", "npu_tile_n", "npu_tile_k",
       "npu_element_bytes", "npu_accumulator_bytes", "sram_capacity_bytes", "npu_weights_resident", "weight_sram_capacity_bytes", "dma_double_buffering",
       "postprocess_elements", "postprocess_ops_per_element", "postprocess_bytes", "vector_op_pj", "npu_mac_pj",
-      "npu_arithmetic_energy_scale", "dram_byte_pj", "dma_byte_pj", "static_power_w", "it_power_budget_w", "pue"};
+      "npu_arithmetic_energy_scale", "arithmetic_voltage_ratio", "dram_byte_pj", "dma_byte_pj", "static_power_w", "it_power_budget_w", "pue"};
   return keys;
 }
 
@@ -121,7 +121,7 @@ template <typename T>
   AXISSIM_LOAD(npu_element_bytes); AXISSIM_LOAD(npu_accumulator_bytes); AXISSIM_LOAD(sram_capacity_bytes);
   AXISSIM_LOAD(npu_weights_resident); AXISSIM_LOAD(weight_sram_capacity_bytes); AXISSIM_LOAD(dma_double_buffering);
   AXISSIM_LOAD(postprocess_elements); AXISSIM_LOAD(postprocess_ops_per_element); AXISSIM_LOAD(postprocess_bytes);
-  AXISSIM_LOAD(vector_op_pj); AXISSIM_LOAD(npu_mac_pj); AXISSIM_LOAD(npu_arithmetic_energy_scale);
+  AXISSIM_LOAD(vector_op_pj); AXISSIM_LOAD(npu_mac_pj); AXISSIM_LOAD(npu_arithmetic_energy_scale); AXISSIM_LOAD(arithmetic_voltage_ratio);
   AXISSIM_LOAD(dram_byte_pj); AXISSIM_LOAD(dma_byte_pj);
   AXISSIM_LOAD(static_power_w); AXISSIM_LOAD(it_power_budget_w); AXISSIM_LOAD(pue);
 #undef AXISSIM_LOAD
@@ -146,7 +146,7 @@ void validate(const Config& c) {
   const auto unique_weight_bytes = static_cast<std::uint64_t>(c.gemm_k) * c.gemm_n * c.npu_element_bytes;
   if ((c.npu_weights_resident != 0 && c.npu_weights_resident != 1) || (c.dma_double_buffering != 0 && c.dma_double_buffering != 1)) throw std::runtime_error("Boolean architecture settings must be 0 or 1");
   if (c.npu_weights_resident == 1 && c.weight_sram_capacity_bytes < unique_weight_bytes) throw std::runtime_error("Weight SRAM cannot hold the configured NPU weight tensor (requires " + std::to_string(unique_weight_bytes) + " bytes)");
-  if (c.vector_op_pj < 0 || c.npu_mac_pj < 0 || c.npu_arithmetic_energy_scale <= 0 || c.dram_byte_pj < 0 || c.dma_byte_pj < 0) throw std::runtime_error("Energy values must be non-negative (scale must be positive)");
+  if (c.vector_op_pj < 0 || c.npu_mac_pj < 0 || c.npu_arithmetic_energy_scale <= 0 || c.arithmetic_voltage_ratio <= 0 || c.dram_byte_pj < 0 || c.dma_byte_pj < 0) throw std::runtime_error("Energy values must be non-negative (scale and voltage ratio must be positive)");
   if (c.static_power_w < 0 || c.it_power_budget_w < 0 || c.pue < 1.0) throw std::runtime_error("Power parameters must be non-negative and PUE must be at least 1");
 }
 
@@ -316,7 +316,7 @@ class Simulator {
       }
       case RuntimeStage::NpuCompute: {
         const double macs = static_cast<double>(c_.gemm_m) * c_.gemm_n * c_.gemm_k;
-        task = {frame, stage, RuntimeResource::Npu, release_us, ready_us, std::ceil(macs / c_.npu_macs) / (c_.npu_frequency_ghz * 1000.0), 0.0, macs * c_.npu_mac_pj * c_.npu_arithmetic_energy_scale, 0, 0, 0, 1, "npu_gemm"};
+        task = {frame, stage, RuntimeResource::Npu, release_us, ready_us, std::ceil(macs / c_.npu_macs) / (c_.npu_frequency_ghz * 1000.0), 0.0, macs * c_.npu_mac_pj * c_.npu_arithmetic_energy_scale * c_.arithmetic_voltage_ratio * c_.arithmetic_voltage_ratio, 0, 0, 0, 1, "npu_gemm"};
         break;
       }
       case RuntimeStage::PostRead: task = {frame, stage, RuntimeResource::Dma, release_us, ready_us, transfer_duration_us(c_.postprocess_bytes), 0.0, 0.0, c_.postprocess_bytes, 0, 0, 1, "postprocess_read"}; break;
@@ -515,6 +515,7 @@ void print_results(const Simulator& simulator, const Config& config) {
             << "  workload mode:        " << config.workload_mode << "\n"
             << "  RVV timing model:     " << config.rvv_timing_model << "\n"
             << "  RVV memory accounting:" << config.rvv_memory_accounting << "\n"
+            << "  arithmetic voltage ratio: " << config.arithmetic_voltage_ratio << " (energy sensitivity only)\n"
             << "  scheduler policy:    " << config.scheduler_policy << "\n"
             << "  frames:              " << latency.size() << "\n"
             << "  RVV VLMAX:           " << simulator.vlmax() << " elements\n"
