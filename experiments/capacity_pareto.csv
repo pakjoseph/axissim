@@ -1,0 +1,5 @@
+arithmetic_scale,npu_macs,dram_bandwidth_gbps,mapping,sram_capacity_bytes,tile_m,tile_n,tile_k,latency_us,it_energy_per_frame_uj,average_it_power_w,feasible
+0.333333,1024,20,baseline,131072,64,64,128,861.059600,4280.382418,0.132723,true
+0.333333,1024,20,large_reuse_tile,524288,256,256,256,782.416400,5492.413086,0.170318,true
+0.333333,2048,20,baseline,131072,64,64,128,844.675600,5271.033399,0.163443,true
+0.333333,2048,20,large_reuse_tile,524288,256,256,256,766.032400,6482.962565,0.201038,true
