@@ -24,4 +24,4 @@ run_case iso_performance 0.333333 1 1024 20
 run_case voltage_sensitivity 1 0.666667 1024 20
 run_case compute_reinvestment 0.333333 1 4096 20
 run_case memory_constrained_compute 0.333333 1 4096 0.5
-echo "Wrote 4 points to $output"
+echo "Wrote 5 points to $output"
