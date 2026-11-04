@@ -31,6 +31,8 @@ struct Config {
   double rvv_affine_overhead_cycles = 0.0;
   double rvv_compute_cycle_scale = 1.0;
   std::uint64_t rvv_chunk_elements = 0;
+  std::string rvv_memory_accounting = "pipeline_dma";
+  int rvv_memory_bytes_per_element = 0;
   int npu_macs = 1024;
   double npu_frequency_ghz = 1.0;
   std::uint64_t input_bytes = 921'600;
