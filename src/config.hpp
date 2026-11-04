@@ -27,6 +27,8 @@ struct Config {
   int rvv_ops_per_lane_cycle = 1;
   double rvv_frequency_ghz = 1.0;
   double rvv_stripmine_overhead_cycles = 1.0;
+  std::string rvv_timing_model = "compute_envelope";
+  double rvv_affine_overhead_cycles = 0.0;
   std::uint64_t rvv_chunk_elements = 0;
   int npu_macs = 1024;
   double npu_frequency_ghz = 1.0;

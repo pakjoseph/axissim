@@ -86,7 +86,7 @@ template <typename T>
 [[nodiscard]] const std::set<std::string>& supported_keys() {
   static const std::set<std::string> keys = {
       "scenario_name", "model_version", "workload_mode", "scheduler_policy", "frames", "frame_period_us", "deadline_us", "dram_bandwidth_gbps", "dma_setup_us", "control_period_us", "control_deadline_us", "control_ops",
-      "rvv_vlen_bits", "rvv_sew_bits", "rvv_lmul", "rvv_lanes", "rvv_ops_per_lane_cycle", "rvv_frequency_ghz", "rvv_stripmine_overhead_cycles", "rvv_chunk_elements",
+      "rvv_vlen_bits", "rvv_sew_bits", "rvv_lmul", "rvv_lanes", "rvv_ops_per_lane_cycle", "rvv_frequency_ghz", "rvv_stripmine_overhead_cycles", "rvv_timing_model", "rvv_affine_overhead_cycles", "rvv_chunk_elements",
       "npu_macs", "npu_frequency_ghz", "input_bytes", "preprocess_elements", "preprocess_ops_per_element", "preprocess_output_bytes",
       "gemm_m", "gemm_n", "gemm_k", "npu_tile_m", "npu_tile_n", "npu_tile_k",
       "npu_element_bytes", "npu_accumulator_bytes", "sram_capacity_bytes", "npu_weights_resident", "weight_sram_capacity_bytes", "dma_double_buffering",
@@ -107,11 +107,12 @@ template <typename T>
   if (values.contains("model_version")) c.model_version = values.at("model_version");
   if (values.contains("workload_mode")) c.workload_mode = values.at("workload_mode");
   if (values.contains("scheduler_policy")) c.scheduler_policy = values.at("scheduler_policy");
+  if (values.contains("rvv_timing_model")) c.rvv_timing_model = values.at("rvv_timing_model");
 #define AXISSIM_LOAD(field) c.field = parse_number(values, #field, c.field)
   AXISSIM_LOAD(frames); AXISSIM_LOAD(frame_period_us); AXISSIM_LOAD(deadline_us);
   AXISSIM_LOAD(dram_bandwidth_gbps); AXISSIM_LOAD(dma_setup_us); AXISSIM_LOAD(control_period_us); AXISSIM_LOAD(control_deadline_us); AXISSIM_LOAD(control_ops);
   AXISSIM_LOAD(rvv_vlen_bits); AXISSIM_LOAD(rvv_sew_bits); AXISSIM_LOAD(rvv_lmul); AXISSIM_LOAD(rvv_lanes);
-  AXISSIM_LOAD(rvv_ops_per_lane_cycle); AXISSIM_LOAD(rvv_frequency_ghz); AXISSIM_LOAD(rvv_stripmine_overhead_cycles); AXISSIM_LOAD(rvv_chunk_elements);
+  AXISSIM_LOAD(rvv_ops_per_lane_cycle); AXISSIM_LOAD(rvv_frequency_ghz); AXISSIM_LOAD(rvv_stripmine_overhead_cycles); AXISSIM_LOAD(rvv_affine_overhead_cycles); AXISSIM_LOAD(rvv_chunk_elements);
   AXISSIM_LOAD(npu_macs); AXISSIM_LOAD(npu_frequency_ghz);
   AXISSIM_LOAD(input_bytes); AXISSIM_LOAD(preprocess_elements); AXISSIM_LOAD(preprocess_ops_per_element); AXISSIM_LOAD(preprocess_output_bytes);
   AXISSIM_LOAD(gemm_m); AXISSIM_LOAD(gemm_n); AXISSIM_LOAD(gemm_k);
@@ -128,10 +129,11 @@ template <typename T>
 void validate(const Config& c) {
   if (c.frames < 1 || c.frame_period_us <= 0 || c.deadline_us <= 0) throw std::runtime_error("Frame configuration must be positive");
   if (c.workload_mode != "physical_ai" && c.workload_mode != "rvv_stream") throw std::runtime_error("workload_mode must be physical_ai or rvv_stream");
+  if (c.rvv_timing_model != "compute_envelope" && c.rvv_timing_model != "affine_overhead") throw std::runtime_error("rvv_timing_model must be compute_envelope or affine_overhead");
   if (c.scheduler_policy != "fcfs" && c.scheduler_policy != "fixed_priority" && c.scheduler_policy != "edf") throw std::runtime_error("scheduler_policy must be fcfs, fixed_priority, or edf");
   if (c.control_period_us < 0 || c.control_deadline_us < 0 || (c.control_period_us == 0 && (c.control_deadline_us != 0 || c.control_ops != 0)) || (c.control_period_us > 0 && (c.control_deadline_us <= 0 || c.control_ops == 0))) throw std::runtime_error("Control workload must be fully disabled or have positive period, deadline, and operation count");
   if (c.dram_bandwidth_gbps <= 0 || c.rvv_frequency_ghz <= 0 || c.npu_frequency_ghz <= 0) throw std::runtime_error("Bandwidth and frequencies must be positive");
-  if (c.rvv_vlen_bits <= 0 || c.rvv_sew_bits <= 0 || c.rvv_vlen_bits % c.rvv_sew_bits != 0 || c.rvv_lmul < 1 || c.rvv_lanes < 1 || c.rvv_ops_per_lane_cycle < 1 || c.rvv_stripmine_overhead_cycles < 0 || c.preprocess_ops_per_element < 1 || c.postprocess_ops_per_element < 1) throw std::runtime_error("Invalid RVV configuration");
+  if (c.rvv_vlen_bits <= 0 || c.rvv_sew_bits <= 0 || c.rvv_vlen_bits % c.rvv_sew_bits != 0 || c.rvv_lmul < 1 || c.rvv_lanes < 1 || c.rvv_ops_per_lane_cycle < 1 || c.rvv_stripmine_overhead_cycles < 0 || c.rvv_affine_overhead_cycles < 0 || c.preprocess_ops_per_element < 1 || c.postprocess_ops_per_element < 1) throw std::runtime_error("Invalid RVV configuration");
   if (c.npu_macs < 1 || c.gemm_m < 1 || c.gemm_n < 1 || c.gemm_k < 1 || c.npu_tile_m < 1 || c.npu_tile_n < 1 || c.npu_tile_k < 1 || c.npu_element_bytes < 1 || c.npu_accumulator_bytes < 1) throw std::runtime_error("NPU dimensions, tiles, element sizes, and MAC count must be positive");
   const auto tile_m = static_cast<std::uint64_t>(std::min(c.gemm_m, c.npu_tile_m));
   const auto tile_n = static_cast<std::uint64_t>(std::min(c.gemm_n, c.npu_tile_n));
@@ -414,7 +416,7 @@ class Simulator {
     const double lane_rate = static_cast<double>(c_.rvv_lanes) * c_.rvv_ops_per_lane_cycle;
     const double compute_cycles = std::ceil(static_cast<double>(elements) * ops_per_element / lane_rate);
     const auto iterations = (elements + static_cast<std::uint64_t>(vlmax()) - 1) / static_cast<std::uint64_t>(vlmax());
-    return compute_cycles + iterations * c_.rvv_stripmine_overhead_cycles;
+    return compute_cycles + iterations * c_.rvv_stripmine_overhead_cycles + (c_.rvv_timing_model == "affine_overhead" ? c_.rvv_affine_overhead_cycles : 0.0);
   }
 
   Config c_;
