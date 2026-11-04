@@ -28,3 +28,13 @@ python3 experiments/plot_sweep.py experiments/rvv_lanes_sweep.csv \
 ```
 
 It produces a compact mean/P99-latency and energy-per-frame chart suitable for the README or a technical walkthrough.
+# Constrained design-space study
+
+Run the 96-point grid over RVV lanes, DRAM bandwidth, SRAM capacity, and NPU arithmetic energy:
+
+```sh
+./experiments/run_design_space.sh
+```
+
+The resulting `design_space.csv` contains modeled latency, deadline misses, and energy per frame. For the checked-in baseline mapping, the 3x lower NPU arithmetic-energy scenario changes energy from 107.76 to 103.28 microjoules per frame without changing latency; DRAM bandwidth and RVV lanes determine latency. This is a model finding under the stated assumptions, not a silicon claim.
+
