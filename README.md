@@ -58,6 +58,23 @@ Reproduce the complete data set with:
 
 Read the [baseline results report](docs/results.md) for the experiment data, interpretations, and figure-generation commands.
 
+## Ara RTL validation: where the vector model holds—and where it does not
+
+AxisSim's `rvv_stream` mode was checked against public Verilator RTL simulations of the open-source [Ara vector processor](https://github.com/pulp-platform/ara), pinned to revision `34bd3bc152421b4601a7bf3d6e8e91ffb545c99e`. This is a **compute-envelope validation**, not a claim about silicon frequency, power, cache behavior, or a complete SoC.
+
+The 4-lane size controls establish the model's compute-scaling slope. The 2-, 8-, and 16-lane rows are held-out configurations: the model parameters were not retuned after seeing them.
+
+| Ara lanes | VLEN | Ara RTL cycles | AxisSim cycles | Relative difference |
+|---:|---:|---:|---:|---:|
+| 2 | 2,048 | 1,064,052 | 1,048,576 | 1.454% |
+| 4 | 4,096 | 532,392 | 524,288 | 1.522% |
+| 8 | 8,192 | 275,911 | 262,144 | 4.990% |
+| 16 | 16,384 | 172,252 | 131,072 | 23.907% |
+
+![Ara RTL and AxisSim lane scaling](docs/figures/ara-rtl-lane-scaling.svg)
+
+The outcome is useful precisely because it is mixed: the simple lane-throughput model follows low-to-medium parallelism well, while its error grows at 16 lanes. That exposes unmodeled fixed and scaling overhead rather than supporting an overbroad accuracy claim. See the [Ara validation report](docs/ara-validation.md), raw reproduction logs, hashes, and commands in [`reference_data/ara/reproductions`](reference_data/ara/reproductions/).
+
 ## Build and run
 
 ```sh
@@ -138,7 +155,7 @@ Each result also includes a vector/NPU-arithmetic/DRAM/DMA energy breakdown. The
 
 ## RVV calibration workflow
 
-`calibrate` compares the model's mean end-to-end latency against a traceable lane-scaling reference CSV. It reports predicted and reference latency plus absolute and relative error for every point:
+`calibrate` compares a traceable reference CSV with the selected model. For `rvv_stream` references that preserve raw RTL cycles, cycles are primary; normalized latency is secondary. It reports predicted/reference values and absolute/relative error for every point:
 
 ```sh
 ./build/axissim calibrate configs/baseline/manifest.conf \
