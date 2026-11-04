@@ -505,7 +505,7 @@ void write_result_json(const std::string& path, const Simulator& simulator, cons
   const double expected_failures = config.reliability_fit_rate * config.reliability_voltage_fit_multiplier * config.deployment_xpu_count * config.deployment_hours / 1'000'000'000.0;
   output << std::fixed << std::setprecision(6);
   output << "{\n"
-         << "  \"schema_version\": \"1.0\",\n"
+         << "  \"schema_version\": \"1.1\",\n"
          << "  \"scenario_name\": \"" << json_escape(config.scenario_name) << "\",\n"
          << "  \"model_version\": \"" << json_escape(config.model_version) << "\",\n"
          << "  \"workload_mode\": \"" << json_escape(config.workload_mode) << "\",\n"
@@ -520,10 +520,10 @@ void write_result_json(const std::string& path, const Simulator& simulator, cons
          << ", \"npu_arithmetic_pj\": " << simulator.npu_arithmetic_energy_pj() << ", \"dram_pj\": " << simulator.dram_energy_pj()
          << ", \"dma_pj\": " << simulator.dma_energy_pj() << "},\n"
          << "  \"power\": {\"base_static_w\": " << config.static_power_w << ", \"modeled_static_w\": " << static_power_w << ", \"average_it_w\": " << average_it_power_w << ", \"average_facility_w\": " << config.pue * average_it_power_w << ", \"budget_w\": " << config.it_power_budget_w << ", \"pue\": " << config.pue << ", \"feasible\": " << (config.it_power_budget_w == 0 || average_it_power_w <= config.it_power_budget_w ? "true" : "false") << "},\n"
-         << "  \"deployment\": {\"xpu_count\": " << config.deployment_xpu_count << ", \"hours\": " << config.deployment_hours << ", \"facility_energy_kwh\": " << deployment_facility_kwh << ", \"electricity_cost\": " << deployment_facility_kwh * config.electricity_cost_per_kwh << "}\n"
-         << ",  \"area_proxy\": {\"modeled_mm2\": " << area_mm2 << ", \"limit_mm2\": " << config.max_area_mm2 << ", \"feasible\": " << (config.max_area_mm2 == 0 || area_mm2 <= config.max_area_mm2 ? "true" : "false") << "}\n"
-         << ",  \"thermal_proxy\": {\"ambient_c\": " << config.ambient_temp_c << ", \"end_c\": " << end_temp_c << ", \"steady_state_c\": " << steady_temp_c << ", \"limit_c\": " << config.max_junction_temp_c << ", \"feasible\": " << (config.max_junction_temp_c == 0 || end_temp_c <= config.max_junction_temp_c ? "true" : "false") << "}\n"
-         << ",  \"reliability_proxy\": {\"fit_rate\": " << config.reliability_fit_rate << ", \"voltage_multiplier\": " << config.reliability_voltage_fit_multiplier << ", \"expected_failures\": " << expected_failures << "}\n"
+         << "  \"deployment\": {\"xpu_count\": " << config.deployment_xpu_count << ", \"hours\": " << config.deployment_hours << ", \"electricity_cost_per_kwh\": " << config.electricity_cost_per_kwh << ", \"facility_energy_kwh\": " << deployment_facility_kwh << ", \"electricity_cost\": " << deployment_facility_kwh * config.electricity_cost_per_kwh << "},\n"
+         << "  \"area_proxy\": {\"base_mm2\": " << config.base_area_mm2 << ", \"npu_per_mac_mm2\": " << config.npu_area_per_mac_mm2 << ", \"rvv_per_lane_mm2\": " << config.rvv_area_per_lane_mm2 << ", \"sram_per_kib_mm2\": " << config.sram_area_per_kib_mm2 << ", \"modeled_mm2\": " << area_mm2 << ", \"limit_mm2\": " << config.max_area_mm2 << ", \"feasible\": " << (config.max_area_mm2 == 0 || area_mm2 <= config.max_area_mm2 ? "true" : "false") << "},\n"
+         << "  \"thermal_proxy\": {\"ambient_c\": " << config.ambient_temp_c << ", \"resistance_c_per_w\": " << config.thermal_resistance_c_per_w << ", \"capacitance_j_per_c\": " << config.thermal_capacitance_j_per_c << ", \"end_c\": " << end_temp_c << ", \"steady_state_c\": " << steady_temp_c << ", \"limit_c\": " << config.max_junction_temp_c << ", \"feasible\": " << (config.max_junction_temp_c == 0 || end_temp_c <= config.max_junction_temp_c ? "true" : "false") << "},\n"
+         << "  \"reliability_proxy\": {\"fit_rate\": " << config.reliability_fit_rate << ", \"voltage_multiplier\": " << config.reliability_voltage_fit_multiplier << ", \"expected_failures\": " << expected_failures << "}\n"
          << "}\n";
 }
 

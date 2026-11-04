@@ -90,6 +90,8 @@ if(BUILD_TESTING)
   add_test(NAME implementation_proxies_are_explicit
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/tests/tiny_pipeline.conf --set static_power_w=1 --set base_area_mm2=1 --set npu_area_per_mac_mm2=0.1 --set max_area_mm2=2 --set thermal_resistance_c_per_w=10 --set thermal_capacitance_j_per_c=1 --set max_junction_temp_c=100 --set reliability_fit_rate=100 --set deployment_xpu_count=1000 --set deployment_hours=1000)
   set_tests_properties(implementation_proxies_are_explicit PROPERTIES PASS_REGULAR_EXPRESSION "reliability proxy expected failures: 0.10")
+  add_test(NAME exact_deployment_and_proxy_accounting
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/check_deployment_and_proxies.sh $<TARGET_FILE:axissim> ${CMAKE_SOURCE_DIR}/tests/tiny_pipeline.conf)
   add_test(NAME calibration_fixture_smoke
            COMMAND axissim calibrate ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
                    --reference ${CMAKE_SOURCE_DIR}/tests/reference/synthetic_latency.csv)
@@ -119,4 +121,10 @@ if(BUILD_TESTING)
                    --reference ${CMAKE_SOURCE_DIR}/reference_data/ara/ara_rtl_lane_holdout.csv)
   set_tests_properties(ara_rtl_lane_holdout_smoke PROPERTIES
                         PASS_REGULAR_EXPRESSION "ara_rtl_fmatmul64_128_2lane_holdout,reproduced,../../configs/calibration/ara_fmatmul64_128_2lane.conf,2,1064052.000,1048576.000")
+  if(TARGET axissim-gui)
+    add_test(NAME desktop_gui_initializes COMMAND axissim-gui --smoke-test)
+    set_tests_properties(desktop_gui_initializes PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_test(NAME desktop_gui_runs_model COMMAND axissim-gui --smoke-test-run)
+    set_tests_properties(desktop_gui_runs_model PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 15)
+  endif()
 endif()

@@ -34,7 +34,7 @@ namespace {
 
 class AxisSimWindow final : public QMainWindow {
  public:
-  AxisSimWindow() {
+  explicit AxisSimWindow(bool exit_after_run = false) : exit_after_run_(exit_after_run) {
     setWindowTitle("AxisSim Desktop Explorer");
     resize(1'200, 760);
 
@@ -42,7 +42,10 @@ class AxisSimWindow final : public QMainWindow {
     auto* layout = new QVBoxLayout(root);
     auto* toolbar = new QHBoxLayout();
     scenario_ = new QComboBox(root);
-    scenario_->addItem("Baseline Physical AI", "configs/baseline/manifest.conf");
+    const QDir project_root(QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(".."));
+    scenario_->addItem("Baseline Physical AI", project_root.filePath("configs/baseline/manifest.conf"));
+    scenario_->addItem("Power-budget Physical AI", project_root.filePath("configs/power_budget/manifest.conf"));
+    scenario_->addItem("Deployment & implementation proxies", project_root.filePath("configs/implementation_proxy/manifest.conf"));
     auto* browse = new QPushButton("Open scenario…", root);
     auto* save_as = new QPushButton("Save As…", root);
     auto* run = new QPushButton("Run scenario", root);
@@ -80,6 +83,22 @@ class AxisSimWindow final : public QMainWindow {
     sweep_->setHorizontalHeaderLabels({"RVV lanes", "Mean (µs)", "P99 (µs)", "Energy/frame (µJ)"});
     sweep_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     result_views->addTab(sweep_, "RVV lane sweep");
+    metrics_ = new QTableWidget(result_views);
+    metrics_->setColumnCount(3);
+    metrics_->setHorizontalHeaderLabels({"Metric", "Modeled value", "Interpretation"});
+    metrics_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    metrics_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    metrics_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    metrics_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    result_views->addTab(metrics_, "Power & deployment");
+    proxies_ = new QTableWidget(result_views);
+    proxies_->setColumnCount(3);
+    proxies_->setHorizontalHeaderLabels({"Proxy", "Modeled value", "Scope / status"});
+    proxies_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    proxies_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    proxies_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    proxies_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    result_views->addTab(proxies_, "Implementation proxies");
     right_layout->addWidget(new QLabel("Model result", right));
     right_layout->addWidget(summary_, 1);
     right_layout->addWidget(result_views, 2);
@@ -96,6 +115,7 @@ class AxisSimWindow final : public QMainWindow {
     connect(sweep, &QPushButton::clicked, this, [this] { runLaneSweep(); });
     connect(ara_check, &QPushButton::clicked, this, [this] { runAra2Check(); });
     loadScenario(scenario_->currentData().toString());
+    if (exit_after_run_) QTimer::singleShot(0, this, [this] { runScenario(); });
   }
 
  private:
@@ -139,6 +159,10 @@ class AxisSimWindow final : public QMainWindow {
     if (!ensureSaved()) return;
     const QString executable = QCoreApplication::applicationDirPath() + "/axissim";
     if (!QFileInfo::exists(executable)) {
+      if (exit_after_run_) {
+        QCoreApplication::exit(1);
+        return;
+      }
       QMessageBox::critical(this, "AxisSim", "The axissim CLI was not found beside the GUI. Build both targets together.");
       return;
     }
@@ -151,6 +175,10 @@ class AxisSimWindow final : public QMainWindow {
             [this, json_path, trace_path](int exit_code, QProcess::ExitStatus exit_status) {
               const QString output = QString::fromUtf8(process_->readAllStandardOutput() + process_->readAllStandardError());
               if (exit_status != QProcess::NormalExit || exit_code != 0) {
+                if (exit_after_run_) {
+                  QCoreApplication::exit(1);
+                  return;
+                }
                 QMessageBox::critical(this, "AxisSim run failed", output);
                 return;
               }
@@ -218,6 +246,10 @@ class AxisSimWindow final : public QMainWindow {
   void showResult(const QString& json_path, const QString& trace_path, const QString& cli_output) {
     QFile result_file(json_path);
     if (!result_file.open(QIODevice::ReadOnly)) {
+      if (exit_after_run_) {
+        QCoreApplication::exit(1);
+        return;
+      }
       QMessageBox::critical(this, "AxisSim", "The run did not produce a result JSON.");
       return;
     }
@@ -227,7 +259,15 @@ class AxisSimWindow final : public QMainWindow {
     const QJsonObject deadlines = result.value("deadlines").toObject();
     const QJsonObject traffic = result.value("traffic").toObject();
     const QJsonObject energy = result.value("energy").toObject();
-    summary_->setPlainText(QString("Scenario: %1 (model %2)\n\nLatency mean / P99: %3 / %4 µs\nVision deadline misses: %5 / %6\nDRAM traffic: %7 MB\nEnergy per frame: %8 µJ\n\n%9")
+    const QJsonObject power = result.value("power").toObject();
+    const QJsonObject deployment = result.value("deployment").toObject();
+    const bool deployment_enabled = deployment.value("hours").toDouble() > 0.0;
+    const QString deployment_summary = deployment_enabled
+        ? QString("Deployment facility energy / electricity cost: %1 kWh / $%2")
+              .arg(deployment.value("facility_energy_kwh").toDouble(), 0, 'f', 3)
+              .arg(deployment.value("electricity_cost").toDouble(), 0, 'f', 2)
+        : QString("Deployment estimate: not configured");
+    summary_->setPlainText(QString("Scenario: %1 (model %2)\n\nLatency mean / P99: %3 / %4 µs\nVision deadline misses: %5 / %6\nDRAM traffic: %7 MB\nDynamic energy per frame: %8 µJ\nAverage IT / facility power: %9 / %10 W\n%11\n\nAll values are model outputs. Area, thermal, and reliability tabs are bounded assumption-driven proxies, not implementation signoff.\n\n%12")
                                .arg(result.value("scenario_name").toString(), result.value("model_version").toString())
                                .arg(latency.value("mean_us").toDouble(), 0, 'f', 2)
                                .arg(latency.value("p99_us").toDouble(), 0, 'f', 2)
@@ -235,9 +275,80 @@ class AxisSimWindow final : public QMainWindow {
                                .arg(deadlines.value("vision_jobs").toInt())
                                .arg(traffic.value("dram_bytes").toDouble() / 1'000'000.0, 0, 'f', 2)
                                .arg(energy.value("per_frame_uj").toDouble(), 0, 'f', 2)
+                               .arg(power.value("average_it_w").toDouble(), 0, 'f', 4)
+                               .arg(power.value("average_facility_w").toDouble(), 0, 'f', 4)
+                               .arg(deployment_summary)
                                .arg(cli_output));
+    populateMetrics(result);
+    populateProxies(result);
     populateTrace(trace_path);
     statusBar()->showMessage("Model run complete");
+    if (exit_after_run_) QCoreApplication::exit(0);
+  }
+
+  static void appendRow(QTableWidget* table, const QString& name, const QString& value, const QString& interpretation) {
+    const int row = table->rowCount();
+    table->insertRow(row);
+    table->setItem(row, 0, new QTableWidgetItem(name));
+    table->setItem(row, 1, new QTableWidgetItem(value));
+    table->setItem(row, 2, new QTableWidgetItem(interpretation));
+  }
+
+  void populateMetrics(const QJsonObject& result) {
+    metrics_->setRowCount(0);
+    const QJsonObject timing = result.value("timing").toObject();
+    const QJsonObject energy = result.value("energy").toObject();
+    const QJsonObject power = result.value("power").toObject();
+    const QJsonObject deployment = result.value("deployment").toObject();
+    appendRow(metrics_, "Modeled makespan", QString::number(timing.value("makespan_us").toDouble() / 1'000'000.0, 'f', 6) + " s", "Elapsed simulated workload window");
+    appendRow(metrics_, "Dynamic energy / frame", QString::number(energy.value("per_frame_uj").toDouble(), 'f', 3) + " µJ", "Activity-count estimate; excludes modeled static power");
+    appendRow(metrics_, "IT energy / frame", QString::number(energy.value("it_per_frame_uj").toDouble(), 'f', 3) + " µJ", "Dynamic plus configured static-capacity power");
+    appendRow(metrics_, "Facility energy / frame", QString::number(energy.value("facility_per_frame_uj").toDouble(), 'f', 3) + " µJ", "IT energy multiplied by configured PUE");
+    appendRow(metrics_, "Average IT power", QString::number(power.value("average_it_w").toDouble(), 'f', 6) + " W", "Average over the modeled makespan");
+    appendRow(metrics_, "Average facility power", QString::number(power.value("average_facility_w").toDouble(), 'f', 6) + " W", "Average IT power × PUE");
+    const double budget_w = power.value("budget_w").toDouble();
+    appendRow(metrics_, "IT power budget", budget_w > 0.0 ? QString::number(budget_w, 'f', 6) + " W" : "Not configured",
+              budget_w > 0.0 ? (power.value("feasible").toBool() ? "Feasible" : "Infeasible") : "No budget constraint applied");
+    appendRow(metrics_, "PUE", QString::number(power.value("pue").toDouble(), 'f', 3), "Facility multiplier; not a chip property");
+    const double deployment_hours = deployment.value("hours").toDouble();
+    if (deployment_hours > 0.0) {
+      appendRow(metrics_, "Deployment scope", QString("%1 XPUs × %2 h").arg(deployment.value("xpu_count").toInt()).arg(deployment_hours, 0, 'f', 2), "Straight-line extrapolation of average facility power");
+      appendRow(metrics_, "Deployment facility energy", QString::number(deployment.value("facility_energy_kwh").toDouble(), 'f', 3) + " kWh", "Modeled deployment estimate");
+      appendRow(metrics_, "Electricity cost", "$" + QString::number(deployment.value("electricity_cost").toDouble(), 'f', 2),
+                QString("At $%1/kWh; excludes demand charges and other TCO").arg(deployment.value("electricity_cost_per_kwh").toDouble(), 0, 'f', 4));
+    } else {
+      appendRow(metrics_, "Deployment economics", "Not configured", "Set deployment_hours, deployment_xpu_count, and electricity_cost_per_kwh");
+    }
+  }
+
+  void populateProxies(const QJsonObject& result) {
+    proxies_->setRowCount(0);
+    const QJsonObject area = result.value("area_proxy").toObject();
+    const QJsonObject thermal = result.value("thermal_proxy").toObject();
+    const QJsonObject reliability = result.value("reliability_proxy").toObject();
+    const bool area_enabled = area.value("modeled_mm2").toDouble() > 0.0 || area.value("limit_mm2").toDouble() > 0.0;
+    if (area_enabled) {
+      appendRow(proxies_, "Architecture area", QString::number(area.value("modeled_mm2").toDouble(), 'f', 4) + " mm²",
+                area.value("limit_mm2").toDouble() > 0.0 ? (area.value("feasible").toBool() ? "Within configured limit" : "Exceeds configured limit") : "No limit configured");
+    } else {
+      appendRow(proxies_, "Architecture area", "Not configured", "Coefficient sum only; no placement, routing, or GDS prediction");
+    }
+    const bool thermal_enabled = thermal.value("resistance_c_per_w").toDouble() > 0.0;
+    if (thermal_enabled) {
+      appendRow(proxies_, "Transient junction temperature", QString::number(thermal.value("end_c").toDouble(), 'f', 3) + " °C",
+                thermal.value("limit_c").toDouble() > 0.0 ? (thermal.value("feasible").toBool() ? "Within configured limit" : "Exceeds configured limit") : "No limit configured");
+      appendRow(proxies_, "Steady-state temperature", QString::number(thermal.value("steady_state_c").toDouble(), 'f', 3) + " °C", "Single-node first-order RC proxy; no hotspot/package model");
+      appendRow(proxies_, "Thermal assumptions", QString("Rθ %1 °C/W, Cth %2 J/°C").arg(thermal.value("resistance_c_per_w").toDouble(), 0, 'f', 4).arg(thermal.value("capacitance_j_per_c").toDouble(), 0, 'f', 4), "User-supplied sensitivity inputs");
+    } else {
+      appendRow(proxies_, "Thermal response", "Not configured", "Set thermal resistance and capacitance; not thermal signoff");
+    }
+    const bool reliability_enabled = reliability.value("fit_rate").toDouble() > 0.0;
+    if (reliability_enabled) {
+      appendRow(proxies_, "Expected deployment failures", QString::number(reliability.value("expected_failures").toDouble(), 'f', 6), "FIT extrapolation, not a predicted silicon failure rate");
+      appendRow(proxies_, "Reliability assumptions", QString("%1 FIT × %2 voltage multiplier").arg(reliability.value("fit_rate").toDouble(), 0, 'f', 3).arg(reliability.value("voltage_multiplier").toDouble(), 0, 'f', 3), "User-supplied; no soft-error, yield, ECC, or aging model");
+    } else {
+      appendRow(proxies_, "Reliability", "Not configured", "Set a sourced FIT rate and deployment horizon for sensitivity analysis");
+    }
   }
 
   void populateTrace(const QString& trace_path) {
@@ -278,17 +389,21 @@ class AxisSimWindow final : public QMainWindow {
   QPlainTextEdit* summary_ = nullptr;
   QTableWidget* trace_ = nullptr;
   QTableWidget* sweep_ = nullptr;
+  QTableWidget* metrics_ = nullptr;
+  QTableWidget* proxies_ = nullptr;
   QString scenario_path_;
   std::unique_ptr<QProcess> process_;
   std::unique_ptr<QTemporaryDir> temporary_;
+  bool exit_after_run_ = false;
 };
 
 }  // namespace
 
 int main(int argc, char** argv) {
   const bool smoke_test = argc == 2 && QString::fromLocal8Bit(argv[1]) == "--smoke-test";
+  const bool smoke_test_run = argc == 2 && QString::fromLocal8Bit(argv[1]) == "--smoke-test-run";
   QApplication application(argc, argv);
-  AxisSimWindow window;
+  AxisSimWindow window(smoke_test_run);
   window.show();
   if (smoke_test) QTimer::singleShot(0, &application, &QCoreApplication::quit);
   return application.exec();

@@ -1,6 +1,6 @@
 # AxisSim
 
-AxisSim is a C++ tool for exploring how AI hardware and software choices affect speed, reliability, and energy use before a chip is built. It models a hypothetical real-time vision system and helps answer practical design questions: Should we add more compute, improve memory bandwidth, change the workload mapping, or adjust scheduling?
+AxisSim is a C++ tool for exploring how AI hardware and software choices affect speed, deadline behavior, and energy use before a chip is built. It models a hypothetical real-time vision system and helps answer practical design questions: Should we add more compute, improve memory bandwidth, change the workload mapping, or adjust scheduling?
 
 ### At a glance
 
@@ -35,6 +35,8 @@ flowchart LR
 - RVV-style strip-mined kernels with configurable VLEN, SEW, LMUL, lanes, setup overhead, and tail utilization
 - Output-stationary tiled GEMM with SRAM-fit validation and explicit tensor traffic
 - Per-operation and per-byte energy accounting
+- Static-capacity power, PUE, fixed-budget feasibility, and deployment electricity-cost extrapolation
+- Optional, assumption-driven area, first-order thermal, and FIT reliability proxies
 - Mean/P99 latency, deadline misses, engine utilization, pipeline concurrency, traffic, energy/frame, and CSV traces
 - CTest smoke coverage for valid and invalid configurations
 - Reference-data calibration reports with public/reproduced provenance labels
@@ -95,7 +97,7 @@ AxisSim also evaluates an explicitly hypothetical iso-performance arithmetic-ene
 
 The default illustrative study assumes 0.1 W static IT power, a 1 W IT budget, and PUE 1.5. It finds that lower arithmetic energy plus more NPU MACs is the lowest-latency feasible point at 20 GB/s DRAM, but the same compute reinvestment becomes severely memory-bound at 0.5 GB/s DRAM (12,633.58 microseconds). The GEMM-heavy companion study shows the complementary case: arithmetic-energy reductions have a larger modeled effect when arithmetic is a greater share of workload energy.
 
-AxisSim models the system-level consequences of an assumed arithmetic-efficiency improvement. It does not model low-voltage cells, frequency recovery, timing closure, soft errors, yield, reliability, thermal dynamics, Titan Core IP, or Velaura silicon.
+AxisSim models the system-level consequences of an assumed arithmetic-efficiency improvement. It does not model low-voltage cells, frequency recovery, timing closure, soft-error mechanisms, yield, Titan Core IP, or Velaura silicon. Its optional area, first-order thermal, and FIT calculations are transparent sensitivity proxies—not physical-design, thermal, or reliability signoff.
 
 ### Fixed-budget Pareto result
 
@@ -133,7 +135,7 @@ GitHub Actions runs the same configure, build, and CTest workflow on every push 
 
 ## Desktop explorer
 
-When Qt 6 Widgets is available, CMake also builds `axissim-gui`, a native desktop front end for opening/editing/saving scenario manifests, launching the same CLI model, and viewing result metrics with the first-frame task timeline.
+When Qt 6 Widgets is available, CMake also builds `axissim-gui`, a native desktop front end for opening/editing/saving scenario manifests, launching the same CLI model, and viewing the first-frame task timeline, RVV lane sweeps, power-budget results, deployment electricity estimates, and bounded implementation proxies.
 
 ```sh
 cmake -S . -B build -DAXISSIM_BUILD_GUI=ON
@@ -141,13 +143,16 @@ cmake --build build
 ./build/axissim-gui
 ```
 
-The UI calls the checked-in CLI executable and reads its JSON/trace artifacts, so it does not have a separate performance model. Save edited manifests before running; included config paths remain relative to the manifest's saved directory. The Qt target is optional (`-DAXISSIM_BUILD_GUI=OFF`) for headless CI and minimal CLI builds.
+The UI calls the checked-in CLI executable and reads its JSON/trace artifacts, so it does not have a separate performance model. Its preset menu includes the baseline, fixed-power, and explicitly illustrative deployment/proxy scenarios. Save edited manifests before running; included config paths remain relative to the manifest's saved directory. The Qt target is optional (`-DAXISSIM_BUILD_GUI=OFF`) for headless CI and minimal CLI builds.
 
 For a non-interactive GUI initialization check on a machine with Qt, run:
 
 ```sh
 QT_QPA_PLATFORM=offscreen ./build/axissim-gui --smoke-test
+QT_QPA_PLATFORM=offscreen ./build/axissim-gui --smoke-test-run
 ```
+
+The second check exercises the complete GUI-to-CLI-to-JSON/trace result path.
 
 ## Configuration layers
 
@@ -162,7 +167,7 @@ The baseline scenario is a manifest rather than one monolithic parameter file:
 
 `manifest.conf` composes the layers and identifies the scenario/model version. This makes architectural facts distinct from timing and energy assumptions.
 
-`--json result.json` emits a schema-versioned machine-readable result artifact containing scenario provenance, latency, deadline, traffic, and energy metrics.
+`--json result.json` emits a schema-versioned machine-readable result artifact containing scenario provenance, latency, deadline, traffic, energy, power, deployment, and proxy metrics. See [implementation proxy scope and equations](docs/implementation-proxies.md).
 
 ## First experiments
 
