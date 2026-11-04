@@ -91,7 +91,7 @@ template <typename T>
       "gemm_m", "gemm_n", "gemm_k", "npu_tile_m", "npu_tile_n", "npu_tile_k",
       "npu_element_bytes", "npu_accumulator_bytes", "sram_capacity_bytes", "npu_weights_resident", "weight_sram_capacity_bytes", "dma_double_buffering",
       "postprocess_elements", "postprocess_ops_per_element", "postprocess_bytes", "vector_op_pj", "npu_mac_pj",
-      "npu_arithmetic_energy_scale", "arithmetic_voltage_ratio", "dram_byte_pj", "dma_byte_pj", "static_power_w", "npu_static_power_per_mac_w", "rvv_static_power_per_lane_w", "sram_static_power_per_kib_w", "dram_interface_static_power_w", "it_power_budget_w", "pue", "electricity_cost_per_kwh", "deployment_xpu_count", "deployment_hours"};
+      "npu_arithmetic_energy_scale", "arithmetic_voltage_ratio", "dram_byte_pj", "dma_byte_pj", "static_power_w", "npu_static_power_per_mac_w", "rvv_static_power_per_lane_w", "sram_static_power_per_kib_w", "dram_interface_static_power_w", "it_power_budget_w", "pue", "electricity_cost_per_kwh", "deployment_xpu_count", "deployment_hours", "base_area_mm2", "npu_area_per_mac_mm2", "rvv_area_per_lane_mm2", "sram_area_per_kib_mm2", "max_area_mm2", "ambient_temp_c", "thermal_resistance_c_per_w", "thermal_capacitance_j_per_c", "max_junction_temp_c", "reliability_fit_rate", "reliability_voltage_fit_multiplier"};
   return keys;
 }
 
@@ -124,6 +124,7 @@ template <typename T>
   AXISSIM_LOAD(vector_op_pj); AXISSIM_LOAD(npu_mac_pj); AXISSIM_LOAD(npu_arithmetic_energy_scale); AXISSIM_LOAD(arithmetic_voltage_ratio);
   AXISSIM_LOAD(dram_byte_pj); AXISSIM_LOAD(dma_byte_pj);
   AXISSIM_LOAD(static_power_w); AXISSIM_LOAD(npu_static_power_per_mac_w); AXISSIM_LOAD(rvv_static_power_per_lane_w); AXISSIM_LOAD(sram_static_power_per_kib_w); AXISSIM_LOAD(dram_interface_static_power_w); AXISSIM_LOAD(it_power_budget_w); AXISSIM_LOAD(pue); AXISSIM_LOAD(electricity_cost_per_kwh); AXISSIM_LOAD(deployment_xpu_count); AXISSIM_LOAD(deployment_hours);
+  AXISSIM_LOAD(base_area_mm2); AXISSIM_LOAD(npu_area_per_mac_mm2); AXISSIM_LOAD(rvv_area_per_lane_mm2); AXISSIM_LOAD(sram_area_per_kib_mm2); AXISSIM_LOAD(max_area_mm2); AXISSIM_LOAD(ambient_temp_c); AXISSIM_LOAD(thermal_resistance_c_per_w); AXISSIM_LOAD(thermal_capacitance_j_per_c); AXISSIM_LOAD(max_junction_temp_c); AXISSIM_LOAD(reliability_fit_rate); AXISSIM_LOAD(reliability_voltage_fit_multiplier);
 #undef AXISSIM_LOAD
   return c;
 }
@@ -148,6 +149,7 @@ void validate(const Config& c) {
   if (c.npu_weights_resident == 1 && c.weight_sram_capacity_bytes < unique_weight_bytes) throw std::runtime_error("Weight SRAM cannot hold the configured NPU weight tensor (requires " + std::to_string(unique_weight_bytes) + " bytes)");
   if (c.vector_op_pj < 0 || c.npu_mac_pj < 0 || c.npu_arithmetic_energy_scale <= 0 || c.arithmetic_voltage_ratio <= 0 || c.dram_byte_pj < 0 || c.dma_byte_pj < 0) throw std::runtime_error("Energy values must be non-negative (scale and voltage ratio must be positive)");
   if (c.static_power_w < 0 || c.npu_static_power_per_mac_w < 0 || c.rvv_static_power_per_lane_w < 0 || c.sram_static_power_per_kib_w < 0 || c.dram_interface_static_power_w < 0 || c.it_power_budget_w < 0 || c.pue < 1.0 || c.electricity_cost_per_kwh < 0 || c.deployment_xpu_count < 1 || c.deployment_hours < 0) throw std::runtime_error("Power and deployment parameters are invalid");
+  if (c.base_area_mm2 < 0 || c.npu_area_per_mac_mm2 < 0 || c.rvv_area_per_lane_mm2 < 0 || c.sram_area_per_kib_mm2 < 0 || c.max_area_mm2 < 0 || c.thermal_resistance_c_per_w < 0 || c.thermal_capacitance_j_per_c < 0 || c.reliability_fit_rate < 0 || c.reliability_voltage_fit_multiplier <= 0) throw std::runtime_error("Area, thermal, and reliability proxy parameters are invalid");
 }
 
 struct TraceEvent { int frame; std::string task; std::string resource; double start_us; double end_us; };
@@ -478,6 +480,13 @@ void write_trace_csv(const std::string& path, const std::vector<TraceEvent>& tra
        + config.dram_interface_static_power_w;
 }
 
+[[nodiscard]] double modeled_area_mm2(const Config& config) {
+  return config.base_area_mm2
+       + static_cast<double>(config.npu_macs) * config.npu_area_per_mac_mm2
+       + static_cast<double>(config.rvv_lanes) * config.rvv_area_per_lane_mm2
+       + (static_cast<double>(config.sram_capacity_bytes) / 1024.0) * config.sram_area_per_kib_mm2;
+}
+
 void write_result_json(const std::string& path, const Simulator& simulator, const Config& config) {
   std::ofstream output(path);
   if (!output) throw std::runtime_error("Unable to write JSON: " + path);
@@ -489,6 +498,11 @@ void write_result_json(const std::string& path, const Simulator& simulator, cons
   const double it_energy_pj = simulator.total_energy_pj() + static_energy_pj;
   const double average_it_power_w = simulator.makespan_us() > 0 ? it_energy_pj / simulator.makespan_us() / 1'000'000.0 : 0.0;
   const double deployment_facility_kwh = config.pue * average_it_power_w * config.deployment_xpu_count * config.deployment_hours / 1000.0;
+  const double area_mm2 = modeled_area_mm2(config);
+  const double steady_temp_c = config.ambient_temp_c + average_it_power_w * config.thermal_resistance_c_per_w;
+  const double tau_s = config.thermal_resistance_c_per_w * config.thermal_capacitance_j_per_c;
+  const double end_temp_c = tau_s > 0 ? config.ambient_temp_c + (steady_temp_c - config.ambient_temp_c) * (1.0 - std::exp(-(simulator.makespan_us() / 1'000'000.0) / tau_s)) : steady_temp_c;
+  const double expected_failures = config.reliability_fit_rate * config.reliability_voltage_fit_multiplier * config.deployment_xpu_count * config.deployment_hours / 1'000'000'000.0;
   output << std::fixed << std::setprecision(6);
   output << "{\n"
          << "  \"schema_version\": \"1.0\",\n"
@@ -507,6 +521,9 @@ void write_result_json(const std::string& path, const Simulator& simulator, cons
          << ", \"dma_pj\": " << simulator.dma_energy_pj() << "},\n"
          << "  \"power\": {\"base_static_w\": " << config.static_power_w << ", \"modeled_static_w\": " << static_power_w << ", \"average_it_w\": " << average_it_power_w << ", \"average_facility_w\": " << config.pue * average_it_power_w << ", \"budget_w\": " << config.it_power_budget_w << ", \"pue\": " << config.pue << ", \"feasible\": " << (config.it_power_budget_w == 0 || average_it_power_w <= config.it_power_budget_w ? "true" : "false") << "},\n"
          << "  \"deployment\": {\"xpu_count\": " << config.deployment_xpu_count << ", \"hours\": " << config.deployment_hours << ", \"facility_energy_kwh\": " << deployment_facility_kwh << ", \"electricity_cost\": " << deployment_facility_kwh * config.electricity_cost_per_kwh << "}\n"
+         << ",  \"area_proxy\": {\"modeled_mm2\": " << area_mm2 << ", \"limit_mm2\": " << config.max_area_mm2 << ", \"feasible\": " << (config.max_area_mm2 == 0 || area_mm2 <= config.max_area_mm2 ? "true" : "false") << "}\n"
+         << ",  \"thermal_proxy\": {\"ambient_c\": " << config.ambient_temp_c << ", \"end_c\": " << end_temp_c << ", \"steady_state_c\": " << steady_temp_c << ", \"limit_c\": " << config.max_junction_temp_c << ", \"feasible\": " << (config.max_junction_temp_c == 0 || end_temp_c <= config.max_junction_temp_c ? "true" : "false") << "}\n"
+         << ",  \"reliability_proxy\": {\"fit_rate\": " << config.reliability_fit_rate << ", \"voltage_multiplier\": " << config.reliability_voltage_fit_multiplier << ", \"expected_failures\": " << expected_failures << "}\n"
          << "}\n";
 }
 
@@ -519,6 +536,11 @@ void print_results(const Simulator& simulator, const Config& config) {
   const double it_energy_pj = simulator.total_energy_pj() + static_energy_pj;
   const double average_it_power_w = simulator.makespan_us() > 0 ? it_energy_pj / simulator.makespan_us() / 1'000'000.0 : 0.0;
   const double deployment_facility_kwh = config.pue * average_it_power_w * config.deployment_xpu_count * config.deployment_hours / 1000.0;
+  const double area_mm2 = modeled_area_mm2(config);
+  const double steady_temp_c = config.ambient_temp_c + average_it_power_w * config.thermal_resistance_c_per_w;
+  const double tau_s = config.thermal_resistance_c_per_w * config.thermal_capacitance_j_per_c;
+  const double end_temp_c = tau_s > 0 ? config.ambient_temp_c + (steady_temp_c - config.ambient_temp_c) * (1.0 - std::exp(-(simulator.makespan_us() / 1'000'000.0) / tau_s)) : steady_temp_c;
+  const double expected_failures = config.reliability_fit_rate * config.reliability_voltage_fit_multiplier * config.deployment_xpu_count * config.deployment_hours / 1'000'000'000.0;
   const auto per_frame_uj = [&latency](double energy_pj) { return energy_pj / latency.size() / 1'000'000.0; };
   const double makespan = simulator.makespan_us();
   const double vector_ops_per_frame = static_cast<double>(config.preprocess_elements) * config.preprocess_ops_per_element + (config.workload_mode == "physical_ai" ? static_cast<double>(config.postprocess_elements) * config.postprocess_ops_per_element : 0.0);
@@ -563,6 +585,9 @@ void print_results(const Simulator& simulator, const Config& config) {
             << "  average IT/facility power: " << average_it_power_w << " / " << config.pue * average_it_power_w << " W\n";
   if (config.it_power_budget_w > 0) std::cout << "  IT power budget:      " << config.it_power_budget_w << " W (" << (average_it_power_w <= config.it_power_budget_w ? "feasible" : "infeasible") << ")\n";
   if (config.deployment_hours > 0) std::cout << "  deployment facility energy / cost: " << deployment_facility_kwh << " kWh / " << deployment_facility_kwh * config.electricity_cost_per_kwh << " (modeled extrapolation)\n";
+  if (config.max_area_mm2 > 0 || area_mm2 > 0) std::cout << "  architecture area proxy: " << area_mm2 << " mm^2" << (config.max_area_mm2 > 0 ? (area_mm2 <= config.max_area_mm2 ? " (feasible)" : " (infeasible)") : "") << "\n";
+  if (config.thermal_resistance_c_per_w > 0) std::cout << "  first-order thermal proxy end / steady: " << end_temp_c << " / " << steady_temp_c << " C\n";
+  if (config.reliability_fit_rate > 0 && config.deployment_hours > 0) std::cout << "  reliability proxy expected failures: " << expected_failures << " (assumption-driven FIT extrapolation)\n";
   if (simulator.control_tasks() > 0) {
     std::cout << "  control deadline misses: " << simulator.control_deadline_misses() << " / " << simulator.control_tasks()
               << " (deadline " << config.control_deadline_us << " us)\n";

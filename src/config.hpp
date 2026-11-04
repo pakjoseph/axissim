@@ -70,6 +70,17 @@ struct Config {
   double electricity_cost_per_kwh = 0.0;
   int deployment_xpu_count = 1;
   double deployment_hours = 0.0;
+  double base_area_mm2 = 0.0;
+  double npu_area_per_mac_mm2 = 0.0;
+  double rvv_area_per_lane_mm2 = 0.0;
+  double sram_area_per_kib_mm2 = 0.0;
+  double max_area_mm2 = 0.0;
+  double ambient_temp_c = 25.0;
+  double thermal_resistance_c_per_w = 0.0;
+  double thermal_capacitance_j_per_c = 0.0;
+  double max_junction_temp_c = 0.0;
+  double reliability_fit_rate = 0.0;
+  double reliability_voltage_fit_multiplier = 1.0;
 };
 
 Config load_config(const std::string& path, const std::map<std::string, std::string>& overrides = {});

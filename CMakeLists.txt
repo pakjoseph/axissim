@@ -87,6 +87,9 @@ if(BUILD_TESTING)
   add_test(NAME deployment_economics_are_explicit
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/tests/tiny_pipeline.conf --set static_power_w=1 --set pue=1.5 --set deployment_xpu_count=1000 --set deployment_hours=1 --set electricity_cost_per_kwh=0.1)
   set_tests_properties(deployment_economics_are_explicit PROPERTIES PASS_REGULAR_EXPRESSION "1.50 kWh / 0.15")
+  add_test(NAME implementation_proxies_are_explicit
+           COMMAND axissim run ${CMAKE_SOURCE_DIR}/tests/tiny_pipeline.conf --set static_power_w=1 --set base_area_mm2=1 --set npu_area_per_mac_mm2=0.1 --set max_area_mm2=2 --set thermal_resistance_c_per_w=10 --set thermal_capacitance_j_per_c=1 --set max_junction_temp_c=100 --set reliability_fit_rate=100 --set deployment_xpu_count=1000 --set deployment_hours=1000)
+  set_tests_properties(implementation_proxies_are_explicit PROPERTIES PASS_REGULAR_EXPRESSION "reliability proxy expected failures: 0.10")
   add_test(NAME calibration_fixture_smoke
            COMMAND axissim calibrate ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
                    --reference ${CMAKE_SOURCE_DIR}/tests/reference/synthetic_latency.csv)
