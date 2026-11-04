@@ -23,6 +23,8 @@ The 4-lane size controls fit `RTL cycles = 3247.934 + 0.126149485 × operation c
 
 At 16 lanes, the idealized model predicts a larger speedup than RTL delivers. That is the useful architectural finding: as peak compute rises, fixed and lane-scaling effects omitted from a pure throughput model become a larger fraction of total execution time.
 
+Additional 32 cubed through 128 cubed controls at 8 and 16 lanes are recorded in [`reference_data/ara/ara_rtl_lane_size_controls.csv`](../reference_data/ara/ara_rtl_lane_size_controls.csv). Per-configuration affine fits are `7801.437 + 0.064332619 × operations` (8 lanes) and `10091.861 + 0.039151544 × operations` (16 lanes). These are descriptive fits, not held-out validation results.
+
 ## Interpretation boundary
 
 This work does not validate Ara silicon timing, power, memory hierarchy, or Velaura hardware. It does not establish a universal Ara timing model. The checked-in raw logs and metadata make every result traceable to its source revision, lane configuration, compiler, Verilator build, hashes, and execution context.
