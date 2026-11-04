@@ -60,6 +60,16 @@ if(BUILD_TESTING)
                    --set rvv_memory_accounting=extra_traffic --set rvv_memory_bytes_per_element=1000)
   set_tests_properties(rvv_extra_traffic_covers_pre_and_postprocess PROPERTIES
                        PASS_REGULAR_EXPRESSION "DRAM traffic:        0.01 MB")
+  add_test(NAME pue_scales_facility_power_only
+           COMMAND axissim run ${CMAKE_SOURCE_DIR}/tests/tiny_pipeline.conf
+                   --set static_power_w=1 --set pue=1.5)
+  set_tests_properties(pue_scales_facility_power_only PROPERTIES
+                       PASS_REGULAR_EXPRESSION "average IT/facility power: 1.00 / 1.50 W")
+  add_test(NAME reports_infeasible_it_power_budget
+           COMMAND axissim run ${CMAKE_SOURCE_DIR}/tests/tiny_pipeline.conf
+                   --set static_power_w=1 --set it_power_budget_w=0.001)
+  set_tests_properties(reports_infeasible_it_power_budget PROPERTIES
+                       PASS_REGULAR_EXPRESSION "infeasible")
   add_test(NAME calibration_fixture_smoke
            COMMAND axissim calibrate ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
                    --reference ${CMAKE_SOURCE_DIR}/tests/reference/synthetic_latency.csv)
