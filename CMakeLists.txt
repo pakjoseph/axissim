@@ -70,6 +70,11 @@ if(BUILD_TESTING)
                    --set static_power_w=1 --set it_power_budget_w=0.001)
   set_tests_properties(reports_infeasible_it_power_budget PROPERTIES
                        PASS_REGULAR_EXPRESSION "infeasible")
+  add_test(NAME iso_performance_arithmetic_scale_preserves_latency
+           COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
+                   --set npu_arithmetic_energy_scale=0.333333)
+  set_tests_properties(iso_performance_arithmetic_scale_preserves_latency PROPERTIES
+                       PASS_REGULAR_EXPRESSION "latency mean / P99:  861.06 / 861.06 us")
   add_test(NAME calibration_fixture_smoke
            COMMAND axissim calibrate ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
                    --reference ${CMAKE_SOURCE_DIR}/tests/reference/synthetic_latency.csv)
