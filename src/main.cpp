@@ -506,6 +506,8 @@ void print_results(const Simulator& simulator, const Config& config) {
   const double average_it_power_w = simulator.makespan_us() > 0 ? it_energy_pj / simulator.makespan_us() / 1'000'000.0 : 0.0;
   const auto per_frame_uj = [&latency](double energy_pj) { return energy_pj / latency.size() / 1'000'000.0; };
   const double makespan = simulator.makespan_us();
+  const double vector_ops_per_frame = static_cast<double>(config.preprocess_elements) * config.preprocess_ops_per_element + (config.workload_mode == "physical_ai" ? static_cast<double>(config.postprocess_elements) * config.postprocess_ops_per_element : 0.0);
+  const double npu_macs_per_frame = config.workload_mode == "physical_ai" ? static_cast<double>(config.gemm_m) * config.gemm_n * config.gemm_k : 0.0;
   const auto utilization = [&simulator, makespan](const std::string& resource) {
     return makespan > 0.0 ? 100.0 * simulator.resource_busy_us(resource) / makespan : 0.0;
   };
@@ -519,6 +521,7 @@ void print_results(const Simulator& simulator, const Config& config) {
             << "  scheduler policy:    " << config.scheduler_policy << "\n"
             << "  frames:              " << latency.size() << "\n"
             << "  RVV VLMAX:           " << simulator.vlmax() << " elements\n"
+            << "  workload vector ops / NPU MACs per frame: " << vector_ops_per_frame << " / " << npu_macs_per_frame << "\n"
             << "  RVV tail utilization: " << 100.0 * simulator.tail_utilization(config.preprocess_elements) << "%";
   if (config.workload_mode == "physical_ai") {
     std::cout << " / " << 100.0 * simulator.tail_utilization(config.postprocess_elements) << "%\n"
