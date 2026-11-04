@@ -495,6 +495,8 @@ void write_result_json(const std::string& path, const Simulator& simulator, cons
          << "  \"model_version\": \"" << json_escape(config.model_version) << "\",\n"
          << "  \"workload_mode\": \"" << json_escape(config.workload_mode) << "\",\n"
          << "  \"scheduler_policy\": \"" << json_escape(config.scheduler_policy) << "\",\n"
+         << "  \"assumptions\": {\"npu_arithmetic_energy_scale\": " << config.npu_arithmetic_energy_scale << ", \"arithmetic_voltage_ratio\": " << config.arithmetic_voltage_ratio << ", \"base_static_power_w\": " << config.static_power_w << ", \"npu_static_power_per_mac_w\": " << config.npu_static_power_per_mac_w << ", \"rvv_static_power_per_lane_w\": " << config.rvv_static_power_per_lane_w << ", \"sram_static_power_per_kib_w\": " << config.sram_static_power_per_kib_w << ", \"dram_interface_static_power_w\": " << config.dram_interface_static_power_w << ", \"pue\": " << config.pue << ", \"it_power_budget_w\": " << config.it_power_budget_w << "},\n"
+         << "  \"timing\": {\"makespan_us\": " << simulator.makespan_us() << "},\n"
          << "  \"latency\": {\"mean_us\": " << mean << ", \"p99_us\": " << percentile(latency, 0.99) << "},\n"
          << "  \"deadlines\": {\"vision_misses\": " << simulator.deadline_misses() << ", \"vision_jobs\": " << latency.size()
          << ", \"control_misses\": " << simulator.control_deadline_misses() << ", \"control_jobs\": " << simulator.control_tasks() << "},\n"

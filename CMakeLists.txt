@@ -80,6 +80,10 @@ if(BUILD_TESTING)
                    --set static_power_w=0 --set npu_macs=4 --set npu_static_power_per_mac_w=0.1)
   set_tests_properties(larger_npu_has_explicit_capacity_power PROPERTIES
                        PASS_REGULAR_EXPRESSION "modeled static power: 0.40 W")
+  add_test(NAME exact_power_accounting
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/check_power_accounting.sh $<TARGET_FILE:axissim> ${CMAKE_SOURCE_DIR}/tests/tiny_pipeline.conf)
+  add_test(NAME pareto_filter_rejects_dominated_and_infeasible
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/check_pareto_filter.sh ${CMAKE_SOURCE_DIR}/experiments/analyze_capacity_sweep.sh)
   add_test(NAME calibration_fixture_smoke
            COMMAND axissim calibrate ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
                    --reference ${CMAKE_SOURCE_DIR}/tests/reference/synthetic_latency.csv)
