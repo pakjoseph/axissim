@@ -59,6 +59,9 @@ struct Config {
   double npu_arithmetic_energy_scale = 1.0;
   double dram_byte_pj = 15.0;
   double dma_byte_pj = 1.5;
+  double static_power_w = 0.0;
+  double it_power_budget_w = 0.0;
+  double pue = 1.0;
 };
 
 Config load_config(const std::string& path, const std::map<std::string, std::string>& overrides = {});
