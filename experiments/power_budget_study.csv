@@ -1,0 +1,5 @@
+scenario,npu_arithmetic_energy_scale,npu_macs,dram_bandwidth_gbps,mean_latency_us,energy_per_frame_uj,average_it_power_w,average_facility_power_w,budget_status
+baseline,1,1024,20,861.06,322613.78,10.00,15.01,feasible
+iso_performance,0.333333,1024,20,861.06,322609.30,10.00,15.00,feasible
+compute_reinvestment,0.333333,4096,20,836.48,322601.11,10.00,15.00,feasible
+memory_constrained_compute,0.333333,4096,0.5,12633.58,326533.48,10.00,15.00,feasible
