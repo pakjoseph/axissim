@@ -75,6 +75,14 @@ The 4-lane size controls establish the model's compute-scaling slope. The 2-, 8-
 
 The outcome is useful precisely because it is mixed: the simple lane-throughput model follows low-to-medium parallelism well, while its error grows at 16 lanes. That exposes unmodeled fixed and scaling overhead rather than supporting an overbroad accuracy claim. See the [Ara validation report](docs/ara-validation.md), raw reproduction logs, hashes, and commands in [`reference_data/ara/reproductions`](reference_data/ara/reproductions/).
 
+## Design-space takeaway
+
+The checked-in 96-point Physical AI study holds the workload mapping fixed while sweeping RVV lanes, DRAM bandwidth, SRAM capacity, and NPU arithmetic-energy scale. The fastest feasible point is 16 RVV lanes and 20 GB/s DRAM at 669.51 microseconds/frame. The lower arithmetic-energy scenario reduces modeled energy from 107.76 to 103.28 microjoules/frame without changing latency.
+
+![Modeled latency falls with vector parallelism when DRAM is ample](docs/figures/design-space-rvv-lanes.svg)
+
+The architectural recommendation is deliberately bounded: for this mapping, prioritize vector and memory resources before additional NPU arithmetic. SRAM capacity alone does not improve this particular fixed-tile sweep, which is a reminder that capacity only helps when the software mapping can use it. Reproduce or modify the study with [`experiments/run_design_space.sh`](experiments/run_design_space.sh).
+
 ## Build and run
 
 ```sh
