@@ -67,6 +67,9 @@ struct Config {
   double dram_interface_static_power_w = 0.0;
   double it_power_budget_w = 0.0;
   double pue = 1.0;
+  double electricity_cost_per_kwh = 0.0;
+  int deployment_xpu_count = 1;
+  double deployment_hours = 0.0;
 };
 
 Config load_config(const std::string& path, const std::map<std::string, std::string>& overrides = {});

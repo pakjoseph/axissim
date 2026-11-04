@@ -84,6 +84,9 @@ if(BUILD_TESTING)
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/check_power_accounting.sh $<TARGET_FILE:axissim> ${CMAKE_SOURCE_DIR}/tests/tiny_pipeline.conf)
   add_test(NAME pareto_filter_rejects_dominated_and_infeasible
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/check_pareto_filter.sh ${CMAKE_SOURCE_DIR}/experiments/analyze_capacity_sweep.sh)
+  add_test(NAME deployment_economics_are_explicit
+           COMMAND axissim run ${CMAKE_SOURCE_DIR}/tests/tiny_pipeline.conf --set static_power_w=1 --set pue=1.5 --set deployment_xpu_count=1000 --set deployment_hours=1 --set electricity_cost_per_kwh=0.1)
+  set_tests_properties(deployment_economics_are_explicit PROPERTIES PASS_REGULAR_EXPRESSION "1.50 kWh / 0.15")
   add_test(NAME calibration_fixture_smoke
            COMMAND axissim calibrate ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
                    --reference ${CMAKE_SOURCE_DIR}/tests/reference/synthetic_latency.csv)
