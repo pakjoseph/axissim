@@ -83,6 +83,20 @@ The checked-in 96-point Physical AI study holds the workload mapping fixed while
 
 The architectural recommendation is deliberately bounded: for this mapping, prioritize vector and memory resources before additional NPU arithmetic. SRAM capacity alone does not improve this particular fixed-tile sweep, which is a reminder that capacity only helps when the software mapping can use it. Reproduce or modify the study with [`experiments/run_design_space.sh`](experiments/run_design_space.sh).
 
+## Arithmetic efficiency to capacity study
+
+AxisSim also evaluates an explicitly hypothetical iso-performance arithmetic-energy scenario: the workload, resource counts, mapping, frequency, and latency model remain fixed while NPU arithmetic energy changes. It then evaluates separate reinvestment choices under a modeled IT power budget.
+
+```sh
+./experiments/run_power_budget_study.sh
+./experiments/analyze_power_budget_study.sh
+./experiments/run_gemm_heavy_power_study.sh
+```
+
+The default illustrative study assumes 0.1 W static IT power, a 1 W IT budget, and PUE 1.5. It finds that lower arithmetic energy plus more NPU MACs is the lowest-latency feasible point at 20 GB/s DRAM, but the same compute reinvestment becomes severely memory-bound at 0.5 GB/s DRAM (12,633.58 microseconds). The GEMM-heavy companion study shows the complementary case: arithmetic-energy reductions have a larger modeled effect when arithmetic is a greater share of workload energy.
+
+AxisSim models the system-level consequences of an assumed arithmetic-efficiency improvement. It does not model low-voltage cells, frequency recovery, timing closure, soft errors, yield, reliability, thermal dynamics, Titan Core IP, or Velaura silicon.
+
 ## Build and run
 
 ```sh
