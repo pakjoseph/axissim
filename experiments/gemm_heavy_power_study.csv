@@ -1,4 +1,4 @@
 scenario,npu_arithmetic_energy_scale,npu_macs,mean_latency_us,it_energy_per_frame_uj,average_it_power_w,budget_status
-baseline,1,1024,999.56,3539.73,0.11,feasible
-iso_performance,0.333333,1024,999.56,3360.77,0.10,feasible
-compute_reinvestment,0.333333,4096,901.26,3360.44,0.10,feasible
+baseline,1,1024,999.559013,4491.902574,0.139261,feasible
+iso_performance,0.333333,1024,999.559013,4312.945514,0.133713,feasible
+compute_reinvestment,0.333333,4096,901.255013,7284.857378,0.225874,feasible

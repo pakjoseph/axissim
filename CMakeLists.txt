@@ -75,6 +75,11 @@ if(BUILD_TESTING)
                    --set npu_arithmetic_energy_scale=0.333333)
   set_tests_properties(iso_performance_arithmetic_scale_preserves_latency PROPERTIES
                        PASS_REGULAR_EXPRESSION "latency mean / P99:  861.06 / 861.06 us")
+  add_test(NAME larger_npu_has_explicit_capacity_power
+           COMMAND axissim run ${CMAKE_SOURCE_DIR}/tests/tiny_pipeline.conf
+                   --set static_power_w=0 --set npu_macs=4 --set npu_static_power_per_mac_w=0.1)
+  set_tests_properties(larger_npu_has_explicit_capacity_power PROPERTIES
+                       PASS_REGULAR_EXPRESSION "modeled static power: 0.40 W")
   add_test(NAME calibration_fixture_smoke
            COMMAND axissim calibrate ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
                    --reference ${CMAKE_SOURCE_DIR}/tests/reference/synthetic_latency.csv)

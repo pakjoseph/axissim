@@ -1,6 +1,6 @@
 scenario,npu_arithmetic_energy_scale,arithmetic_voltage_ratio,npu_macs,dram_bandwidth_gbps,mean_latency_us,energy_per_frame_uj,average_it_power_w,average_facility_power_w,budget_status
-baseline,1,1,1024,20,861.06,3332.82,0.10,0.16,feasible
-iso_performance,0.333333,1,1024,20,861.06,3328.34,0.10,0.15,feasible
-voltage_sensitivity,1,0.666667,1024,20,861.06,3329.09,0.10,0.15,feasible
-compute_reinvestment,0.333333,1,4096,20,836.48,3328.26,0.10,0.15,feasible
-memory_constrained_compute,0.333333,1,4096,0.5,12633.58,3367.59,0.10,0.15,feasible
+baseline,1,1,1024,20,861.059600,4284.856345,0.132861,0.199292,feasible
+iso_performance,0.333333,1,1024,20,861.059600,4280.382418,0.132723,0.199084,feasible
+voltage_sensitivity,1,0.666667,1024,20,861.059600,4281.128078,0.132746,0.199119,feasible
+compute_reinvestment,0.333333,1,4096,20,836.483600,7252.416297,0.224883,0.337324,feasible
+memory_constrained_compute,0.333333,1,4096,0.5,12633.578000,7339.588960,0.224844,0.337266,feasible

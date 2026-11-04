@@ -91,7 +91,7 @@ template <typename T>
       "gemm_m", "gemm_n", "gemm_k", "npu_tile_m", "npu_tile_n", "npu_tile_k",
       "npu_element_bytes", "npu_accumulator_bytes", "sram_capacity_bytes", "npu_weights_resident", "weight_sram_capacity_bytes", "dma_double_buffering",
       "postprocess_elements", "postprocess_ops_per_element", "postprocess_bytes", "vector_op_pj", "npu_mac_pj",
-      "npu_arithmetic_energy_scale", "arithmetic_voltage_ratio", "dram_byte_pj", "dma_byte_pj", "static_power_w", "it_power_budget_w", "pue"};
+      "npu_arithmetic_energy_scale", "arithmetic_voltage_ratio", "dram_byte_pj", "dma_byte_pj", "static_power_w", "npu_static_power_per_mac_w", "rvv_static_power_per_lane_w", "sram_static_power_per_kib_w", "dram_interface_static_power_w", "it_power_budget_w", "pue"};
   return keys;
 }
 
@@ -123,7 +123,7 @@ template <typename T>
   AXISSIM_LOAD(postprocess_elements); AXISSIM_LOAD(postprocess_ops_per_element); AXISSIM_LOAD(postprocess_bytes);
   AXISSIM_LOAD(vector_op_pj); AXISSIM_LOAD(npu_mac_pj); AXISSIM_LOAD(npu_arithmetic_energy_scale); AXISSIM_LOAD(arithmetic_voltage_ratio);
   AXISSIM_LOAD(dram_byte_pj); AXISSIM_LOAD(dma_byte_pj);
-  AXISSIM_LOAD(static_power_w); AXISSIM_LOAD(it_power_budget_w); AXISSIM_LOAD(pue);
+  AXISSIM_LOAD(static_power_w); AXISSIM_LOAD(npu_static_power_per_mac_w); AXISSIM_LOAD(rvv_static_power_per_lane_w); AXISSIM_LOAD(sram_static_power_per_kib_w); AXISSIM_LOAD(dram_interface_static_power_w); AXISSIM_LOAD(it_power_budget_w); AXISSIM_LOAD(pue);
 #undef AXISSIM_LOAD
   return c;
 }
@@ -147,7 +147,7 @@ void validate(const Config& c) {
   if ((c.npu_weights_resident != 0 && c.npu_weights_resident != 1) || (c.dma_double_buffering != 0 && c.dma_double_buffering != 1)) throw std::runtime_error("Boolean architecture settings must be 0 or 1");
   if (c.npu_weights_resident == 1 && c.weight_sram_capacity_bytes < unique_weight_bytes) throw std::runtime_error("Weight SRAM cannot hold the configured NPU weight tensor (requires " + std::to_string(unique_weight_bytes) + " bytes)");
   if (c.vector_op_pj < 0 || c.npu_mac_pj < 0 || c.npu_arithmetic_energy_scale <= 0 || c.arithmetic_voltage_ratio <= 0 || c.dram_byte_pj < 0 || c.dma_byte_pj < 0) throw std::runtime_error("Energy values must be non-negative (scale and voltage ratio must be positive)");
-  if (c.static_power_w < 0 || c.it_power_budget_w < 0 || c.pue < 1.0) throw std::runtime_error("Power parameters must be non-negative and PUE must be at least 1");
+  if (c.static_power_w < 0 || c.npu_static_power_per_mac_w < 0 || c.rvv_static_power_per_lane_w < 0 || c.sram_static_power_per_kib_w < 0 || c.dram_interface_static_power_w < 0 || c.it_power_budget_w < 0 || c.pue < 1.0) throw std::runtime_error("Power parameters must be non-negative and PUE must be at least 1");
 }
 
 struct TraceEvent { int frame; std::string task; std::string resource; double start_us; double end_us; };
@@ -470,13 +470,22 @@ void write_trace_csv(const std::string& path, const std::vector<TraceEvent>& tra
   return escaped;
 }
 
+[[nodiscard]] double modeled_static_power_w(const Config& config) {
+  return config.static_power_w
+       + static_cast<double>(config.npu_macs) * config.npu_static_power_per_mac_w
+       + static_cast<double>(config.rvv_lanes) * config.rvv_static_power_per_lane_w
+       + (static_cast<double>(config.sram_capacity_bytes) / 1024.0) * config.sram_static_power_per_kib_w
+       + config.dram_interface_static_power_w;
+}
+
 void write_result_json(const std::string& path, const Simulator& simulator, const Config& config) {
   std::ofstream output(path);
   if (!output) throw std::runtime_error("Unable to write JSON: " + path);
   const auto& latency = simulator.latencies_us();
   const double mean = std::accumulate(latency.begin(), latency.end(), 0.0) / latency.size();
   const double energy_per_frame_uj = simulator.total_energy_pj() / latency.size() / 1'000'000.0;
-  const double static_energy_pj = config.static_power_w * simulator.makespan_us() * 1'000'000.0;
+  const double static_power_w = modeled_static_power_w(config);
+  const double static_energy_pj = static_power_w * simulator.makespan_us() * 1'000'000.0;
   const double it_energy_pj = simulator.total_energy_pj() + static_energy_pj;
   const double average_it_power_w = simulator.makespan_us() > 0 ? it_energy_pj / simulator.makespan_us() / 1'000'000.0 : 0.0;
   output << std::fixed << std::setprecision(6);
@@ -493,7 +502,7 @@ void write_result_json(const std::string& path, const Simulator& simulator, cons
          << "  \"energy\": {\"per_frame_uj\": " << energy_per_frame_uj << ", \"static_per_frame_uj\": " << static_energy_pj / latency.size() / 1'000'000.0 << ", \"it_per_frame_uj\": " << it_energy_pj / latency.size() / 1'000'000.0 << ", \"facility_per_frame_uj\": " << config.pue * it_energy_pj / latency.size() / 1'000'000.0 << ", \"vector_pj\": " << simulator.vector_energy_pj()
          << ", \"npu_arithmetic_pj\": " << simulator.npu_arithmetic_energy_pj() << ", \"dram_pj\": " << simulator.dram_energy_pj()
          << ", \"dma_pj\": " << simulator.dma_energy_pj() << "},\n"
-         << "  \"power\": {\"average_it_w\": " << average_it_power_w << ", \"average_facility_w\": " << config.pue * average_it_power_w << ", \"budget_w\": " << config.it_power_budget_w << ", \"feasible\": " << (config.it_power_budget_w == 0 || average_it_power_w <= config.it_power_budget_w ? "true" : "false") << "}\n"
+         << "  \"power\": {\"base_static_w\": " << config.static_power_w << ", \"modeled_static_w\": " << static_power_w << ", \"average_it_w\": " << average_it_power_w << ", \"average_facility_w\": " << config.pue * average_it_power_w << ", \"budget_w\": " << config.it_power_budget_w << ", \"pue\": " << config.pue << ", \"feasible\": " << (config.it_power_budget_w == 0 || average_it_power_w <= config.it_power_budget_w ? "true" : "false") << "}\n"
          << "}\n";
 }
 
@@ -501,7 +510,8 @@ void print_results(const Simulator& simulator, const Config& config) {
   const auto& latency = simulator.latencies_us();
   const double mean = std::accumulate(latency.begin(), latency.end(), 0.0) / latency.size();
   const double energy_per_frame_uj = simulator.total_energy_pj() / latency.size() / 1'000'000.0;
-  const double static_energy_pj = config.static_power_w * simulator.makespan_us() * 1'000'000.0;
+  const double static_power_w = modeled_static_power_w(config);
+  const double static_energy_pj = static_power_w * simulator.makespan_us() * 1'000'000.0;
   const double it_energy_pj = simulator.total_energy_pj() + static_energy_pj;
   const double average_it_power_w = simulator.makespan_us() > 0 ? it_energy_pj / simulator.makespan_us() / 1'000'000.0 : 0.0;
   const auto per_frame_uj = [&latency](double energy_pj) { return energy_pj / latency.size() / 1'000'000.0; };
@@ -543,6 +553,7 @@ void print_results(const Simulator& simulator, const Config& config) {
             << "  energy vector/NPU/DRAM/DMA: " << per_frame_uj(simulator.vector_energy_pj()) << " / "
             << per_frame_uj(simulator.npu_arithmetic_energy_pj()) << " / " << per_frame_uj(simulator.dram_energy_pj())
             << " / " << per_frame_uj(simulator.dma_energy_pj()) << " uJ\n"
+            << "  modeled static power: " << static_power_w << " W\n"
             << "  energy static/IT/facility: " << static_energy_pj / latency.size() / 1'000'000.0 << " / " << it_energy_pj / latency.size() / 1'000'000.0 << " / " << config.pue * it_energy_pj / latency.size() / 1'000'000.0 << " uJ\n"
             << "  average IT/facility power: " << average_it_power_w << " / " << config.pue * average_it_power_w << " W\n";
   if (config.it_power_budget_w > 0) std::cout << "  IT power budget:      " << config.it_power_budget_w << " W (" << (average_it_power_w <= config.it_power_budget_w ? "feasible" : "infeasible") << ")\n";

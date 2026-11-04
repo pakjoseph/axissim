@@ -61,6 +61,10 @@ struct Config {
   double dram_byte_pj = 15.0;
   double dma_byte_pj = 1.5;
   double static_power_w = 0.0;
+  double npu_static_power_per_mac_w = 0.0;
+  double rvv_static_power_per_lane_w = 0.0;
+  double sram_static_power_per_kib_w = 0.0;
+  double dram_interface_static_power_w = 0.0;
   double it_power_budget_w = 0.0;
   double pue = 1.0;
 };
