@@ -1,4 +1,5 @@
 build/
+build-release/
 *.csv
 experiments/*.json
 experiments/figures/

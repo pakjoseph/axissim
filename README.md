@@ -140,15 +140,33 @@ When Qt 6 Widgets is available, CMake also builds `axissim-gui`, a native deskto
 ```sh
 cmake -S . -B build -DAXISSIM_BUILD_GUI=ON
 cmake --build build
+# macOS
+open build/AxisSim.app
+
+# Linux / Windows build-tree executable
 ./build/axissim-gui
 ```
 
-The UI calls the checked-in CLI executable and reads its JSON/trace artifacts, so it does not have a separate performance model. Its preset menu includes the baseline, fixed-power, and explicitly illustrative deployment/proxy scenarios. Save edited manifests before running; included config paths remain relative to the manifest's saved directory. The Qt target is optional (`-DAXISSIM_BUILD_GUI=OFF`) for headless CI and minimal CLI builds.
+The UI calls the same CLI executable and reads its JSON/trace artifacts, so it does not have a separate performance model. Its preset menu includes the baseline, fixed-power, and explicitly illustrative deployment/proxy scenarios. The macOS bundle includes the CLI, scenario manifests, and public reference data. Save edited manifests before running; included config paths remain relative to the manifest's saved directory. The Qt target is optional (`-DAXISSIM_BUILD_GUI=OFF`) for headless CI and minimal CLI builds.
+
+The desktop interface provides guided run-only overrides, dashboard KPIs, energy composition and lane-scaling charts, task timelines, deployment and implementation-proxy views, progress/error feedback, keyboard shortcuts, and JSON export.
+
+To create a relocatable macOS app and DMG with Qt frameworks bundled and an ad-hoc local signature:
+
+```sh
+./scripts/package_macos.sh
+```
+
+Release artifacts are written to `build-release/AxisSim.app` and `build-release/AxisSim.dmg` by default. The bundle is ad-hoc signed for local distribution; public distribution without Gatekeeper warnings requires an Apple Developer ID signature and notarization.
 
 For a non-interactive GUI initialization check on a machine with Qt, run:
 
 ```sh
-QT_QPA_PLATFORM=offscreen ./build/axissim-gui --smoke-test
+# macOS build-tree bundle
+QT_QPA_PLATFORM=offscreen ./build/AxisSim.app/Contents/MacOS/AxisSim --smoke-test
+QT_QPA_PLATFORM=offscreen ./build/AxisSim.app/Contents/MacOS/AxisSim --smoke-test-run
+
+# Linux build-tree executable
 QT_QPA_PLATFORM=offscreen ./build/axissim-gui --smoke-test-run
 ```
 

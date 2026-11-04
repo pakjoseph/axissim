@@ -1,0 +1,6 @@
+<RCC>
+  <qresource prefix="/">
+    <file alias="icons/axissim.png">axissim.png</file>
+    <file alias="theme/dark.qss">dark.qss</file>
+  </qresource>
+</RCC>

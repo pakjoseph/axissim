@@ -12,7 +12,40 @@ option(AXISSIM_BUILD_GUI "Build the Qt 6 desktop explorer when Qt Widgets is ava
 if(AXISSIM_BUILD_GUI)
   find_package(Qt6 COMPONENTS Widgets QUIET)
   if(Qt6Widgets_FOUND)
-    add_executable(axissim-gui src/gui/main.cpp)
+    set(CMAKE_AUTORCC ON)
+    set(AXISSIM_GUI_SOURCES
+        src/gui/main.cpp
+        src/gui/charts.cpp
+        src/gui/charts.hpp
+        resources/gui.qrc
+        resources/AxisSim.icns)
+    if(APPLE)
+      set_source_files_properties(resources/AxisSim.icns PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+      add_executable(axissim-gui MACOSX_BUNDLE ${AXISSIM_GUI_SOURCES})
+      add_dependencies(axissim-gui axissim)
+      set_target_properties(axissim-gui PROPERTIES
+                            OUTPUT_NAME "AxisSim"
+                            MACOSX_BUNDLE_BUNDLE_NAME "AxisSim"
+                            MACOSX_BUNDLE_ICON_FILE "AxisSim.icns"
+                            MACOSX_BUNDLE_GUI_IDENTIFIER "dev.axissim.explorer"
+                            MACOSX_BUNDLE_SHORT_VERSION_STRING "0.2"
+                            MACOSX_BUNDLE_BUNDLE_VERSION "0.2")
+      add_custom_command(TARGET axissim-gui POST_BUILD
+                         COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                                 $<TARGET_FILE:axissim>
+                                 $<TARGET_BUNDLE_DIR:axissim-gui>/Contents/MacOS/axissim-cli
+                         COMMAND ${CMAKE_COMMAND} -E make_directory
+                                 $<TARGET_BUNDLE_DIR:axissim-gui>/Contents/Resources/axissim-data
+                         COMMAND ${CMAKE_COMMAND} -E copy_directory
+                                 ${CMAKE_SOURCE_DIR}/configs
+                                 $<TARGET_BUNDLE_DIR:axissim-gui>/Contents/Resources/axissim-data/configs
+                         COMMAND ${CMAKE_COMMAND} -E copy_directory
+                                 ${CMAKE_SOURCE_DIR}/reference_data
+                                 $<TARGET_BUNDLE_DIR:axissim-gui>/Contents/Resources/axissim-data/reference_data
+                         COMMENT "Bundling AxisSim CLI, scenarios, and reference data")
+    else()
+      add_executable(axissim-gui ${AXISSIM_GUI_SOURCES})
+    endif()
     target_link_libraries(axissim-gui PRIVATE Qt6::Widgets)
     target_compile_options(axissim-gui PRIVATE -Wall -Wextra -Wpedantic -Werror)
   else()
