@@ -97,6 +97,27 @@ The default illustrative study assumes 0.1 W static IT power, a 1 W IT budget, a
 
 AxisSim models the system-level consequences of an assumed arithmetic-efficiency improvement. It does not model low-voltage cells, frequency recovery, timing closure, soft errors, yield, reliability, thermal dynamics, Titan Core IP, or Velaura silicon.
 
+### Fixed-budget Pareto result
+
+```sh
+./experiments/run_capacity_sweep.sh
+./experiments/analyze_capacity_sweep.sh
+```
+
+| Illustrative assumption | Value |
+|---|---:|
+| Base static power | 0.05 W |
+| NPU capacity power | 0.00003 W/MAC |
+| RVV capacity power | 0.002 W/lane |
+| SRAM capacity power | 0.0001 W/KiB |
+| DRAM-interface power | 0.02 W |
+| IT power budget | 0.23 W |
+| PUE | 1.5 |
+
+![Feasible power-budget Pareto designs](docs/figures/capacity-pareto.svg)
+
+The 36-point sweep finds four feasible non-dominated designs. The minimum-energy point retains 1,024 MACs and the baseline tile at 861.06 microseconds. The minimum-latency point uses 2,048 MACs and a 512 KiB SRAM with a larger reuse tile, reaching 766.03 microseconds. The 4,096-MAC option is not the recommendation: once capacity power and mapping are included, a balanced compute-plus-reuse design provides better realized performance under the budget. These are modeled scenario results, not chip measurements.
+
 ## Build and run
 
 ```sh
