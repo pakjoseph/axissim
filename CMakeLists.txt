@@ -50,6 +50,11 @@ if(BUILD_TESTING)
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/tests/tiny_pipeline.conf)
   set_tests_properties(tiny_pipeline_matches_hand_calculation PROPERTIES
                        PASS_REGULAR_EXPRESSION "latency mean / P99:  0.28 / 0.28 us")
+  add_test(NAME rvv_extra_traffic_is_accounted_once
+           COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
+                   --set rvv_memory_accounting=extra_traffic --set rvv_memory_bytes_per_element=4)
+  set_tests_properties(rvv_extra_traffic_is_accounted_once PROPERTIES
+                       PASS_REGULAR_EXPRESSION "DRAM traffic:        292.09 MB")
   add_test(NAME calibration_fixture_smoke
            COMMAND axissim calibrate ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
                    --reference ${CMAKE_SOURCE_DIR}/tests/reference/synthetic_latency.csv)
