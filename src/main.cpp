@@ -288,6 +288,10 @@ class Simulator {
     return c_.rvv_chunk_elements == 0 ? remaining : std::min(remaining, c_.rvv_chunk_elements);
   }
 
+  [[nodiscard]] std::uint64_t vector_transfer_bytes(std::uint64_t elements) const {
+    return c_.rvv_memory_accounting == "extra_traffic" ? elements * static_cast<std::uint64_t>(c_.rvv_memory_bytes_per_element) : 0;
+  }
+
   [[nodiscard]] RuntimeTask make_runtime_task(int frame, RuntimeStage stage, double release_us, double ready_us, std::uint64_t vector_offset = 0) const {
     RuntimeTask task;
     task.frame = frame;
@@ -299,7 +303,7 @@ class Simulator {
       case RuntimeStage::PreRead: task = {frame, stage, RuntimeResource::Dma, release_us, ready_us, transfer_duration_us(c_.input_bytes), 0.0, 0.0, c_.input_bytes, 0, 0, 1, "preprocess_read"}; break;
       case RuntimeStage::Preprocess: {
         const auto elements = vector_chunk_size(c_.preprocess_elements, vector_offset);
-        task = {frame, stage, RuntimeResource::Rvv, release_us, ready_us, vector_duration_us(elements, c_.preprocess_ops_per_element), static_cast<double>(elements) * c_.preprocess_ops_per_element * c_.vector_op_pj, 0.0, c_.rvv_memory_accounting == "extra_traffic" ? elements * static_cast<std::uint64_t>(c_.rvv_memory_bytes_per_element) : 0, vector_offset, elements, 1, "rvv_preprocess"};
+        task = {frame, stage, RuntimeResource::Rvv, release_us, ready_us, vector_duration_us(elements, c_.preprocess_ops_per_element), static_cast<double>(elements) * c_.preprocess_ops_per_element * c_.vector_op_pj, 0.0, vector_transfer_bytes(elements), vector_offset, elements, 1, "rvv_preprocess"};
         break;
       }
       case RuntimeStage::PreWrite: task = {frame, stage, RuntimeResource::Dma, release_us, ready_us, transfer_duration_us(c_.preprocess_output_bytes), 0.0, 0.0, c_.preprocess_output_bytes, 0, 0, 1, "preprocess_write"}; break;
@@ -316,13 +320,13 @@ class Simulator {
       case RuntimeStage::PostRead: task = {frame, stage, RuntimeResource::Dma, release_us, ready_us, transfer_duration_us(c_.postprocess_bytes), 0.0, 0.0, c_.postprocess_bytes, 0, 0, 1, "postprocess_read"}; break;
       case RuntimeStage::Postprocess: {
         const auto elements = vector_chunk_size(c_.postprocess_elements, vector_offset);
-        task = {frame, stage, RuntimeResource::Rvv, release_us, ready_us, vector_duration_us(elements, c_.postprocess_ops_per_element), static_cast<double>(elements) * c_.postprocess_ops_per_element * c_.vector_op_pj, 0.0, 0, vector_offset, elements, 1, "rvv_postprocess"};
+        task = {frame, stage, RuntimeResource::Rvv, release_us, ready_us, vector_duration_us(elements, c_.postprocess_ops_per_element), static_cast<double>(elements) * c_.postprocess_ops_per_element * c_.vector_op_pj, 0.0, vector_transfer_bytes(elements), vector_offset, elements, 1, "rvv_postprocess"};
         break;
       }
       case RuntimeStage::Control: task = {-1, stage, RuntimeResource::Rvv, release_us, ready_us, vector_duration_us(c_.control_ops, 1), static_cast<double>(c_.control_ops) * c_.vector_op_pj, 0.0, 0, 0, 0, 0, "safety_control"}; break;
       case RuntimeStage::VectorKernel: {
         const auto elements = vector_chunk_size(c_.preprocess_elements, vector_offset);
-        task = {frame, stage, RuntimeResource::Rvv, release_us, ready_us, vector_duration_us(elements, c_.preprocess_ops_per_element), static_cast<double>(elements) * c_.preprocess_ops_per_element * c_.vector_op_pj, 0.0, 0, vector_offset, elements, 1, "rvv_stream_kernel"};
+        task = {frame, stage, RuntimeResource::Rvv, release_us, ready_us, vector_duration_us(elements, c_.preprocess_ops_per_element), static_cast<double>(elements) * c_.preprocess_ops_per_element * c_.vector_op_pj, 0.0, vector_transfer_bytes(elements), vector_offset, elements, 1, "rvv_stream_kernel"};
         break;
       }
     }
