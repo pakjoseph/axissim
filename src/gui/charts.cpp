@@ -28,12 +28,14 @@ void EnergyBreakdownWidget::paintEvent(QPaintEvent* event) {
   Q_UNUSED(event);
   QPainter painter(this);
   painter.setRenderHint(QPainter::Antialiasing);
+  constexpr int kHorizontalInset = 10;
+  const QRect content(kHorizontalInset, 0, std::max(0, width() - 2 * kHorizontalInset), height());
   painter.setPen(AxisTheme::textPrimary());
   QFont title_font = font();
   title_font.setPointSize(13);
   title_font.setWeight(QFont::DemiBold);
   painter.setFont(title_font);
-  painter.drawText(QRect(0, 0, width(), 24), Qt::AlignLeft | Qt::AlignVCenter, "Energy composition per frame");
+  painter.drawText(QRect(content.left(), 0, content.width(), 24), Qt::AlignLeft | Qt::AlignVCenter, "Energy composition per frame");
 
   const double total = std::accumulate(segments_.cbegin(), segments_.cend(), 0.0,
                                        [](double sum, const EnergySegment& segment) { return sum + std::max(0.0, segment.value); });
@@ -41,20 +43,20 @@ void EnergyBreakdownWidget::paintEvent(QPaintEvent* event) {
   QFont total_font = font();
   total_font.setPointSize(11);
   painter.setFont(total_font);
-  painter.drawText(QRect(0, 0, width(), 24), Qt::AlignRight | Qt::AlignVCenter,
+  painter.drawText(QRect(content.left(), 0, content.width(), 24), Qt::AlignRight | Qt::AlignVCenter,
                    total > 0.0 ? QString("%1 µJ / frame").arg(total, 0, 'f', 2) : QString());
   if (total <= 0.0) {
     painter.setPen(AxisTheme::textSecondary());
     // Do not draw a chart track before there is data: this is an explanatory
     // empty state, not a zero-valued result.  Keep the copy inset and centered
     // in the available panel space so it cannot compete with a boundary.
-    painter.drawText(QRect(8, 42, std::max(0, width() - 16), std::max(32, height() - 54)),
+    painter.drawText(QRect(content.left(), 42, content.width(), std::max(32, height() - 54)),
                      Qt::AlignLeft | Qt::AlignVCenter | Qt::TextWordWrap,
                      "Run a scenario to populate the modeled energy ledger.");
     return;
   }
 
-  const QRectF track(0, 42, width(), 22);
+  const QRectF track(content.left(), 42, content.width(), 22);
   painter.setPen(Qt::NoPen);
   painter.setBrush(AxisTheme::chartBackground());
   painter.drawRoundedRect(track, 7, 7);
@@ -72,7 +74,7 @@ void EnergyBreakdownWidget::paintEvent(QPaintEvent* event) {
   QFont legend_font = font();
   legend_font.setPointSize(10);
   painter.setFont(legend_font);
-  int legend_x = 0;
+  int legend_x = content.left();
   int legend_y = 88;
   const QFontMetrics metrics(legend_font);
   for (const auto& segment : segments_) {
@@ -81,8 +83,8 @@ void EnergyBreakdownWidget::paintEvent(QPaintEvent* event) {
                              .arg(segment.value, 0, 'f', 2)
                              .arg(100.0 * segment.value / total, 0, 'f', 1);
     const int item_width = 20 + metrics.horizontalAdvance(text) + 28;
-    if (legend_x > 0 && legend_x + item_width > width()) {
-      legend_x = 0;
+    if (legend_x > content.left() && legend_x + item_width > content.right() + 1) {
+      legend_x = content.left();
       legend_y += 28;
     }
     painter.setPen(Qt::NoPen);
@@ -117,15 +119,17 @@ void ResourceTimelineWidget::paintEvent(QPaintEvent* event) {
   Q_UNUSED(event);
   QPainter painter(this);
   painter.setRenderHint(QPainter::Antialiasing);
+  constexpr int kHorizontalInset = 10;
+  const QRect content(kHorizontalInset, 0, std::max(0, width() - 2 * kHorizontalInset), height());
   QFont title_font = font();
   title_font.setPointSize(13);
   title_font.setWeight(QFont::DemiBold);
   painter.setFont(title_font);
   painter.setPen(AxisTheme::textPrimary());
-  painter.drawText(QRect(0, 0, width(), 26), Qt::AlignLeft | Qt::AlignVCenter, "Frame 0 resource pipeline");
+  painter.drawText(QRect(content.left(), 0, content.width(), 26), Qt::AlignLeft | Qt::AlignVCenter, "Frame 0 resource pipeline");
   if (events_.isEmpty()) {
     painter.setPen(AxisTheme::textSecondary());
-    painter.drawText(QRect(0, 38, width(), height() - 38), Qt::AlignCenter,
+    painter.drawText(QRect(content.left(), 38, content.width(), height() - 38), Qt::AlignCenter,
                      "Run a scenario to trace DMA, RVV, and NPU work across the frame.");
     return;
   }
@@ -137,9 +141,9 @@ void ResourceTimelineWidget::paintEvent(QPaintEvent* event) {
   QFont end_font = font();
   end_font.setPointSize(11);
   painter.setFont(end_font);
-  painter.drawText(QRect(0, 0, width(), 26), Qt::AlignRight | Qt::AlignVCenter,
+  painter.drawText(QRect(content.left(), 0, content.width(), 26), Qt::AlignRight | Qt::AlignVCenter,
                    QString("0 → %1 µs").arg(end_us, 0, 'f', 2));
-  const QRectF plot(102, 38, std::max(10, width() - 118), std::max(10, height() - 76));
+  const QRectF plot(content.left() + 102, 38, std::max(10, content.width() - 118), std::max(10, height() - 76));
   const double lane_height = plot.height() / resources.size();
   QFont label_font = font();
   label_font.setPointSize(10);
@@ -149,7 +153,7 @@ void ResourceTimelineWidget::paintEvent(QPaintEvent* event) {
     painter.setPen(QPen(AxisTheme::border(), 1));
     painter.drawLine(QPointF(plot.left(), y + lane_height), QPointF(plot.right(), y + lane_height));
     painter.setPen(AxisTheme::textSecondary());
-    painter.drawText(QRectF(0, y, 92, lane_height), Qt::AlignRight | Qt::AlignVCenter, resource_labels[lane]);
+    painter.drawText(QRectF(content.left(), y, 92, lane_height), Qt::AlignRight | Qt::AlignVCenter, resource_labels[lane]);
   }
   for (const auto& item : events_) {
     const int lane = resources.indexOf(item.resource);
