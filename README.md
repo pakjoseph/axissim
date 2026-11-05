@@ -7,7 +7,7 @@ AxisSim is a C++ tool for exploring how AI hardware and software choices affect 
 - Models an end-to-end AI vision pipeline, from data movement and image processing through neural-network inference.
 - Compares compute, memory, scheduling, and energy tradeoffs with reproducible experiments.
 - Identifies bottlenecks such as memory saturation and missed real-time deadlines.
-- Includes automated tests, machine-readable results, and an optional desktop interface for interactive exploration.
+- Includes automated tests, machine-readable results, and a native desktop workbench for interactive exploration.
 
 ## Technical overview
 
@@ -42,6 +42,7 @@ flowchart LR
 - Declared-bounds sensitivity analysis with one-at-a-time and bounded corner exploration
 - CTest smoke coverage for valid and invalid configurations
 - Reference-data calibration reports with public/reproduced provenance labels
+- Native Qt 6 architecture workbench with an Overview, guided Experiment Lab, candidate comparison, model evidence, light/dark appearance modes, and accessible keyboard controls
 
 ## What the baseline study finds
 
@@ -137,7 +138,7 @@ GitHub Actions runs the same configure, build, and CTest workflow on every push 
 
 ## Desktop explorer
 
-When Qt 6 Widgets is available, CMake also builds `axissim-gui`, a native desktop front end for opening/editing/saving scenario manifests, launching the same CLI model, and viewing the first-frame task timeline, RVV lane sweeps, power-budget results, deployment electricity estimates, and bounded implementation proxies.
+When Qt 6 Widgets is available, CMake also builds `axissim-gui`, a native desktop architecture workbench. It launches the same CLI model used by the command line and visualizes the resulting JSON and trace artifacts; it does not contain a second performance model.
 
 ```sh
 cmake -S . -B build -DAXISSIM_BUILD_GUI=ON
@@ -149,9 +150,14 @@ open build/AxisSim.app
 ./build/axissim-gui
 ```
 
-The UI calls the same CLI executable and reads its JSON/trace artifacts, so it does not have a separate performance model. Its preset menu includes the baseline, fixed-power, and explicitly illustrative deployment/proxy scenarios. The macOS bundle includes the CLI, scenario manifests, and public reference data. Save edited manifests before running; included config paths remain relative to the manifest's saved directory. The Qt target is optional (`-DAXISSIM_BUILD_GUI=OFF`) for headless CI and minimal CLI builds.
+The workbench is organized around four engineering questions:
 
-The desktop interface provides guided run-only overrides, dashboard KPIs, energy composition and lane-scaling charts, task timelines, deployment and implementation-proxy views, progress/error feedback, keyboard shortcuts, and JSON export.
+- **Overview:** Read the measured-in-model latency, deadline margin, energy ledger, resource timeline, dominant bottleneck, and evidence boundary for one completed run.
+- **Experiment Lab:** Make explicit run-only changes without rewriting the source manifest. The parameter groups are functional: workload selection; RVV lanes/VLEN/SEW/frequency/chunking; NPU MACs and DRAM bandwidth; FCFS/fixed-priority/EDF scheduling; and NPU arithmetic-energy scale. Each group has a direct run action and the delta ledger records active overrides.
+- **Compare:** Inspect the checked-in RVV lane sweep and candidate deltas using the emitted result data.
+- **Evidence:** Inspect scenario provenance, public/Ara reference status, assumptions, implementation-proxy scope, and the full CLI run log.
+
+The desktop interface also provides guided first-run help, scenario copy/export actions, progress and validation feedback, keyboard accessibility, light/dark appearance modes, and responsive desktop layouts. The macOS bundle includes the CLI, scenario manifests, and public reference data. Save edited manifests before running; included config paths remain relative to the manifest's saved directory. The Qt target is optional (`-DAXISSIM_BUILD_GUI=OFF`) for headless CI and minimal CLI builds.
 
 ### Guided first run
 
@@ -179,6 +185,10 @@ QT_QPA_PLATFORM=offscreen ./build/axissim-gui --tutorial-smoke-test-run
 ```
 
 The model and tutorial checks exercise the complete GUI-to-CLI-to-JSON/trace result path; the tutorial check executes both its public baseline and arithmetic-energy sensitivity stages.
+
+### Continuous integration
+
+Every push and pull request configures, builds, and runs CTest on GitHub Actions. The checked-in QoS release traces and sensitivity-range CSV are deliberate deterministic fixtures, so CI exercises the same arrival-trace and bounded-sensitivity paths as a local checkout. Generated experiment CSVs and JSON artifacts remain ignored.
 
 ## Configuration layers
 
