@@ -35,6 +35,12 @@ void EnergyBreakdownWidget::paintEvent(QPaintEvent* event) {
   const double total = std::accumulate(segments_.cbegin(), segments_.cend(), 0.0,
                                        [](double sum, const EnergySegment& segment) { return sum + std::max(0.0, segment.value); });
   const QRectF track(0, 42, width(), 22);
+  painter.setPen(AxisTheme::textSecondary());
+  QFont total_font = font();
+  total_font.setPointSize(11);
+  painter.setFont(total_font);
+  painter.drawText(QRect(0, 0, width(), 24), Qt::AlignRight | Qt::AlignVCenter,
+                   total > 0.0 ? QString("%1 µJ / frame").arg(total, 0, 'f', 2) : QString());
   painter.setPen(Qt::NoPen);
   painter.setBrush(AxisTheme::chartBackground());
   painter.drawRoundedRect(track, 7, 7);
@@ -115,8 +121,15 @@ void ResourceTimelineWidget::paintEvent(QPaintEvent* event) {
     return;
   }
   const QStringList resources = {"DMA+DRAM", "RVV", "NPU"};
+  const QStringList resource_labels = {"DMA / DRAM", "RVV", "NPU"};
   double end_us = 0.0;
   for (const auto& item : events_) end_us = std::max(end_us, item.end_us);
+  painter.setPen(AxisTheme::textSecondary());
+  QFont end_font = font();
+  end_font.setPointSize(11);
+  painter.setFont(end_font);
+  painter.drawText(QRect(0, 0, width(), 26), Qt::AlignRight | Qt::AlignVCenter,
+                   QString("0 → %1 µs").arg(end_us, 0, 'f', 2));
   const QRectF plot(102, 38, std::max(10, width() - 118), std::max(10, height() - 76));
   const double lane_height = plot.height() / resources.size();
   QFont label_font = font();
@@ -127,7 +140,7 @@ void ResourceTimelineWidget::paintEvent(QPaintEvent* event) {
     painter.setPen(QPen(AxisTheme::border(), 1));
     painter.drawLine(QPointF(plot.left(), y + lane_height), QPointF(plot.right(), y + lane_height));
     painter.setPen(AxisTheme::textSecondary());
-    painter.drawText(QRectF(0, y, 92, lane_height), Qt::AlignRight | Qt::AlignVCenter, resources[lane]);
+    painter.drawText(QRectF(0, y, 92, lane_height), Qt::AlignRight | Qt::AlignVCenter, resource_labels[lane]);
   }
   for (const auto& item : events_) {
     const int lane = resources.indexOf(item.resource);
@@ -140,7 +153,8 @@ void ResourceTimelineWidget::paintEvent(QPaintEvent* event) {
     painter.drawRoundedRect(bar, 3, 3);
     if (bar.width() > 110) {
       painter.setPen(AxisTheme::canvas());
-      painter.drawText(bar.adjusted(6, 0, -6, 0), Qt::AlignCenter | Qt::TextSingleLine, item.task + QString(" · %1 µs").arg(item.end_us - item.start_us, 0, 'f', 1));
+      painter.drawText(bar.adjusted(6, 0, -6, 0), Qt::AlignCenter | Qt::TextSingleLine,
+                       QString(item.task).replace('_', ' ') + QString(" · %1 µs").arg(item.end_us - item.start_us, 0, 'f', 1));
     }
   }
   painter.setPen(QPen(AxisTheme::border(), 1));

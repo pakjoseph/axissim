@@ -253,21 +253,43 @@ QMenuBar { background: @CANVAS@; color: @TEXT@; border-bottom: 1px solid @BORDER
 QMenuBar::item:selected { background: @ACCENT@; color: @PRIMARY_TEXT@; }
 QMenu { background: @SURFACE@; color: @TEXT@; border: 1px solid @BORDER_STRONG@; }
 QMenu::item:selected { background: @ACCENT@; color: @PRIMARY_TEXT@; }
+QFrame#workbenchCommandBar { background: #101211; border: none; border-bottom: 1px solid @BORDER@; }
+QLabel#workbenchBrandMark {
+  min-width: 26px; max-width: 26px; min-height: 26px; max-height: 26px;
+  border: 1px solid @ACCENT@; border-radius: 3px; color: @ACCENT@;
+  font-family: "IBM Plex Mono"; font-size: 11px; font-weight: 500;
+  qproperty-alignment: AlignCenter;
+}
+QLabel#workbenchBrandName { color: #F4F3ED; font-size: 16px; font-weight: 600; }
+QFrame#navRail { background: #1C1F1D; border: none; border-right: 1px solid @BORDER@; }
+QLabel#appTitle, QLabel#appSubtitle { min-height: 0px; max-height: 0px; }
+QPushButton[nav="true"] { color: @SECONDARY@; border-radius: 3px; padding: 9px 10px; }
+QPushButton[nav="true"]:hover { background: @HOVER@; color: @TEXT@; }
+QPushButton[nav="true"]:checked { background: @SURFACE@; color: @TEXT@; border: none; border-left: 3px solid @ACCENT@; padding-left: 7px; }
+QFrame#contentPanel { background: transparent; border: none; border-radius: 0; }
+QFrame#metricStrip { background: transparent; border: none; border-radius: 0; }
+QFrame#metricPanel { background: transparent; border: none; border-radius: 0; }
+QFrame#metricPanel + QFrame#metricPanel { border-left: 1px solid @BORDER@; }
+QLabel#metricValue { font-size: 22px; }
+QFrame#findingsMargin { background: transparent; border: none; border-left: 1px solid @BORDER@; border-radius: 0; }
+QLabel#findingText { color: @TEXT@; font-size: 14px; font-weight: 600; }
+QLabel#evidenceLedger { color: @SECONDARY@; font-family: "IBM Plex Mono"; font-size: 12px; }
+QFrame#editorPanel { border-radius: 0; border-left: none; }
 )QSS");
-  const QString canvas = dark ? "#171A1D" : kCanvas;
-  const QString surface = dark ? "#22262A" : kSurface;
-  const QString muted_surface = dark ? "#2B3035" : kSurfaceMuted;
-  const QString hover = dark ? "#343A40" : "#E4EBEE";
-  const QString text = dark ? "#F1F3F4" : kTextPrimary;
-  const QString secondary = dark ? "#C0C8CE" : kTextSecondary;
-  const QString muted = dark ? "#9FAAB2" : kTextMuted;
-  const QString border = dark ? "#59636B" : kBorder;
-  const QString border_strong = dark ? "#86939C" : kBorderStrong;
-  const QString accent = dark ? "#46AAB0" : kAccent;
-  const QString accent_hover = dark ? "#5EBBC0" : kAccentHover;
-  const QString accent_soft = dark ? "#203F43" : kAccentSoft;
-  const QString accent_text = dark ? "#8EDADF" : kAccentHover;
-  const QString primary_text = dark ? "#0F1214" : "#FFFFFF";
+  const QString canvas = dark ? "#171918" : kCanvas;
+  const QString surface = dark ? "#202321" : kSurface;
+  const QString muted_surface = dark ? "#292D2B" : kSurfaceMuted;
+  const QString hover = dark ? "#2B302D" : "#E4EBEE";
+  const QString text = dark ? "#F1F0EA" : kTextPrimary;
+  const QString secondary = dark ? "#AEB4AF" : kTextSecondary;
+  const QString muted = dark ? "#8A938E" : kTextMuted;
+  const QString border = dark ? "#3E4441" : kBorder;
+  const QString border_strong = dark ? "#535B56" : kBorderStrong;
+  const QString accent = dark ? "#E0704E" : kAccent;
+  const QString accent_hover = dark ? "#EE8A6B" : kAccentHover;
+  const QString accent_soft = dark ? "#382A25" : kAccentSoft;
+  const QString accent_text = dark ? "#F0A58D" : kAccentHover;
+  const QString primary_text = dark ? "#171918" : "#FFFFFF";
   const QString chart_background = dark ? "#343A40" : kChartBackground;
   return sheet.replace("@CANVAS@", canvas)
       .replace("@SURFACE@", surface)

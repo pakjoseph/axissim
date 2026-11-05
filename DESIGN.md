@@ -263,7 +263,7 @@ Never encode stage identity or performance interpretation with color alone: prov
 
 ## Typography
 
-Use Times New Roman for headings, controls, narrative explanations, and settings to give the workbench an editorial technical-document character. Use IBM Plex Mono for precise metrics, tabular data, manifests, trace labels, and code, where fixed-width alignment materially improves inspection. In Qt, verify the Times New Roman system font and bundle or load appropriately licensed technical fonts when they are not reliably available. Avoid faux-bold or additional competing type families.
+Use IBM Plex Sans for headings, controls, and narrative explanations, and IBM Plex Mono for precise metrics, tabular data, manifests, trace labels, and code. This supports fast control scanning and directly labeled engineering figures. Avoid faux-bold or additional competing type families.
 
 Numeric values should be tabular and align on decimal points where practical. Always include units next to quantities, never only in a nearby legend. Use sentence-case headings and explicit labels: "Mean latency", "Energy / frame", "DRAM bandwidth". No unexplained uppercase metadata walls.
 
@@ -273,7 +273,7 @@ Desktop-first Qt Widgets interface. Proposed dimensions are starting constraints
 
 Use the spacing tokens above, with 24–32 px separation between major panels and 8–16 px within controls. Give each major work region a complete, clearly contrasted perimeter and use stronger outlines for focused, selected, or interactive regions. Avoid nested outlines that do not communicate hierarchy. Avoid vast blank regions: fill the workspace with information users can inspect, not stretched text boxes. Align labels and unit baselines. Provide clear hierarchy from scenario -> experiment status -> KPIs -> diagnostics -> provenance.
 
-Default overview: (1) scenario/title and run controls, (2) four essential KPI summaries, (3) detailed pipeline timeline, (4) energy composition, (5) contextual comparison/insight, (6) compact provenance/model-boundary footer. Advanced configuration is available in a separate inspector or view. Do not show an oversized raw manifest as the primary interaction.
+Default overview: (1) one compact command bar with scenario, export, and run action, (2) four inline measurements, (3) detailed frame-zero pipeline timeline, (4) direct-label energy allocation, (5) a narrow evidence-backed bottleneck margin, and (6) compact provenance/model-boundary footer. Advanced configuration is available in Experiment Lab. Do not show an oversized raw manifest as the primary interaction.
 
 ## Elevation & Depth
 

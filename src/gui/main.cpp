@@ -162,13 +162,14 @@ class AxisSimWindow final : public QMainWindow {
     nav_title_->setText(compact ? "AS" : "AxisSim");
     nav_subtitle_->setVisible(!compact);
     nav_scope_->setVisible(!compact);
-    appearance_label_->setVisible(!compact);
+    appearance_label_->setVisible(false);
+    appearance_combo_->setVisible(false);
     header_subtitle_->setVisible(!compact);
     header_title_->setVisible(!compact);
     header_title_->setText("Architecture overview");
     scenario_->setMinimumWidth(compact ? 190 : 270);
     browse_button_->setText(compact ? "Open…" : "Open scenario…");
-    run_button_->setText(compact ? "Run" : "Run model");
+    run_button_->setText(compact ? "Run" : "Run baseline");
     mnist_button_->setText(compact ? "MNIST-12" : "Run public MNIST-12");
     for (qsizetype index = 0; index < nav_buttons_.size(); ++index) {
       nav_buttons_[index]->setText(compact ? nav_short_labels_[index] : nav_labels_[index]);
@@ -217,7 +218,26 @@ class AxisSimWindow final : public QMainWindow {
 
   void buildInterface() {
     auto* root = new QWidget(this);
-    auto* shell_layout = new QHBoxLayout(root);
+    auto* root_layout = new QVBoxLayout(root);
+    root_layout->setContentsMargins(0, 0, 0, 0);
+    root_layout->setSpacing(0);
+    auto* command_bar = new QFrame(root);
+    command_bar->setObjectName("workbenchCommandBar");
+    auto* command_layout = new QHBoxLayout(command_bar);
+    command_layout->setContentsMargins(12, 8, 12, 8);
+    command_layout->setSpacing(12);
+    auto* brand = new QLabel("AX", command_bar);
+    brand->setObjectName("workbenchBrandMark");
+    brand->setAccessibleName("AxisSim");
+    auto* brand_name = new QLabel("AxisSim", command_bar);
+    brand_name->setObjectName("workbenchBrandName");
+    command_layout->addWidget(brand);
+    command_layout->addWidget(brand_name);
+    command_layout->addStretch();
+    root_layout->addWidget(command_bar);
+
+    auto* shell = new QWidget(root);
+    auto* shell_layout = new QHBoxLayout(shell);
     shell_layout->setContentsMargins(0, 0, 0, 0);
     shell_layout->setSpacing(0);
 
@@ -227,17 +247,17 @@ class AxisSimWindow final : public QMainWindow {
     nav_layout_ = new QVBoxLayout(nav_rail_);
     nav_layout_->setContentsMargins(16, 20, 16, 16);
     nav_layout_->setSpacing(6);
-    nav_title_ = new QLabel("AxisSim", nav_rail_);
+    nav_title_ = new QLabel("", nav_rail_);
     nav_title_->setObjectName("appTitle");
-    nav_subtitle_ = new QLabel("Precision Lab", nav_rail_);
+    nav_subtitle_ = new QLabel("", nav_rail_);
     nav_subtitle_->setObjectName("appSubtitle");
     nav_layout_->addWidget(nav_title_);
     nav_layout_->addWidget(nav_subtitle_);
-    nav_layout_->addSpacing(24);
+    nav_layout_->addSpacing(8);
     auto* nav_group = new QButtonGroup(nav_rail_);
     nav_group->setExclusive(true);
-    nav_labels_ = {"Overview", "Experiment Lab", "Timeline", "Compare", "Evidence", "Run log"};
-    nav_short_labels_ = {"OV", "EX", "TL", "CP", "EV", "LOG"};
+    nav_labels_ = {"Overview", "Experiment Lab", "Compare", "Evidence"};
+    nav_short_labels_ = {"OV", "EX", "CP", "EV"};
     for (qsizetype index = 0; index < nav_labels_.size(); ++index) {
       auto* button = new QPushButton(nav_labels_[index], nav_rail_);
       button->setProperty("nav", true);
@@ -263,7 +283,7 @@ class AxisSimWindow final : public QMainWindow {
     nav_layout_->addWidget(appearance_label_);
     nav_layout_->addWidget(appearance_combo_);
     nav_layout_->addSpacing(12);
-    nav_scope_ = new QLabel("Independent model\nModeled estimates", nav_rail_);
+    nav_scope_ = new QLabel("modeled estimate\nschema 1.2", nav_rail_);
     nav_scope_->setObjectName("appSubtitle");
     nav_scope_->setWordWrap(true);
     nav_scope_->setMinimumHeight(36);
@@ -292,7 +312,7 @@ class AxisSimWindow final : public QMainWindow {
     header_layout->addStretch();
     scenario_ = new QComboBox(header);
     scenario_->setMinimumWidth(270);
-    scenario_->addItem("Baseline Physical AI", project_root_.filePath("configs/baseline/manifest.conf"));
+    scenario_->addItem("Baseline Physical AI · model 0.2", project_root_.filePath("configs/baseline/manifest.conf"));
     scenario_->addItem("Public MNIST-12 profile", project_root_.filePath("configs/workloads/mnist12_profiled.conf"));
     scenario_->addItem("Fixed power-budget study", project_root_.filePath("configs/power_budget/manifest.conf"));
     scenario_->addItem("Deployment & implementation proxies", project_root_.filePath("configs/implementation_proxy/manifest.conf"));
@@ -314,7 +334,7 @@ class AxisSimWindow final : public QMainWindow {
     status_pill_->setAccessibleName("Simulator status");
     header_layout->addWidget(progress_);
     header_layout->addWidget(status_pill_);
-    run_button_ = new QPushButton("Run model", header);
+    run_button_ = new QPushButton("Run baseline", header);
     run_button_->setObjectName("primaryButton");
     run_button_->setToolTip("Run the selected scenario with any explicit quick overrides (⌘R)");
     run_button_->setAccessibleName("Run model");
@@ -353,6 +373,7 @@ class AxisSimWindow final : public QMainWindow {
     layout->addWidget(tutorial_panel_);
 
     auto* controls = new QFrame(workspace);
+    quick_controls_ = controls;
     controls->setObjectName("commandPanel");
     auto* controls_layout = new QGridLayout(controls);
     controls_layout->setContentsMargins(16, 12, 16, 12);
@@ -377,7 +398,7 @@ class AxisSimWindow final : public QMainWindow {
     controls_layout->addWidget(arithmetic_scale_, 0, 4);
     controls_layout->setColumnStretch(5, 1);
     save_button_ = new QPushButton("Save As…", controls);
-    export_button_ = new QPushButton("Export JSON…", controls);
+    export_button_ = new QPushButton("Export", controls);
     export_button_->setEnabled(false);
     sweep_button_ = new QPushButton("Lane sweep", controls);
     ara_button_ = new QPushButton("Ara2 check", controls);
@@ -389,10 +410,19 @@ class AxisSimWindow final : public QMainWindow {
     controls_layout->addWidget(export_button_, 1, 2);
     controls_layout->addWidget(sweep_button_, 1, 3);
     controls_layout->addWidget(ara_button_, 1, 4);
+    scenario_->setParent(command_bar);
+    export_button_->setParent(command_bar);
+    run_button_->setParent(command_bar);
+    command_layout->addWidget(scenario_);
+    command_layout->addWidget(export_button_);
+    command_layout->addWidget(run_button_);
+    header->hide();
+    controls->hide();
     layout->addWidget(controls);
 
     splitter_ = new QSplitter(Qt::Horizontal, workspace);
     auto* editor_panel = new QFrame(splitter_);
+    experiment_panel_ = editor_panel;
     editor_panel->setObjectName("editorPanel");
     editor_panel->setMinimumWidth(280);
     editor_panel->setMaximumWidth(360);
@@ -420,7 +450,7 @@ class AxisSimWindow final : public QMainWindow {
     content_layout->setContentsMargins(16, 16, 16, 16);
     content_layout->setSpacing(10);
     auto* results_header = new QHBoxLayout();
-    auto* results_title = new QLabel("Architecture results", content_panel);
+    auto* results_title = new QLabel("Architecture overview", content_panel);
     results_title->setObjectName("sectionTitle");
     result_context_ = mutedLabel("No result yet. Run the selected scenario to populate modeled metrics.", content_panel);
     result_context_->setWordWrap(true);
@@ -430,8 +460,11 @@ class AxisSimWindow final : public QMainWindow {
     auto* modeled_label = new QLabel("Modeled estimate", content_panel);
     modeled_label->setObjectName("modeledLabel");
     modeled_label->setToolTip("Outputs depend on explicit model assumptions and are not measured silicon values");
-    results_header->addWidget(results_title);
-    results_header->addWidget(result_context_, 1);
+    auto* title_stack = new QVBoxLayout();
+    title_stack->setSpacing(1);
+    title_stack->addWidget(result_context_);
+    title_stack->addWidget(results_title);
+    results_header->addLayout(title_stack, 1);
     results_header->addWidget(tutorial_start_button_);
     results_header->addWidget(modeled_label);
     content_layout->addLayout(results_header);
@@ -442,10 +475,10 @@ class AxisSimWindow final : public QMainWindow {
     metric_layout_->setContentsMargins(8, 8, 8, 8);
     metric_layout_->setSpacing(8);
     latency_card_ = new KpiCard("Mean latency", "End-to-end per frame", content_panel);
-    energy_card_ = new KpiCard("IT energy / frame", "Dynamic plus modeled static", content_panel);
-    deadline_card_ = new KpiCard("Deadline outcome", "Vision jobs missed", content_panel);
-    traffic_card_ = new KpiCard("DRAM traffic / run", "Complete simulated workload", content_panel);
-    const std::array<KpiCard*, 4> metrics = {latency_card_, energy_card_, deadline_card_, traffic_card_};
+    deadline_card_ = new KpiCard("Deadline margin", "Configured vision deadline", content_panel);
+    energy_card_ = new KpiCard("IT energy / frame", "Modeled estimate", content_panel);
+    traffic_card_ = new KpiCard("Dominant energy", "Largest modeled component", content_panel);
+    const std::array<KpiCard*, 4> metrics = {latency_card_, deadline_card_, energy_card_, traffic_card_};
     for (std::size_t index = 0; index < metrics.size(); ++index) {
       metric_cards_.push_back(metrics[index]);
       metric_layout_->addWidget(metrics[index], 0, static_cast<int>(index));
@@ -455,11 +488,19 @@ class AxisSimWindow final : public QMainWindow {
 
     result_views_ = new QTabWidget(content_panel);
     result_views_->setAccessibleName("Result views");
+    result_views_->tabBar()->hide();
     auto* overview_page = new QWidget(result_views_);
-    auto* overview_layout = new QVBoxLayout(overview_page);
-    overview_layout->setContentsMargins(12, 12, 12, 12);
-    energy_chart_ = new EnergyBreakdownWidget(overview_page);
-    overview_layout->addWidget(energy_chart_);
+    auto* overview_layout = new QHBoxLayout(overview_page);
+    overview_layout->setContentsMargins(0, 4, 0, 0);
+    overview_layout->setSpacing(22);
+    auto* analysis = new QWidget(overview_page);
+    auto* analysis_layout = new QVBoxLayout(analysis);
+    analysis_layout->setContentsMargins(0, 0, 0, 0);
+    analysis_layout->setSpacing(18);
+    timeline_chart_ = new ResourceTimelineWidget(analysis);
+    analysis_layout->addWidget(timeline_chart_, 3);
+    energy_chart_ = new EnergyBreakdownWidget(analysis);
+    analysis_layout->addWidget(energy_chart_, 1);
     metrics_ = new QTableWidget(overview_page);
     metrics_->setColumnCount(3);
     metrics_->setHorizontalHeaderLabels({"Metric", "Modeled value", "Interpretation"});
@@ -468,18 +509,50 @@ class AxisSimWindow final : public QMainWindow {
     metrics_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
     configureTable(metrics_);
     metrics_->setAccessibleName("Modeled result details");
-    overview_layout->addWidget(metrics_, 1);
+    metrics_->hide();
     auto* scope_note = mutedLabel("Model outputs are scenario-dependent estimates. Power, area, thermal, deployment, and reliability values are only as valid as their explicit input assumptions.", overview_page);
     scope_note->setWordWrap(true);
-    overview_layout->addWidget(scope_note);
+    analysis_layout->addWidget(scope_note);
+    overview_layout->addWidget(analysis, 3);
+    auto* findings = new QFrame(overview_page);
+    findings->setObjectName("findingsMargin");
+    findings->setMinimumWidth(250);
+    findings->setMaximumWidth(340);
+    auto* findings_layout = new QVBoxLayout(findings);
+    findings_layout->setContentsMargins(16, 8, 0, 8);
+    auto* findings_title = new QLabel("What limits this run", findings);
+    findings_title->setObjectName("panelTitle");
+    findings_layout->addWidget(findings_title);
+    latency_finding_ = new QLabel("Run a scenario to identify the longest serialized stage.", findings);
+    latency_finding_->setObjectName("findingText");
+    latency_finding_->setWordWrap(true);
+    findings_layout->addWidget(latency_finding_);
+    auto* latency_scope = mutedLabel("Timing is an analytical model under the selected workload and configuration assumptions.", findings);
+    latency_scope->setWordWrap(true);
+    findings_layout->addWidget(latency_scope);
+    auto* divider = new QFrame(findings);
+    divider->setObjectName("metricDivider");
+    divider->setFrameShape(QFrame::HLine);
+    findings_layout->addWidget(divider);
+    energy_finding_ = new QLabel("Run a scenario to identify the modeled energy driver.", findings);
+    energy_finding_->setObjectName("findingText");
+    energy_finding_->setWordWrap(true);
+    findings_layout->addWidget(energy_finding_);
+    auto* energy_scope = mutedLabel("Energy is assumption-led. Component changes should be evaluated at whole-system scope.", findings);
+    energy_scope->setWordWrap(true);
+    findings_layout->addWidget(energy_scope);
+    findings_layout->addStretch();
+    auto* evidence = new QLabel("Timing\tanalytical\nEnergy\tassumption-led\nRVV envelope\tAra checked\nSilicon claim\tnone", findings);
+    evidence->setObjectName("evidenceLedger");
+    evidence->setWordWrap(true);
+    findings_layout->addWidget(evidence);
+    overview_layout->addWidget(findings, 1);
     result_views_->addTab(overview_page, "Overview");
 
     auto* timeline_page = new QWidget(result_views_);
     auto* timeline_layout = new QVBoxLayout(timeline_page);
     timeline_layout->setContentsMargins(12, 12, 12, 12);
     timeline_layout->setSpacing(10);
-    timeline_chart_ = new ResourceTimelineWidget(timeline_page);
-    timeline_layout->addWidget(timeline_chart_, 2);
     trace_ = new QTableWidget(timeline_page);
     trace_->setColumnCount(5);
     trace_->setHorizontalHeaderLabels({"Frame", "Task", "Resource", "Start (µs)", "Duration (µs)"});
@@ -536,9 +609,10 @@ class AxisSimWindow final : public QMainWindow {
     splitter_->addWidget(content_panel);
     splitter_->setStretchFactor(0, 2);
     splitter_->setStretchFactor(1, 5);
-    splitter_->setSizes({320, 820});
+    splitter_->setSizes({0, 1140});
     layout->addWidget(splitter_, 1);
     shell_layout->addWidget(workspace, 1);
+    root_layout->addWidget(shell, 1);
     setCentralWidget(root);
 
     connect(scenario_, &QComboBox::currentIndexChanged, this, [this](int index) { changeScenario(index); });
@@ -560,18 +634,20 @@ class AxisSimWindow final : public QMainWindow {
     });
     connect(nav_group, &QButtonGroup::idClicked, this, [this](int id) {
       if (id == 1) {
+        quick_controls_->show();
+        splitter_->setSizes({320, 820});
         editor_->setFocus();
         return;
       }
-      // The Experiment Lab is the configuration pane. All other rail items
-      // map one-to-one to a result workspace.
-      const std::array<int, 6> tab_for_nav = {0, 0, 1, 2, 3, 4};
+      quick_controls_->hide();
+      splitter_->setSizes({0, 1140});
+      const std::array<int, 4> tab_for_nav = {0, 0, 2, 3};
       if (id >= 0 && id < static_cast<int>(tab_for_nav.size())) {
         result_views_->setCurrentIndex(tab_for_nav[static_cast<std::size_t>(id)]);
       }
     });
     connect(result_views_, &QTabWidget::currentChanged, this, [this](int index) {
-      const std::array<int, 5> nav_for_tab = {0, 2, 3, 4, 5};
+      const std::array<int, 5> nav_for_tab = {0, 0, 2, 3, 3};
       const int nav_index = index >= 0 && index < static_cast<int>(nav_for_tab.size())
                                 ? nav_for_tab[static_cast<std::size_t>(index)]
                                 : 0;
@@ -627,6 +703,15 @@ class AxisSimWindow final : public QMainWindow {
     connect(ara_action_, &QAction::triggered, this, [this] { runAra2Check(); });
 
     auto* help_menu = menuBar()->addMenu("Help");
+    auto* appearance_menu = help_menu->addMenu("Appearance");
+    for (const auto& mode : {QString("System"), QString("Light"), QString("Dark")}) {
+      auto* action = appearance_menu->addAction(mode);
+      connect(action, &QAction::triggered, this, [this, mode] {
+        const int index = appearance_combo_->findText(mode);
+        if (index >= 0) appearance_combo_->setCurrentIndex(index);
+      });
+    }
+    help_menu->addSeparator();
     tutorial_start_action_ = help_menu->addAction("Start Guided First Run");
     connect(tutorial_start_action_, &QAction::triggered, this, [this] { startTutorial(); });
     tutorial_reset_action_ = help_menu->addAction("Reset Guided First Run");
@@ -713,7 +798,7 @@ class AxisSimWindow final : public QMainWindow {
 
   void refreshTutorialEntry() {
     if (!tutorial_start_button_) return;
-    const bool show_entry = tutorial_step_ == TutorialStep::Inactive && !tutorialCompleted() && !tutorialDismissed();
+    const bool show_entry = tutorial_step_ == TutorialStep::Inactive && last_result_json_.isEmpty() && !tutorialCompleted() && !tutorialDismissed();
     tutorial_start_button_->setVisible(show_entry);
     if (show_entry && result_context_ && last_result_json_.isEmpty()) {
       result_context_->setText("New to AxisSim? Take a two-minute guided run with a public workload.");
@@ -1194,6 +1279,7 @@ class AxisSimWindow final : public QMainWindow {
       return;
     }
     last_result_json_ = result_file.readAll();
+    refreshTutorialEntry();
     QJsonParseError parse_error;
     const auto document = QJsonDocument::fromJson(last_result_json_, &parse_error);
     if (parse_error.error != QJsonParseError::NoError || !document.isObject()) {
@@ -1209,11 +1295,28 @@ class AxisSimWindow final : public QMainWindow {
     const QJsonObject power = result.value("power").toObject();
     const int frames = std::max(1, deadlines.value("vision_jobs").toInt());
 
-    latency_card_->setValue(QString::number(latency.value("mean_us").toDouble(), 'f', 2) + " µs");
-    energy_card_->setValue(QString::number(energy.value("it_per_frame_uj").toDouble(), 'f', 2) + " µJ",
-                           QString("%1 µJ dynamic").arg(energy.value("per_frame_uj").toDouble(), 0, 'f', 2));
-    deadline_card_->setValue(QString("%1 / %2 missed").arg(deadlines.value("vision_misses").toInt()).arg(frames), "Configured vision deadline");
-    traffic_card_->setValue(QString::number(traffic.value("dram_bytes").toDouble() / 1'000'000.0, 'f', 2) + " MB");
+    const double mean_latency_us = latency.value("mean_us").toDouble();
+    const double deadline_us = result.value("deadline_us").toDouble();
+    const double deadline_margin_us = deadline_us - latency.value("p99_us").toDouble();
+    const std::array<std::pair<QString, double>, 4> energy_components = {{
+        {"Vector", energy.value("vector_pj").toDouble() / frames / 1'000'000.0},
+        {"NPU arithmetic", energy.value("npu_arithmetic_pj").toDouble() / frames / 1'000'000.0},
+        {"DRAM", energy.value("dram_pj").toDouble() / frames / 1'000'000.0},
+        {"DMA", energy.value("dma_pj").toDouble() / frames / 1'000'000.0},
+    }};
+    const auto dominant_energy = std::max_element(energy_components.cbegin(), energy_components.cend(),
+                                                   [](const auto& left, const auto& right) { return left.second < right.second; });
+    const double energy_total = std::max(energy.value("it_per_frame_uj").toDouble(), 0.000001);
+    latency_card_->setValue(QString::number(mean_latency_us, 'f', 2) + " µs",
+                            QString("P99 %1 µs").arg(latency.value("p99_us").toDouble(), 0, 'f', 2));
+    deadline_card_->setValue(QString::number(deadline_margin_us / 1'000.0, 'f', 3) + " ms",
+                             QString("%1 / %2 missed").arg(deadlines.value("vision_misses").toInt()).arg(frames));
+    energy_card_->setValue(QString::number(energy.value("it_per_frame_uj").toDouble(), 'f', 2) + " µJ", "modeled estimate");
+    traffic_card_->setValue(QString("%1 %2%").arg(dominant_energy->first).arg(100.0 * dominant_energy->second / energy_total, 0, 'f', 1),
+                            QString("%1 µJ / frame").arg(dominant_energy->second, 0, 'f', 2));
+    energy_finding_->setText(QString("Data movement owns %1% of dynamic energy.")
+                                 .arg(100.0 * (energy_components[2].second + energy_components[3].second) /
+                                      std::max(energy.value("per_frame_uj").toDouble(), 0.000001), 0, 'f', 1));
 
     energy_chart_->setSegments({
         {"Vector", energy.value("vector_pj").toDouble() / frames / 1'000'000.0, AxisTheme::chartRvv()},
@@ -1250,8 +1353,7 @@ class AxisSimWindow final : public QMainWindow {
     export_button_->setEnabled(true);
     export_action_->setEnabled(true);
     result_views_->setCurrentIndex(0);
-    result_context_->setText(QString("%1 · model %2 · result schema %3")
-                                 .arg(result.value("scenario_name").toString(), result.value("model_version").toString(), result.value("schema_version").toString()));
+    result_context_->setText(scenario_->currentText());
     finishProcess(true, power.value("budget_w").toDouble() > 0.0 && !power.value("feasible").toBool() ? "Complete • budget exceeded" : "Model complete");
     handleTutorialResult(result);
     if (!snapshot_path_.isEmpty()) {
@@ -1368,6 +1470,20 @@ class AxisSimWindow final : public QMainWindow {
       if (fields[2] == "NPU") color = AxisTheme::chartNpu();
       if (start_ok && end_ok) events.push_back({fields[1], fields[2], start, end, color});
     }
+    if (!events.isEmpty()) {
+      const auto longest = std::max_element(events.cbegin(), events.cend(),
+                                            [](const TimelineEvent& left, const TimelineEvent& right) {
+                                              return left.end_us - left.start_us < right.end_us - right.start_us;
+                                            });
+      const double duration = longest->end_us - longest->start_us;
+      const double frame_end = std::max_element(events.cbegin(), events.cend(),
+                                                [](const TimelineEvent& left, const TimelineEvent& right) {
+                                                  return left.end_us < right.end_us;
+                                                })->end_us;
+      latency_finding_->setText(QString("%1 owns %2% of frame latency.")
+                                    .arg(longest->task)
+                                    .arg(100.0 * duration / std::max(frame_end, 0.001), 0, 'f', 1));
+    }
     timeline_chart_->setEvents(std::move(events));
   }
 
@@ -1473,9 +1589,13 @@ class AxisSimWindow final : public QMainWindow {
   QLabel* result_context_ = nullptr;
   QLabel* comparison_summary_ = nullptr;
   QLabel* profile_evidence_ = nullptr;
+  QLabel* latency_finding_ = nullptr;
+  QLabel* energy_finding_ = nullptr;
   QLabel* tutorial_title_ = nullptr;
   QLabel* tutorial_text_ = nullptr;
   QProgressBar* progress_ = nullptr;
+  QFrame* quick_controls_ = nullptr;
+  QFrame* experiment_panel_ = nullptr;
   QFrame* tutorial_panel_ = nullptr;
   QWidget* tutorial_target_ = nullptr;
   QSplitter* splitter_ = nullptr;
