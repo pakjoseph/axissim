@@ -276,6 +276,10 @@ class AxisSimWindow final : public QMainWindow {
     run_button_->setToolTip("Run the selected scenario with any explicit quick overrides (⌘R)");
     run_button_->setAccessibleName("Run model");
     header_layout->addWidget(run_button_);
+    mnist_button_ = new QPushButton("Run public MNIST-12", header);
+    mnist_button_->setToolTip("Load the checked-in public MNIST-12 operator profile and run the deterministic model with scenario defaults");
+    mnist_button_->setAccessibleName("Run public MNIST-12 example");
+    header_layout->addWidget(mnist_button_);
     layout->addWidget(header);
 
     auto* controls = new QFrame(workspace);
@@ -468,6 +472,7 @@ class AxisSimWindow final : public QMainWindow {
     connect(save_button_, &QPushButton::clicked, this, [this] { saveAs(); });
     connect(export_button_, &QPushButton::clicked, this, [this] { exportResult(); });
     connect(run_button_, &QPushButton::clicked, this, [this] { runScenario(); });
+    connect(mnist_button_, &QPushButton::clicked, this, [this] { runPublicMnistProfile(); });
     connect(sweep_button_, &QPushButton::clicked, this, [this] { runLaneSweep(); });
     connect(ara_button_, &QPushButton::clicked, this, [this] { runAra2Check(); });
     connect(appearance_combo_, &QComboBox::currentIndexChanged, this, [this](int index) {
@@ -498,7 +503,8 @@ class AxisSimWindow final : public QMainWindow {
 
     setTabOrder(scenario_, browse_button_);
     setTabOrder(browse_button_, run_button_);
-    setTabOrder(run_button_, rvv_lanes_);
+    setTabOrder(run_button_, mnist_button_);
+    setTabOrder(mnist_button_, rvv_lanes_);
     setTabOrder(rvv_lanes_, npu_macs_);
     setTabOrder(npu_macs_, dram_bandwidth_);
     setTabOrder(dram_bandwidth_, arithmetic_scale_);
@@ -532,6 +538,8 @@ class AxisSimWindow final : public QMainWindow {
     run_action_ = run_menu->addAction("Run Model");
     run_action_->setShortcut(QKeySequence("Ctrl+R"));
     connect(run_action_, &QAction::triggered, this, [this] { runScenario(); });
+    mnist_action_ = run_menu->addAction("Run Public MNIST-12 Example");
+    connect(mnist_action_, &QAction::triggered, this, [this] { runPublicMnistProfile(); });
     sweep_action_ = run_menu->addAction("Sweep RVV Lanes");
     sweep_action_->setShortcut(QKeySequence("Ctrl+Shift+R"));
     connect(sweep_action_, &QAction::triggered, this, [this] { runLaneSweep(); });
@@ -722,6 +730,36 @@ class AxisSimWindow final : public QMainWindow {
     process_->start(executable, arguments);
   }
 
+  void runPublicMnistProfile() {
+    const QString profile_path = project_root_.filePath("configs/workloads/mnist12_profiled.conf");
+    const int profile_index = scenario_->findData(profile_path);
+    if (profile_index < 0) {
+      showError("Public profile unavailable", "The checked-in MNIST-12 profile scenario could not be located:\n" + profile_path);
+      return;
+    }
+
+    if (scenario_->currentIndex() != profile_index) {
+      scenario_->setCurrentIndex(profile_index);
+      if (QFileInfo(scenario_path_).absoluteFilePath() != QFileInfo(profile_path).absoluteFilePath()) return;
+    } else if (editor_->document()->isModified()) {
+      const auto choice = QMessageBox::question(
+          this, "Restore public profile?",
+          "Running the public example restores its checked-in manifest and clears unsaved editor changes. Continue?",
+          QMessageBox::RestoreDefaults | QMessageBox::Cancel, QMessageBox::RestoreDefaults);
+      if (choice != QMessageBox::RestoreDefaults) return;
+      loadScenario(profile_path);
+    }
+
+    // This is intentionally a reproducible, no-overrides starting point rather
+    // than a hidden demo. Users can then change values in Experiment Lab.
+    rvv_lanes_->setCurrentIndex(0);
+    npu_macs_->setCurrentIndex(0);
+    dram_bandwidth_->setCurrentIndex(0);
+    arithmetic_scale_->setCurrentIndex(0);
+    statusBar()->showMessage("Loaded public MNIST-12 profile; running with checked-in scenario defaults.", 5'000);
+    runScenario();
+  }
+
   void runLaneSweep() {
     if (!ensureSaved()) return;
     const QString executable = cliExecutable();
@@ -805,6 +843,7 @@ class AxisSimWindow final : public QMainWindow {
     browse_button_->setEnabled(!busy);
     save_button_->setEnabled(!busy);
     run_button_->setEnabled(!busy);
+    mnist_button_->setEnabled(!busy);
     sweep_button_->setEnabled(!busy);
     ara_button_->setEnabled(!busy);
     rvv_lanes_->setEnabled(!busy);
@@ -814,6 +853,7 @@ class AxisSimWindow final : public QMainWindow {
     open_action_->setEnabled(!busy);
     save_action_->setEnabled(!busy);
     run_action_->setEnabled(!busy);
+    mnist_action_->setEnabled(!busy);
     sweep_action_->setEnabled(!busy);
     ara_action_->setEnabled(!busy);
   }
@@ -1093,12 +1133,14 @@ class AxisSimWindow final : public QMainWindow {
   QPushButton* save_button_ = nullptr;
   QPushButton* export_button_ = nullptr;
   QPushButton* run_button_ = nullptr;
+  QPushButton* mnist_button_ = nullptr;
   QPushButton* sweep_button_ = nullptr;
   QPushButton* ara_button_ = nullptr;
   QAction* export_action_ = nullptr;
   QAction* open_action_ = nullptr;
   QAction* save_action_ = nullptr;
   QAction* run_action_ = nullptr;
+  QAction* mnist_action_ = nullptr;
   QAction* sweep_action_ = nullptr;
   QAction* ara_action_ = nullptr;
   QLabel* status_pill_ = nullptr;
