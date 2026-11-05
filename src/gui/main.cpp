@@ -98,8 +98,8 @@ class KpiCard final : public QFrame {
 class AxisSimWindow final : public QMainWindow {
  public:
   explicit AxisSimWindow(bool exit_after_run = false, QString snapshot_path = {}, QSize snapshot_size = {},
-                         bool tutorial_smoke_run = false, bool tutorial_preview = false)
-      : snapshot_path_(std::move(snapshot_path)), exit_after_run_(exit_after_run), tutorial_smoke_run_(tutorial_smoke_run), tutorial_preview_(tutorial_preview) {
+                         bool tutorial_smoke_run = false, bool tutorial_preview = false, bool mapping_lab_smoke_run = false)
+      : snapshot_path_(std::move(snapshot_path)), exit_after_run_(exit_after_run), tutorial_smoke_run_(tutorial_smoke_run), tutorial_preview_(tutorial_preview), mapping_lab_smoke_run_(mapping_lab_smoke_run) {
     project_root_ = findProjectRoot();
     setWindowTitle("AxisSim — AI Architecture Explorer");
     setWindowIcon(QIcon(":/icons/axissim.png"));
@@ -124,6 +124,8 @@ class AxisSimWindow final : public QMainWindow {
         startTutorial();
         runPublicMnistProfile();
       });
+    } else if (mapping_lab_smoke_run_) {
+      QTimer::singleShot(0, this, [this] { runMappingPolicyStudy(); });
     } else if (exit_after_run_) {
       QTimer::singleShot(0, this, [this] { runScenario(); });
     }
@@ -258,8 +260,8 @@ class AxisSimWindow final : public QMainWindow {
     nav_layout_->addSpacing(8);
     auto* nav_group = new QButtonGroup(nav_rail_);
     nav_group->setExclusive(true);
-    nav_labels_ = {"Overview", "Experiment Lab", "Compare", "Evidence"};
-    nav_short_labels_ = {"OV", "EX", "CP", "EV"};
+    nav_labels_ = {"Overview", "Experiment Lab", "Mapping Lab", "Evidence"};
+    nav_short_labels_ = {"OV", "EX", "ML", "EV"};
     for (qsizetype index = 0; index < nav_labels_.size(); ++index) {
       auto* button = new QPushButton(nav_labels_[index], nav_rail_);
       button->setProperty("nav", true);
@@ -316,6 +318,12 @@ class AxisSimWindow final : public QMainWindow {
     scenario_->setMinimumWidth(270);
     scenario_->addItem("Baseline Physical AI · model 0.2", project_root_.filePath("configs/baseline/manifest.conf"));
     scenario_->addItem("Public MNIST-12 profile", project_root_.filePath("configs/workloads/mnist12_profiled.conf"));
+    scenario_->insertSeparator(scenario_->count());
+    scenario_->addItem("MNIST-12 · fused mapping", project_root_.filePath("configs/workloads/mnist12_plus_relu_fused.conf"));
+    scenario_->addItem("MNIST-12 · persistent weights", project_root_.filePath("configs/workloads/mnist12_persistent_weights.conf"));
+    scenario_->addItem("MNIST-12 · FP16 sensitivity", project_root_.filePath("configs/workloads/mnist12_fp16_storage.conf"));
+    scenario_->addItem("MNIST-12 · fused + persistent", project_root_.filePath("configs/workloads/mnist12_fused_persistent_weights.conf"));
+    scenario_->insertSeparator(scenario_->count());
     scenario_->addItem("Fixed power-budget study", project_root_.filePath("configs/power_budget/manifest.conf"));
     scenario_->addItem("Deployment & implementation proxies", project_root_.filePath("configs/implementation_proxy/manifest.conf"));
     scenario_->setToolTip("Choose a checked-in scenario or open your own manifest");
@@ -857,18 +865,64 @@ class AxisSimWindow final : public QMainWindow {
 
     auto* sweep_page = new QWidget(result_views_);
     auto* sweep_layout = new QVBoxLayout(sweep_page);
-    comparison_summary_ = mutedLabel("Run an RVV lane sweep to compare candidates against the selected baseline.", sweep_page);
+    sweep_layout->setContentsMargins(0, 0, 0, 0);
+    auto* compare_tabs = new QTabWidget(sweep_page);
+    compare_tabs->setAccessibleName("Mapping and architecture comparisons");
+    auto* mapping_page = new QWidget(compare_tabs);
+    auto* mapping_layout = new QVBoxLayout(mapping_page);
+    mapping_layout->setContentsMargins(16, 16, 16, 16);
+    mapping_layout->setSpacing(10);
+    auto* mapping_header = new QHBoxLayout();
+    auto* mapping_titles = new QVBoxLayout();
+    auto* mapping_title = new QLabel("Public-model Mapping Lab", mapping_page);
+    mapping_title->setObjectName("sectionTitle");
+    auto* mapping_note = mutedLabel("Evaluate five checked-in mapping policies over the same MNIST-12 profile. Every value is emitted by the CLI; policies are assumptions, not compiler or silicon measurements.", mapping_page);
+    mapping_note->setWordWrap(true);
+    mapping_titles->addWidget(mapping_title);
+    mapping_titles->addWidget(mapping_note);
+    mapping_header->addLayout(mapping_titles, 1);
+    mapping_run_button_ = new QPushButton("Run policy study", mapping_page);
+    mapping_run_button_->setObjectName("primaryButton");
+    mapping_run_button_->setAccessibleName("Run public model mapping policy study");
+    mapping_run_button_->setToolTip("Run baseline, fusion, residency, combined, and FP16 sensitivity policies with the deterministic CLI");
+    mapping_header->addWidget(mapping_run_button_);
+    mapping_layout->addLayout(mapping_header);
+    mapping_summary_ = mutedLabel("No policy results yet. Run the study to compare emitted latency, energy, and traffic ledgers.", mapping_page);
+    mapping_summary_->setWordWrap(true);
+    mapping_layout->addWidget(mapping_summary_);
+    mapping_table_ = new QTableWidget(mapping_page);
+    mapping_table_->setColumnCount(8);
+    mapping_table_->setHorizontalHeaderLabels({"Policy", "Mean (µs)", "Δ latency", "IT energy/frame (µJ)", "Δ energy", "DRAM (MB / run)", "Transfer first → steady (B)", "Declared effect"});
+    mapping_table_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    mapping_table_->horizontalHeader()->setStretchLastSection(true);
+    mapping_table_->setMaximumHeight(320);
+    mapping_table_->setWordWrap(true);
+    configureTable(mapping_table_);
+    mapping_table_->setAccessibleName("Public MNIST-12 mapping policy results");
+    mapping_layout->addWidget(mapping_table_);
+    mapping_evidence_ = mutedLabel("Evidence boundary · Static ONNX operation and traffic characterization. Precision changes declared storage bytes and a named NPU-energy scale only; no accuracy, compiler lowering, or silicon result is inferred.", mapping_page);
+    mapping_evidence_->setObjectName("profileEvidence");
+    mapping_evidence_->setWordWrap(true);
+    mapping_layout->addWidget(mapping_evidence_);
+    compare_tabs->addTab(mapping_page, "Mapping policies");
+
+    auto* lane_page = new QWidget(compare_tabs);
+    auto* lane_layout = new QVBoxLayout(lane_page);
+    lane_layout->setContentsMargins(16, 16, 16, 16);
+    comparison_summary_ = mutedLabel("Run an RVV lane sweep to compare candidates against the selected baseline.", lane_page);
     comparison_summary_->setWordWrap(true);
-    sweep_layout->addWidget(comparison_summary_);
-    sweep_chart_ = new SweepChartWidget(sweep_page);
-    sweep_layout->addWidget(sweep_chart_, 2);
-    sweep_ = new QTableWidget(sweep_page);
+    lane_layout->addWidget(comparison_summary_);
+    sweep_chart_ = new SweepChartWidget(lane_page);
+    lane_layout->addWidget(sweep_chart_, 2);
+    sweep_ = new QTableWidget(lane_page);
     sweep_->setColumnCount(6);
     sweep_->setHorizontalHeaderLabels({"Candidate", "RVV lanes", "Mean (µs)", "Δ vs. 8 lanes", "DRAM (MB)", "Energy/frame (µJ)"});
     sweep_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     configureTable(sweep_);
     sweep_->setAccessibleName("RVV lane sweep results");
-    sweep_layout->addWidget(sweep_, 1);
+    lane_layout->addWidget(sweep_, 1);
+    compare_tabs->addTab(lane_page, "RVV lane sweep");
+    sweep_layout->addWidget(compare_tabs);
     result_views_->addTab(sweep_page, "Candidate comparison");
 
     auto* proxies_page = new QWidget(result_views_);
@@ -918,6 +972,7 @@ class AxisSimWindow final : public QMainWindow {
     connect(tutorial_action_button_, &QPushButton::clicked, this, [this] { advanceTutorial(); });
     connect(tutorial_skip_button_, &QPushButton::clicked, this, [this] { dismissTutorial(); });
     connect(sweep_button_, &QPushButton::clicked, this, [this] { runLaneSweep(); });
+    connect(mapping_run_button_, &QPushButton::clicked, this, [this] { runMappingPolicyStudy(); });
     connect(ara_button_, &QPushButton::clicked, this, [this] { runAra2Check(); });
     connect(run_experiment, &QPushButton::clicked, this, [this] { runScenario(); });
     connect(run_npu, &QPushButton::clicked, this, [this] { runScenario(); });
@@ -1540,6 +1595,131 @@ class AxisSimWindow final : public QMainWindow {
     runScenario();
   }
 
+  [[nodiscard]] QVector<QPair<QString, QString>> mappingPolicyInputs() const {
+    return {
+        {"Baseline", project_root_.filePath("configs/workloads/mnist12_profiled.conf")},
+        {"Fusion", project_root_.filePath("configs/workloads/mnist12_plus_relu_fused.conf")},
+        {"Persistent weights", project_root_.filePath("configs/workloads/mnist12_persistent_weights.conf")},
+        {"Fusion + residency", project_root_.filePath("configs/workloads/mnist12_fused_persistent_weights.conf")},
+        {"FP16 sensitivity", project_root_.filePath("configs/workloads/mnist12_fp16_storage.conf")},
+    };
+  }
+
+  void runMappingPolicyStudy() {
+    const QString executable = cliExecutable();
+    if (executable.isEmpty()) {
+      showError("AxisSim CLI not found", "Build the axissim CLI and desktop targets together.");
+      return;
+    }
+    for (const auto& [label, config] : mappingPolicyInputs()) {
+      Q_UNUSED(label);
+      if (!QFileInfo::exists(config)) {
+        showError("Mapping policy unavailable", "A checked-in Mapping Lab scenario is missing:\n" + config);
+        return;
+      }
+    }
+    mapping_temporary_ = std::make_unique<QTemporaryDir>();
+    if (!mapping_temporary_->isValid()) {
+      showError("Unable to create Mapping Lab workspace", "AxisSim could not create temporary result artifacts for the policy study.");
+      return;
+    }
+    mapping_policy_index_ = 0;
+    mapping_policy_results_.clear();
+    runNextMappingPolicy();
+  }
+
+  void runNextMappingPolicy() {
+    const auto policies = mappingPolicyInputs();
+    if (mapping_policy_index_ >= static_cast<int>(policies.size())) {
+      populateMappingPolicyStudy();
+      result_views_->setCurrentIndex(2);
+      finishProcess(true, "Mapping policy study complete");
+      if (!snapshot_path_.isEmpty()) {
+        QTimer::singleShot(100, this, [this, policies] {
+          QFileInfo output(snapshot_path_);
+          output.dir().mkpath(".");
+          const bool saved = mapping_table_->rowCount() == static_cast<int>(policies.size()) && grab().save(snapshot_path_);
+          QCoreApplication::exit(saved ? 0 : 1);
+        });
+      } else if (mapping_lab_smoke_run_) {
+        QCoreApplication::exit(mapping_table_->rowCount() == static_cast<int>(policies.size()) ? 0 : 1);
+      }
+      return;
+    }
+    const auto& [label, config] = policies[mapping_policy_index_];
+    const QString json_path = mapping_temporary_->filePath(QString("policy_%1.json").arg(mapping_policy_index_));
+    beginProcess(QString("Evaluating %1…").arg(label));
+    connect(process_.get(), qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
+            [this, label, json_path](int exit_code, QProcess::ExitStatus exit_status) {
+              const QString output = QString::fromUtf8(process_->readAllStandardOutput() + process_->readAllStandardError());
+              if (exit_status != QProcess::NormalExit || exit_code != 0) {
+                finishProcess(false, "Mapping policy study failed");
+                showError("AxisSim Mapping Lab failed", output);
+                return;
+              }
+              QFile result_file(json_path);
+              QJsonParseError parse_error;
+              const QJsonDocument document = result_file.open(QIODevice::ReadOnly)
+                  ? QJsonDocument::fromJson(result_file.readAll(), &parse_error) : QJsonDocument();
+              if (parse_error.error != QJsonParseError::NoError || !document.isObject()) {
+                finishProcess(false, "Mapping policy result invalid");
+                showError("AxisSim Mapping Lab result unavailable", "The CLI did not emit valid result JSON for " + label + ".");
+                return;
+              }
+              mapping_policy_results_.push_back({label, document.object()});
+              ++mapping_policy_index_;
+              QTimer::singleShot(0, this, [this] { runNextMappingPolicy(); });
+            });
+    process_->setWorkingDirectory(QFileInfo(config).absolutePath());
+    process_->start(cliExecutable(), {"run", config, "--json", json_path});
+  }
+
+  void populateMappingPolicyStudy() {
+    mapping_table_->setRowCount(0);
+    if (mapping_policy_results_.isEmpty()) return;
+    const QJsonObject baseline = mapping_policy_results_.front().second;
+    const double baseline_latency = baseline.value("latency").toObject().value("mean_us").toDouble();
+    const double baseline_energy = baseline.value("energy").toObject().value("it_per_frame_uj").toDouble();
+    double lowest_energy = std::numeric_limits<double>::infinity();
+    QString lowest_label;
+    for (const auto& [label, result] : mapping_policy_results_) {
+      const QJsonObject latency = result.value("latency").toObject();
+      const QJsonObject energy = result.value("energy").toObject();
+      const QJsonObject traffic = result.value("traffic").toObject();
+      const QJsonObject ledger = result.value("profile_transfer_ledger").toObject();
+      const QJsonObject effects = result.value("mapping_effects").toObject();
+      const double mean = latency.value("mean_us").toDouble();
+      const double it_energy = energy.value("it_per_frame_uj").toDouble();
+      if (it_energy < lowest_energy) { lowest_energy = it_energy; lowest_label = label; }
+      QStringList effects_text;
+      if (effects.value("fusion_count").toInt() > 0) effects_text << QString("fusion −%1 B/frame").arg(effects.value("fused_intermediate_bytes_avoided_per_frame").toDouble(), 0, 'f', 0);
+      if (effects.value("persistent_weight_operator_count").toInt() > 0) effects_text << QString("residency −%1 B steady").arg(effects.value("persistent_weight_bytes_avoided_per_steady_frame").toDouble(), 0, 'f', 0);
+      const QString source_precision = effects.value("source_storage_precision").toString();
+      const QString target_precision = effects.value("target_storage_precision").toString();
+      if (source_precision != target_precision) effects_text << QString("storage %1→%2; NPU energy ×%3").arg(source_precision, target_precision).arg(effects.value("mapped_npu_arithmetic_energy_scale").toDouble(), 0, 'f', 2);
+      if (effects_text.isEmpty()) effects_text << "baseline mapping";
+      const int row = mapping_table_->rowCount();
+      mapping_table_->insertRow(row);
+      const QStringList values = {
+          label,
+          QString::number(mean, 'f', 2),
+          label == "Baseline" ? "baseline" : QString("%1%").arg(100.0 * (mean / baseline_latency - 1.0), 0, 'f', 1),
+          QString::number(it_energy, 'f', 3),
+          label == "Baseline" ? "baseline" : QString("%1%").arg(100.0 * (it_energy / baseline_energy - 1.0), 0, 'f', 1),
+          QString::number(traffic.value("dram_bytes").toDouble() / 1'000'000.0, 'f', 3),
+          QString("%1 → %2").arg(ledger.value("first_frame_bytes").toDouble(), 0, 'f', 0).arg(ledger.value("steady_state_bytes").toDouble(), 0, 'f', 0),
+          effects_text.join(" · "),
+      };
+      for (int column = 0; column < values.size(); ++column) {
+        auto* item = new QTableWidgetItem(values[column]);
+        mapping_table_->setItem(row, column, item);
+      }
+    }
+    mapping_summary_->setText(QString("Lowest emitted energy in this policy set: %1 at %2 µJ/frame. Compare the declared byte changes before treating a policy as a design recommendation.")
+                                  .arg(lowest_label).arg(lowest_energy, 0, 'f', 3));
+    mapping_table_->resizeRowsToContents();
+  }
+
   void runLaneSweep() {
     if (!ensureSaved()) return;
     const QString executable = cliExecutable();
@@ -1628,6 +1808,7 @@ class AxisSimWindow final : public QMainWindow {
     tutorial_action_button_->setEnabled(!busy);
     tutorial_skip_button_->setEnabled(!busy);
     sweep_button_->setEnabled(!busy);
+    if (mapping_run_button_) mapping_run_button_->setEnabled(!busy);
     ara_button_->setEnabled(!busy);
     rvv_lanes_->setEnabled(!busy);
     npu_macs_->setEnabled(!busy);
@@ -1962,6 +2143,7 @@ class AxisSimWindow final : public QMainWindow {
   QPushButton* tutorial_action_button_ = nullptr;
   QPushButton* tutorial_skip_button_ = nullptr;
   QPushButton* sweep_button_ = nullptr;
+  QPushButton* mapping_run_button_ = nullptr;
   QPushButton* ara_button_ = nullptr;
   QAction* export_action_ = nullptr;
   QAction* open_action_ = nullptr;
@@ -1976,6 +2158,8 @@ class AxisSimWindow final : public QMainWindow {
   QLabel* scenario_path_label_ = nullptr;
   QLabel* result_context_ = nullptr;
   QLabel* comparison_summary_ = nullptr;
+  QLabel* mapping_summary_ = nullptr;
+  QLabel* mapping_evidence_ = nullptr;
   QLabel* experiment_kicker_ = nullptr;
   QLabel* experiment_state_ = nullptr;
   QLabel* experiment_delta_ = nullptr;
@@ -1999,6 +2183,7 @@ class AxisSimWindow final : public QMainWindow {
   QTableWidget* trace_ = nullptr;
   ResourceTimelineWidget* timeline_chart_ = nullptr;
   QTableWidget* sweep_ = nullptr;
+  QTableWidget* mapping_table_ = nullptr;
   QTableWidget* metrics_ = nullptr;
   QTableWidget* proxies_ = nullptr;
   EnergyBreakdownWidget* energy_chart_ = nullptr;
@@ -2015,6 +2200,9 @@ class AxisSimWindow final : public QMainWindow {
   QByteArray last_result_json_;
   std::unique_ptr<QProcess> process_;
   std::unique_ptr<QTemporaryDir> temporary_;
+  std::unique_ptr<QTemporaryDir> mapping_temporary_;
+  QVector<QPair<QString, QJsonObject>> mapping_policy_results_;
+  int mapping_policy_index_ = 0;
   QString snapshot_path_;
   TutorialStep tutorial_step_ = TutorialStep::Inactive;
   TutorialSnapshot tutorial_baseline_;
@@ -2022,6 +2210,7 @@ class AxisSimWindow final : public QMainWindow {
   bool exit_after_run_ = false;
   bool tutorial_smoke_run_ = false;
   bool tutorial_preview_ = false;
+  bool mapping_lab_smoke_run_ = false;
 };
 
 }  // namespace
@@ -2030,15 +2219,17 @@ int main(int argc, char** argv) {
   const bool smoke_test = argc == 2 && QString::fromLocal8Bit(argv[1]) == "--smoke-test";
   const bool smoke_test_run = argc == 2 && QString::fromLocal8Bit(argv[1]) == "--smoke-test-run";
   const bool tutorial_smoke_run = argc == 2 && QString::fromLocal8Bit(argv[1]) == "--tutorial-smoke-test-run";
+  const bool mapping_lab_smoke_run = argc == 2 && QString::fromLocal8Bit(argv[1]) == "--mapping-lab-smoke-test-run";
   const bool audit_ui = argc == 2 && QString::fromLocal8Bit(argv[1]) == "--audit-ui";
   const bool snapshot_run = argc == 5 && QString::fromLocal8Bit(argv[1]) == "--snapshot-run";
   const bool tutorial_preview = argc == 5 && QString::fromLocal8Bit(argv[1]) == "--tutorial-preview";
-  const QString snapshot_path = (snapshot_run || tutorial_preview) ? QString::fromLocal8Bit(argv[2]) : QString();
+  const bool mapping_lab_preview = argc == 5 && QString::fromLocal8Bit(argv[1]) == "--mapping-lab-preview";
+  const QString snapshot_path = (snapshot_run || tutorial_preview || mapping_lab_preview) ? QString::fromLocal8Bit(argv[2]) : QString();
   bool width_ok = false;
   bool height_ok = false;
-  const int snapshot_width = (snapshot_run || tutorial_preview) ? QString::fromLocal8Bit(argv[3]).toInt(&width_ok) : 0;
-  const int snapshot_height = (snapshot_run || tutorial_preview) ? QString::fromLocal8Bit(argv[4]).toInt(&height_ok) : 0;
-  if ((snapshot_run || tutorial_preview) && (!width_ok || !height_ok || snapshot_width < 1'100 || snapshot_height < 720)) return 2;
+  const int snapshot_width = (snapshot_run || tutorial_preview || mapping_lab_preview) ? QString::fromLocal8Bit(argv[3]).toInt(&width_ok) : 0;
+  const int snapshot_height = (snapshot_run || tutorial_preview || mapping_lab_preview) ? QString::fromLocal8Bit(argv[4]).toInt(&height_ok) : 0;
+  if ((snapshot_run || tutorial_preview || mapping_lab_preview) && (!width_ok || !height_ok || snapshot_width < 1'100 || snapshot_height < 720)) return 2;
   QApplication application(argc, argv);
   Q_INIT_RESOURCE(gui);
   QCoreApplication::setOrganizationName("AxisSim");
@@ -2058,7 +2249,7 @@ int main(int argc, char** argv) {
                    });
 #endif
   AxisSimWindow window(smoke_test_run || snapshot_run, snapshot_path,
-                       (snapshot_run || tutorial_preview) ? QSize(snapshot_width, snapshot_height) : QSize(), tutorial_smoke_run, tutorial_preview);
+                       (snapshot_run || tutorial_preview || mapping_lab_preview) ? QSize(snapshot_width, snapshot_height) : QSize(), tutorial_smoke_run, tutorial_preview, mapping_lab_smoke_run || mapping_lab_preview);
   window.show();
   if (smoke_test) QTimer::singleShot(0, &application, &QCoreApplication::quit);
   if (audit_ui) {

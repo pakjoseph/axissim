@@ -299,6 +299,11 @@ an explicit 0.5 NPU arithmetic-energy multiplier. Its 49.17 µs and 2.48
 µJ/frame output is a sensitivity result—not a claim that MNIST-12 was
 quantized, retained accuracy, or would run at that speed on a real NPU.
 
+The desktop app exposes these same scenarios in **Mapping Lab**. Select a
+single named policy from the scenario picker, or choose **Run policy study**
+to run all five through the CLI and inspect the emitted latency, energy, DRAM,
+first/steady transfer ledger, and declared effect side by side.
+
 `calibrate` compares a traceable reference CSV with the selected model. For `rvv_stream` references that preserve raw RTL cycles, cycles are primary; normalized latency is secondary. It reports predicted/reference values and absolute/relative error for every point:
 
 ```sh
