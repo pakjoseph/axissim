@@ -286,6 +286,10 @@ QLabel#experimentState { color: @SECONDARY@; font-family: "IBM Plex Mono"; font-
 QFrame#parameterNavigator { background: transparent; border: none; border-right: 1px solid @BORDER_STRONG@; }
 QLabel#parameterGroup { color: @SECONDARY@; padding: 0 8px; font-size: 14px; }
 QLabel#activeParameterGroup { background: @MUTED_SURFACE@; color: @TEXT@; border-left: 3px solid @ACCENT@; padding: 0 5px; font-size: 14px; font-weight: 600; }
+QPushButton#parameterGroupButton { background: transparent; border: none; border-radius: 3px; color: @SECONDARY@; text-align: left; padding: 0 8px; font-size: 14px; font-weight: 400; }
+QPushButton#parameterGroupButton:hover { background: @MUTED_SURFACE@; color: @TEXT@; border: none; }
+QPushButton#parameterGroupButton:checked { background: @MUTED_SURFACE@; color: @TEXT@; border: none; border-left: 3px solid @ACCENT@; padding-left: 5px; font-weight: 600; }
+QPushButton#parameterGroupButton:focus { border: 2px solid @ACCENT@; padding: 0 6px; }
 QFrame#parameterEditor { background: transparent; border: none; }
 QFrame#experimentDelta { background: transparent; border: none; border-left: 1px solid @BORDER_STRONG@; }
 QFrame#experimentDivider { background: @BORDER_STRONG@; border: none; min-height: 1px; max-height: 1px; }

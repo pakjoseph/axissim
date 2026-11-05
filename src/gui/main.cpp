@@ -38,6 +38,7 @@
 #include <QSplitter>
 #include <QStandardPaths>
 #include <QStatusBar>
+#include <QStackedWidget>
 #include <QStyle>
 #include <QStyleHints>
 #include <QTableWidget>
@@ -461,16 +462,23 @@ class AxisSimWindow final : public QMainWindow {
     parameter_nav_layout->setContentsMargins(0, 0, 12, 0);
     parameter_nav_layout->setSpacing(4);
     const QStringList parameter_groups = {"Workload", "RVV engine", "NPU & memory", "Scheduling", "Energy & power"};
+    QVector<QPushButton*> parameter_group_buttons;
     for (const auto& group : parameter_groups) {
-      auto* group_label = new QLabel(group, parameter_nav);
-      group_label->setObjectName(group == "RVV engine" ? "activeParameterGroup" : "parameterGroup");
-      group_label->setMinimumHeight(38);
-      parameter_nav_layout->addWidget(group_label);
+      auto* group_button = new QPushButton(group, parameter_nav);
+      group_button->setObjectName("parameterGroupButton");
+      group_button->setCheckable(true);
+      group_button->setChecked(group == "RVV engine");
+      group_button->setMinimumHeight(38);
+      group_button->setAccessibleName(group + " parameters");
+      parameter_group_buttons.push_back(group_button);
+      parameter_nav_layout->addWidget(group_button);
     }
     parameter_nav_layout->addStretch();
     experiment_grid_layout->addWidget(parameter_nav);
 
-    auto* rvv_editor = new QFrame(experiment_grid);
+    auto* parameter_stack = new QStackedWidget(experiment_grid);
+    parameter_stack->setObjectName("parameterStack");
+    auto* rvv_editor = new QFrame(parameter_stack);
     rvv_editor->setObjectName("parameterEditor");
     auto* rvv_editor_layout = new QVBoxLayout(rvv_editor);
     rvv_editor_layout->setContentsMargins(0, 0, 0, 0);
@@ -564,7 +572,82 @@ class AxisSimWindow final : public QMainWindow {
     experiment_actions->addStretch();
     rvv_editor_layout->addLayout(experiment_actions);
     rvv_editor_layout->addStretch();
-    experiment_grid_layout->addWidget(rvv_editor, 1);
+    parameter_stack->addWidget(rvv_editor);
+
+    const auto make_editor_page = [parameter_stack](const QString& title, const QString& description) {
+      auto* page = new QFrame(parameter_stack);
+      page->setObjectName("parameterEditor");
+      auto* page_layout = new QVBoxLayout(page);
+      page_layout->setContentsMargins(0, 0, 0, 0);
+      page_layout->setSpacing(10);
+      auto* heading = new QLabel(title, page);
+      heading->setObjectName("panelTitle");
+      auto* context = mutedLabel(description, page);
+      context->setWordWrap(true);
+      auto* divider = new QFrame(page);
+      divider->setObjectName("experimentDivider");
+      page_layout->addWidget(heading);
+      page_layout->addWidget(context);
+      page_layout->addWidget(divider);
+      parameter_stack->addWidget(page);
+      return std::pair<QFrame*, QVBoxLayout*>{page, page_layout};
+    };
+    const auto add_page_field = [](QVBoxLayout* page_layout, QFrame* page, const QString& label, const QString& help, QWidget* control) {
+      auto* field = new QFrame(page);
+      field->setObjectName("experimentField");
+      auto* field_layout = new QHBoxLayout(field);
+      field_layout->setContentsMargins(0, 7, 0, 7);
+      field_layout->setSpacing(16);
+      auto* copy = new QVBoxLayout();
+      copy->setSpacing(2);
+      auto* field_label = new QLabel(label, field);
+      field_label->setObjectName("fieldLabel");
+      auto* field_help = mutedLabel(help, field);
+      field_help->setWordWrap(true);
+      copy->addWidget(field_label);
+      copy->addWidget(field_help);
+      field_layout->addLayout(copy, 1);
+      control->setMinimumWidth(208);
+      control->setMaximumWidth(276);
+      field_layout->addWidget(control);
+      page_layout->addWidget(field);
+    };
+    auto [workload_page, workload_layout] = make_editor_page("Workload", "Select a checked-in workload or load a scenario manifest. The selected scenario remains the reproducible experiment base.");
+    auto* open_workload = new QPushButton("Open scenario…", workload_page);
+    open_workload->setAccessibleName("Open workload scenario");
+    workload_layout->addWidget(open_workload, 0, Qt::AlignLeft);
+    workload_layout->addStretch();
+
+    auto [npu_page, npu_layout] = make_editor_page("NPU & memory", "Change accelerator capacity or the shared DRAM limit for this run without changing the source manifest.");
+    npu_macs_->setParent(npu_page);
+    dram_bandwidth_->setParent(npu_page);
+    add_page_field(npu_layout, npu_page, "NPU MACs", "Modeled matrix MAC capacity available per cycle.", npu_macs_);
+    add_page_field(npu_layout, npu_page, "DRAM bandwidth", "Shared off-chip bandwidth available to DMA and NPU traffic.", dram_bandwidth_);
+    auto* run_npu = new QPushButton("Run experiment", npu_page);
+    run_npu->setObjectName("primaryButton");
+    npu_layout->addWidget(run_npu, 0, Qt::AlignLeft);
+    npu_layout->addStretch();
+
+    auto [scheduling_page, scheduling_layout] = make_editor_page("Scheduling", "Select the deterministic runtime policy used to arbitrate ready tasks in the modeled pipeline.");
+    scheduler_policy_ = new QComboBox(scheduling_page);
+    scheduler_policy_->addItem("Fixed priority · baseline");
+    scheduler_policy_->addItem("First come, first served", "fcfs");
+    scheduler_policy_->addItem("Earliest deadline first", "edf");
+    scheduler_policy_->setAccessibleName("Scheduler policy override");
+    scheduler_policy_->setToolTip("Run-only scheduling policy override.");
+    add_page_field(scheduling_layout, scheduling_page, "Scheduler policy", "Controls ready-task arbitration; it does not alter workload semantics.", scheduler_policy_);
+    auto* run_schedule = new QPushButton("Run experiment", scheduling_page);
+    run_schedule->setObjectName("primaryButton");
+    scheduling_layout->addWidget(run_schedule, 0, Qt::AlignLeft);
+    scheduling_layout->addStretch();
+
+    auto [energy_page, energy_layout] = make_editor_page("Energy & power", "Change the modeled NPU arithmetic-energy scale while holding performance assumptions fixed.");
+    arithmetic_scale_->setParent(energy_page);
+    add_page_field(energy_layout, energy_page, "Arithmetic energy", "Scales NPU arithmetic energy only; latency and frequency remain fixed.", arithmetic_scale_);
+    auto* run_energy = new QPushButton("Run experiment", energy_page);
+    run_energy->setObjectName("primaryButton");
+    energy_layout->addWidget(run_energy, 0, Qt::AlignLeft);
+    energy_layout->addStretch();
 
     auto* delta = new QFrame(experiment_grid);
     delta->setObjectName("experimentDelta");
@@ -602,6 +685,7 @@ class AxisSimWindow final : public QMainWindow {
     advanced_manifest->setObjectName("advancedManifestButton");
     advanced_manifest->setAccessibleName("Open advanced manifest editor");
     delta_layout->addWidget(advanced_manifest);
+    experiment_grid_layout->addWidget(parameter_stack, 1);
     experiment_grid_layout->addWidget(delta);
     experiment_layout->addWidget(experiment_grid, 1);
     experiment_page_->hide();
@@ -836,6 +920,10 @@ class AxisSimWindow final : public QMainWindow {
     connect(sweep_button_, &QPushButton::clicked, this, [this] { runLaneSweep(); });
     connect(ara_button_, &QPushButton::clicked, this, [this] { runAra2Check(); });
     connect(run_experiment, &QPushButton::clicked, this, [this] { runScenario(); });
+    connect(run_npu, &QPushButton::clicked, this, [this] { runScenario(); });
+    connect(run_schedule, &QPushButton::clicked, this, [this] { runScenario(); });
+    connect(run_energy, &QPushButton::clicked, this, [this] { runScenario(); });
+    connect(open_workload, &QPushButton::clicked, this, [this] { openScenario(); });
     connect(save_copy, &QPushButton::clicked, this, [this] { saveAs(); });
     connect(reset_rvv, &QPushButton::clicked, this, [this] {
       rvv_lanes_->setCurrentIndex(0);
@@ -858,6 +946,19 @@ class AxisSimWindow final : public QMainWindow {
     connect(rvv_sew_, &QComboBox::currentIndexChanged, this, refresh_delta);
     connect(rvv_frequency_, &QLineEdit::textChanged, this, refresh_delta);
     connect(rvv_chunk_, &QLineEdit::textChanged, this, refresh_delta);
+    connect(npu_macs_, &QComboBox::currentIndexChanged, this, refresh_delta);
+    connect(dram_bandwidth_, &QComboBox::currentIndexChanged, this, refresh_delta);
+    connect(arithmetic_scale_, &QComboBox::currentIndexChanged, this, refresh_delta);
+    connect(scheduler_policy_, &QComboBox::currentIndexChanged, this, refresh_delta);
+    const QVector<int> parameter_stack_index = {1, 0, 2, 3, 4};
+    for (qsizetype index = 0; index < parameter_group_buttons.size(); ++index) {
+      connect(parameter_group_buttons[index], &QPushButton::clicked, this, [parameter_stack, parameter_group_buttons, parameter_stack_index, index] {
+        for (qsizetype button_index = 0; button_index < parameter_group_buttons.size(); ++button_index) {
+          parameter_group_buttons[button_index]->setChecked(button_index == index);
+        }
+        parameter_stack->setCurrentIndex(parameter_stack_index[index]);
+      });
+    }
     connect(appearance_combo_, &QComboBox::currentIndexChanged, this, [this](int index) {
       const QString key = appearance_combo_->itemData(index).toString();
       QSettings().setValue("appearance/mode", key);
@@ -1328,9 +1429,15 @@ class AxisSimWindow final : public QMainWindow {
     const QString chunk = rvv_chunk_ ? rvv_chunk_->text().trimmed() : QString();
     const bool has_frequency_override = !frequency.isEmpty() && frequency != "1.000 GHz";
     const bool has_chunk_override = !chunk.isEmpty() && chunk != "0 elements";
+    const bool has_npu_override = npu_macs_ && npu_macs_->currentData().isValid();
+    const bool has_dram_override = dram_bandwidth_ && dram_bandwidth_->currentData().isValid();
+    const bool has_energy_override = arithmetic_scale_ && arithmetic_scale_->currentData().isValid();
+    const bool has_scheduler_override = scheduler_policy_ && scheduler_policy_->currentData().isValid();
     const int override_count = static_cast<int>(has_lane_override) + static_cast<int>(has_vlen_override) +
                                static_cast<int>(has_sew_override) + static_cast<int>(has_frequency_override) +
-                               static_cast<int>(has_chunk_override);
+                               static_cast<int>(has_chunk_override) + static_cast<int>(has_npu_override) +
+                               static_cast<int>(has_dram_override) + static_cast<int>(has_energy_override) +
+                               static_cast<int>(has_scheduler_override);
     experiment_state_->setText(QString("%1 run override%2\nvalidation ready")
                                    .arg(override_count)
                                    .arg(override_count == 1 ? QString() : QString("s")));
@@ -1363,6 +1470,9 @@ class AxisSimWindow final : public QMainWindow {
     }
     append("npu_macs", npu_macs_);
     append("dram_bandwidth_gbps", dram_bandwidth_);
+    if (scheduler_policy_ && scheduler_policy_->currentData().isValid()) {
+      arguments << "--set" << "scheduler_policy=" + scheduler_policy_->currentData().toString();
+    }
     if (arithmetic_scale_->currentData().isValid()) {
       arguments << "--set" << "npu_arithmetic_energy_scale=" + QString::number(arithmetic_scale_->currentData().toDouble(), 'g', 8);
     }
@@ -1523,6 +1633,7 @@ class AxisSimWindow final : public QMainWindow {
     npu_macs_->setEnabled(!busy);
     dram_bandwidth_->setEnabled(!busy);
     arithmetic_scale_->setEnabled(!busy);
+    if (scheduler_policy_) scheduler_policy_->setEnabled(!busy);
     open_action_->setEnabled(!busy);
     save_action_->setEnabled(!busy);
     run_action_->setEnabled(!busy);
@@ -1838,6 +1949,7 @@ class AxisSimWindow final : public QMainWindow {
   QComboBox* npu_macs_ = nullptr;
   QComboBox* dram_bandwidth_ = nullptr;
   QComboBox* arithmetic_scale_ = nullptr;
+  QComboBox* scheduler_policy_ = nullptr;
   QComboBox* appearance_combo_ = nullptr;
   QLineEdit* rvv_frequency_ = nullptr;
   QLineEdit* rvv_chunk_ = nullptr;
