@@ -153,6 +153,10 @@ The UI calls the same CLI executable and reads its JSON/trace artifacts, so it d
 
 The desktop interface provides guided run-only overrides, dashboard KPIs, energy composition and lane-scaling charts, task timelines, deployment and implementation-proxy views, progress/error feedback, keyboard shortcuts, and JSON export.
 
+### Guided first run
+
+New users can select **Guided first run** from the initial results area or **Help → Start Guided First Run**. The optional four-step guide runs the checked-in public MNIST-12 profile, explains the emitted modeled result, applies a visible 3× NPU-arithmetic-energy sensitivity, and compares the two actual result artifacts. It can be skipped, restarted from Help, or dismissed without changing a manifest. The guide is deliberately a workflow aid, not a benchmark: every value it explains comes from the same CLI JSON and trace outputs used elsewhere in the application.
+
 To create a relocatable macOS app and DMG with Qt frameworks bundled and an ad-hoc local signature:
 
 ```sh
@@ -167,12 +171,14 @@ For a non-interactive GUI initialization check on a machine with Qt, run:
 # macOS build-tree bundle
 QT_QPA_PLATFORM=offscreen ./build/AxisSim.app/Contents/MacOS/AxisSim --smoke-test
 QT_QPA_PLATFORM=offscreen ./build/AxisSim.app/Contents/MacOS/AxisSim --smoke-test-run
+QT_QPA_PLATFORM=offscreen ./build/AxisSim.app/Contents/MacOS/AxisSim --tutorial-smoke-test-run
 
 # Linux build-tree executable
 QT_QPA_PLATFORM=offscreen ./build/axissim-gui --smoke-test-run
+QT_QPA_PLATFORM=offscreen ./build/axissim-gui --tutorial-smoke-test-run
 ```
 
-The second check exercises the complete GUI-to-CLI-to-JSON/trace result path.
+The model and tutorial checks exercise the complete GUI-to-CLI-to-JSON/trace result path; the tutorial check executes both its public baseline and arithmetic-energy sensitivity stages.
 
 ## Configuration layers
 

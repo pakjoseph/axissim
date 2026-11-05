@@ -138,6 +138,14 @@ QFrame#metricStrip {
 }
 QFrame#metricPanel { background: @SURFACE@; border: 1px solid @BORDER@; border-radius: 5px; }
 QFrame#metricDivider { background: @BORDER@; border: none; max-width: 1px; }
+QFrame#tutorialPanel {
+  background: @ACCENT_SOFT@;
+  border: 2px solid @BORDER_STRONG@;
+  border-radius: 8px;
+}
+QLabel#tutorialTitle { color: @TEXT@; font-size: 14px; font-weight: 600; }
+QLabel#tutorialText { color: @SECONDARY@; font-size: 13px; }
+QWidget[tutorialTarget="true"] { border: 2px solid @ACCENT@; border-radius: 6px; }
 QLabel#metricTitle { color: @SECONDARY@; font-size: 12px; font-weight: 600; }
 QLabel#metricValue {
   color: @TEXT@;

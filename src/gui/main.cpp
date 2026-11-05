@@ -46,10 +46,12 @@
 #include <QTimer>
 #include <QVector>
 #include <QVBoxLayout>
+#include <QWhatsThis>
 #include <QWidget>
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <memory>
 
@@ -93,8 +95,9 @@ class KpiCard final : public QFrame {
 
 class AxisSimWindow final : public QMainWindow {
  public:
-  explicit AxisSimWindow(bool exit_after_run = false, QString snapshot_path = {}, QSize snapshot_size = {})
-      : snapshot_path_(std::move(snapshot_path)), exit_after_run_(exit_after_run) {
+  explicit AxisSimWindow(bool exit_after_run = false, QString snapshot_path = {}, QSize snapshot_size = {},
+                         bool tutorial_smoke_run = false, bool tutorial_preview = false)
+      : snapshot_path_(std::move(snapshot_path)), exit_after_run_(exit_after_run), tutorial_smoke_run_(tutorial_smoke_run), tutorial_preview_(tutorial_preview) {
     project_root_ = findProjectRoot();
     setWindowTitle("AxisSim — AI Architecture Explorer");
     setWindowIcon(QIcon(":/icons/axissim.png"));
@@ -104,7 +107,24 @@ class AxisSimWindow final : public QMainWindow {
     buildMenus();
     if (snapshot_path_.isEmpty()) restoreWindowState();
     loadScenario(scenario_->currentData().toString());
-    if (exit_after_run_) QTimer::singleShot(0, this, [this] { runScenario(); });
+    refreshTutorialEntry();
+    if (tutorial_preview_) {
+      QTimer::singleShot(0, this, [this] {
+        startTutorial(false);
+        QTimer::singleShot(120, this, [this] {
+          QFileInfo output(snapshot_path_);
+          output.dir().mkpath(".");
+          QCoreApplication::exit(grab().save(snapshot_path_) ? 0 : 1);
+        });
+      });
+    } else if (tutorial_smoke_run_) {
+      QTimer::singleShot(0, this, [this] {
+        startTutorial();
+        runPublicMnistProfile();
+      });
+    } else if (exit_after_run_) {
+      QTimer::singleShot(0, this, [this] { runScenario(); });
+    }
   }
 
   QStringList accessibilityIssues() const {
@@ -135,7 +155,7 @@ class AxisSimWindow final : public QMainWindow {
 
   void resizeEvent(QResizeEvent* event) override {
     QMainWindow::resizeEvent(event);
-    if (!nav_rail_) return;
+    if (!nav_rail_ || !header_title_) return;
     const bool compact = event->size().width() < 1'200;
     nav_rail_->setFixedWidth(compact ? 88 : 200);
     nav_layout_->setContentsMargins(compact ? 8 : 16, 20, compact ? 8 : 16, 16);
@@ -144,6 +164,12 @@ class AxisSimWindow final : public QMainWindow {
     nav_scope_->setVisible(!compact);
     appearance_label_->setVisible(!compact);
     header_subtitle_->setVisible(!compact);
+    header_title_->setVisible(!compact);
+    header_title_->setText("Architecture overview");
+    scenario_->setMinimumWidth(compact ? 190 : 270);
+    browse_button_->setText(compact ? "Open…" : "Open scenario…");
+    run_button_->setText(compact ? "Run" : "Run model");
+    mnist_button_->setText(compact ? "MNIST-12" : "Run public MNIST-12");
     for (qsizetype index = 0; index < nav_buttons_.size(); ++index) {
       nav_buttons_[index]->setText(compact ? nav_short_labels_[index] : nav_labels_[index]);
       nav_buttons_[index]->setToolTip(nav_labels_[index]);
@@ -158,6 +184,23 @@ class AxisSimWindow final : public QMainWindow {
   }
 
  private:
+  enum class TutorialStep {
+    Inactive,
+    AwaitingPublicRun,
+    ExplainingBaseline,
+    AwaitingSensitivityRun,
+    ExplainingTradeoff,
+  };
+
+  struct TutorialSnapshot {
+    bool valid = false;
+    double mean_latency_us = 0.0;
+    double energy_per_frame_uj = 0.0;
+    double arithmetic_energy_per_frame_uj = 0.0;
+    QString dominant_component;
+    double dominant_share_percent = 0.0;
+  };
+
   static QLabel* mutedLabel(const QString& text, QWidget* parent) {
     auto* label = new QLabel(text, parent);
     label->setProperty("muted", true);
@@ -239,11 +282,11 @@ class AxisSimWindow final : public QMainWindow {
     header_layout->setSpacing(12);
     auto* title_layout = new QVBoxLayout();
     title_layout->setSpacing(2);
-    auto* title = new QLabel("Architecture overview", header);
-    title->setObjectName("appTitle");
+    header_title_ = new QLabel("Architecture overview", header);
+    header_title_->setObjectName("appTitle");
     header_subtitle_ = new QLabel("Configure a scenario, run the model, and trace each conclusion to its assumptions.", header);
     header_subtitle_->setObjectName("appSubtitle");
-    title_layout->addWidget(title);
+    title_layout->addWidget(header_title_);
     title_layout->addWidget(header_subtitle_);
     header_layout->addLayout(title_layout);
     header_layout->addStretch();
@@ -279,8 +322,35 @@ class AxisSimWindow final : public QMainWindow {
     mnist_button_ = new QPushButton("Run public MNIST-12", header);
     mnist_button_->setToolTip("Load the checked-in public MNIST-12 operator profile and run the deterministic model with scenario defaults");
     mnist_button_->setAccessibleName("Run public MNIST-12 example");
+    mnist_button_->setWhatsThis("Runs the checked-in MNIST-12 operator profile with no quick overrides. The output is a modeled estimate with public-workload evidence available in Model & Evidence.");
     header_layout->addWidget(mnist_button_);
     layout->addWidget(header);
+
+    tutorial_panel_ = new QFrame(workspace);
+    tutorial_panel_->setObjectName("tutorialPanel");
+    tutorial_panel_->setAccessibleName("Guided first run");
+    auto* tutorial_layout = new QHBoxLayout(tutorial_panel_);
+    tutorial_layout->setContentsMargins(16, 10, 12, 10);
+    tutorial_layout->setSpacing(12);
+    auto* tutorial_copy = new QVBoxLayout();
+    tutorial_copy->setSpacing(2);
+    tutorial_title_ = new QLabel(tutorial_panel_);
+    tutorial_title_->setObjectName("tutorialTitle");
+    tutorial_text_ = new QLabel(tutorial_panel_);
+    tutorial_text_->setObjectName("tutorialText");
+    tutorial_text_->setWordWrap(true);
+    tutorial_copy->addWidget(tutorial_title_);
+    tutorial_copy->addWidget(tutorial_text_);
+    tutorial_layout->addLayout(tutorial_copy, 1);
+    tutorial_action_button_ = new QPushButton(tutorial_panel_);
+    tutorial_action_button_->setObjectName("primaryButton");
+    tutorial_action_button_->setAccessibleName("Continue guided first run");
+    tutorial_layout->addWidget(tutorial_action_button_);
+    tutorial_skip_button_ = new QPushButton("Skip", tutorial_panel_);
+    tutorial_skip_button_->setAccessibleName("Skip guided first run");
+    tutorial_layout->addWidget(tutorial_skip_button_);
+    tutorial_panel_->hide();
+    layout->addWidget(tutorial_panel_);
 
     auto* controls = new QFrame(workspace);
     controls->setObjectName("commandPanel");
@@ -354,11 +424,15 @@ class AxisSimWindow final : public QMainWindow {
     results_title->setObjectName("sectionTitle");
     result_context_ = mutedLabel("No result yet. Run the selected scenario to populate modeled metrics.", content_panel);
     result_context_->setWordWrap(true);
+    tutorial_start_button_ = new QPushButton("Guided first run", content_panel);
+    tutorial_start_button_->setToolTip("Run a public workload and inspect one real architecture tradeoff in four short steps");
+    tutorial_start_button_->setAccessibleName("Start guided first run");
     auto* modeled_label = new QLabel("Modeled estimate", content_panel);
     modeled_label->setObjectName("modeledLabel");
     modeled_label->setToolTip("Outputs depend on explicit model assumptions and are not measured silicon values");
     results_header->addWidget(results_title);
     results_header->addWidget(result_context_, 1);
+    results_header->addWidget(tutorial_start_button_);
     results_header->addWidget(modeled_label);
     content_layout->addLayout(results_header);
 
@@ -473,6 +547,9 @@ class AxisSimWindow final : public QMainWindow {
     connect(export_button_, &QPushButton::clicked, this, [this] { exportResult(); });
     connect(run_button_, &QPushButton::clicked, this, [this] { runScenario(); });
     connect(mnist_button_, &QPushButton::clicked, this, [this] { runPublicMnistProfile(); });
+    connect(tutorial_start_button_, &QPushButton::clicked, this, [this] { startTutorial(); });
+    connect(tutorial_action_button_, &QPushButton::clicked, this, [this] { advanceTutorial(); });
+    connect(tutorial_skip_button_, &QPushButton::clicked, this, [this] { dismissTutorial(); });
     connect(sweep_button_, &QPushButton::clicked, this, [this] { runLaneSweep(); });
     connect(ara_button_, &QPushButton::clicked, this, [this] { runAra2Check(); });
     connect(appearance_combo_, &QComboBox::currentIndexChanged, this, [this](int index) {
@@ -504,7 +581,10 @@ class AxisSimWindow final : public QMainWindow {
     setTabOrder(scenario_, browse_button_);
     setTabOrder(browse_button_, run_button_);
     setTabOrder(run_button_, mnist_button_);
-    setTabOrder(mnist_button_, rvv_lanes_);
+    setTabOrder(mnist_button_, tutorial_start_button_);
+    setTabOrder(tutorial_start_button_, tutorial_action_button_);
+    setTabOrder(tutorial_action_button_, tutorial_skip_button_);
+    setTabOrder(tutorial_skip_button_, rvv_lanes_);
     setTabOrder(rvv_lanes_, npu_macs_);
     setTabOrder(npu_macs_, dram_bandwidth_);
     setTabOrder(dram_bandwidth_, arithmetic_scale_);
@@ -547,6 +627,14 @@ class AxisSimWindow final : public QMainWindow {
     connect(ara_action_, &QAction::triggered, this, [this] { runAra2Check(); });
 
     auto* help_menu = menuBar()->addMenu("Help");
+    tutorial_start_action_ = help_menu->addAction("Start Guided First Run");
+    connect(tutorial_start_action_, &QAction::triggered, this, [this] { startTutorial(); });
+    tutorial_reset_action_ = help_menu->addAction("Reset Guided First Run");
+    connect(tutorial_reset_action_, &QAction::triggered, this, [this] { resetTutorial(); });
+    auto* context_help_action = QWhatsThis::createAction(this);
+    context_help_action->setText("Context Help");
+    help_menu->addAction(context_help_action);
+    help_menu->addSeparator();
     auto* about_action = help_menu->addAction("About AxisSim");
     connect(about_action, &QAction::triggered, this, [this] {
       QMessageBox::about(this, "About AxisSim",
@@ -614,6 +702,231 @@ class AxisSimWindow final : public QMainWindow {
     scenario_path_label_->setText(QFileInfo(path).fileName());
     scenario_path_label_->setToolTip(scenario_path_);
     statusBar()->showMessage("Loaded " + scenario_path_, 5'000);
+  }
+
+  QString publicMnistProfilePath() const {
+    return project_root_.filePath("configs/workloads/mnist12_profiled.conf");
+  }
+
+  bool tutorialCompleted() const { return QSettings().value("tutorial/v1/completed", false).toBool(); }
+  bool tutorialDismissed() const { return QSettings().value("tutorial/v1/dismissed", false).toBool(); }
+
+  void refreshTutorialEntry() {
+    if (!tutorial_start_button_) return;
+    const bool show_entry = tutorial_step_ == TutorialStep::Inactive && !tutorialCompleted() && !tutorialDismissed();
+    tutorial_start_button_->setVisible(show_entry);
+    if (show_entry && result_context_ && last_result_json_.isEmpty()) {
+      result_context_->setText("New to AxisSim? Take a two-minute guided run with a public workload.");
+    }
+  }
+
+  void setTutorialTarget(QWidget* target) {
+    if (tutorial_target_ == target) return;
+    if (tutorial_target_) {
+      tutorial_target_->setProperty("tutorialTarget", false);
+      tutorial_target_->style()->unpolish(tutorial_target_);
+      tutorial_target_->style()->polish(tutorial_target_);
+    }
+    tutorial_target_ = target;
+    if (tutorial_target_) {
+      tutorial_target_->setProperty("tutorialTarget", true);
+      tutorial_target_->style()->unpolish(tutorial_target_);
+      tutorial_target_->style()->polish(tutorial_target_);
+      tutorial_target_->setFocus(Qt::OtherFocusReason);
+    }
+  }
+
+  void updateTutorialPanel() {
+    if (!tutorial_panel_) return;
+    const bool active = tutorial_step_ != TutorialStep::Inactive;
+    tutorial_panel_->setVisible(active);
+    refreshTutorialEntry();
+    if (!active) {
+      setTutorialTarget(nullptr);
+      return;
+    }
+
+    tutorial_action_button_->show();
+    tutorial_skip_button_->show();
+    switch (tutorial_step_) {
+      case TutorialStep::AwaitingPublicRun:
+        tutorial_title_->setText("Guided first run · 1 of 4 · Run a public workload");
+        tutorial_text_->setText("Run the checked-in MNIST-12 operator profile. AxisSim will create real JSON and trace artifacts; its outputs remain modeled estimates.");
+        tutorial_action_button_->setText("Run public MNIST-12");
+        setTutorialTarget(mnist_button_);
+        break;
+      case TutorialStep::ExplainingBaseline:
+        tutorial_title_->setText("Guided first run · 2 of 4 · Read the model result");
+        tutorial_text_->setText(tutorial_notice_);
+        tutorial_action_button_->setText("Prepare sensitivity");
+        setTutorialTarget(energy_chart_);
+        break;
+      case TutorialStep::AwaitingSensitivityRun:
+        tutorial_title_->setText("Guided first run · 3 of 4 · Test one assumption");
+        tutorial_text_->setText(tutorial_notice_.isEmpty()
+            ? "The visible quick override now models 3× lower NPU arithmetic energy at fixed performance. Run the model to compare it with the public-workload baseline."
+            : tutorial_notice_);
+        tutorial_action_button_->setText("Run sensitivity model");
+        setTutorialTarget(run_button_);
+        break;
+      case TutorialStep::ExplainingTradeoff:
+        tutorial_title_->setText("Guided first run · 4 of 4 · Interpret the tradeoff");
+        tutorial_text_->setText(tutorial_notice_);
+        tutorial_action_button_->setText("Open evidence & finish");
+        setTutorialTarget(result_views_);
+        break;
+      case TutorialStep::Inactive:
+        break;
+    }
+  }
+
+  void startTutorial(bool persist = true) {
+    if (process_ && process_->state() != QProcess::NotRunning) return;
+    if (persist) QSettings().setValue("tutorial/v1/dismissed", false);
+    tutorial_baseline_ = {};
+    tutorial_notice_.clear();
+    tutorial_step_ = TutorialStep::AwaitingPublicRun;
+    updateTutorialPanel();
+    statusBar()->showMessage("Guided first run started. Run the public MNIST-12 profile to begin.", 8'000);
+  }
+
+  void dismissTutorial() {
+    QSettings().setValue("tutorial/v1/dismissed", true);
+    tutorial_step_ = TutorialStep::Inactive;
+    tutorial_notice_.clear();
+    updateTutorialPanel();
+    statusBar()->showMessage("Guided first run dismissed. Restart it any time from Help.", 8'000);
+  }
+
+  void resetTutorial() {
+    QSettings settings;
+    settings.remove("tutorial/v1/completed");
+    settings.remove("tutorial/v1/dismissed");
+    startTutorial();
+  }
+
+  int arithmeticScaleIndex(double scale) const {
+    for (int index = 0; index < arithmetic_scale_->count(); ++index) {
+      const QVariant value = arithmetic_scale_->itemData(index);
+      if (value.isValid() && std::abs(value.toDouble() - scale) < 0.000001) return index;
+    }
+    return -1;
+  }
+
+  void prepareGuidedSensitivity() {
+    const int scale_index = arithmeticScaleIndex(0.333333);
+    if (scale_index < 0) {
+      showError("Guided setting unavailable", "AxisSim could not find the 3× lower arithmetic-energy quick override.");
+      return;
+    }
+    arithmetic_scale_->setCurrentIndex(scale_index);
+    tutorial_notice_.clear();
+    tutorial_step_ = TutorialStep::AwaitingSensitivityRun;
+    updateTutorialPanel();
+    statusBar()->showMessage("Prepared a 3× lower NPU arithmetic-energy sensitivity. Run the model to compare it with the captured baseline.", 8'000);
+  }
+
+  void finishTutorial() {
+    QSettings settings;
+    settings.setValue("tutorial/v1/completed", true);
+    settings.setValue("tutorial/v1/dismissed", false);
+    tutorial_step_ = TutorialStep::Inactive;
+    updateTutorialPanel();
+    if (nav_buttons_.size() > 4) nav_buttons_[4]->click();
+    statusBar()->showMessage("Guided first run complete. Use Experiment Lab to make your own reproducible scenario changes.", 10'000);
+  }
+
+  void advanceTutorial() {
+    switch (tutorial_step_) {
+      case TutorialStep::AwaitingPublicRun:
+        runPublicMnistProfile();
+        break;
+      case TutorialStep::ExplainingBaseline:
+        prepareGuidedSensitivity();
+        break;
+      case TutorialStep::AwaitingSensitivityRun:
+        runScenario();
+        break;
+      case TutorialStep::ExplainingTradeoff:
+        finishTutorial();
+        break;
+      case TutorialStep::Inactive:
+        break;
+    }
+  }
+
+  TutorialSnapshot tutorialSnapshot(const QJsonObject& result) const {
+    const QJsonObject energy = result.value("energy").toObject();
+    const QJsonObject latency = result.value("latency").toObject();
+    const int frames = std::max(1, result.value("deadlines").toObject().value("vision_jobs").toInt());
+    const double total = energy.value("it_per_frame_uj").toDouble();
+    const std::array<std::pair<QString, double>, 5> components = {{
+        {"Vector", energy.value("vector_pj").toDouble() / frames / 1'000'000.0},
+        {"NPU arithmetic", energy.value("npu_arithmetic_pj").toDouble() / frames / 1'000'000.0},
+        {"DRAM", energy.value("dram_pj").toDouble() / frames / 1'000'000.0},
+        {"DMA", energy.value("dma_pj").toDouble() / frames / 1'000'000.0},
+        {"Static", energy.value("static_per_frame_uj").toDouble()},
+    }};
+    const auto dominant = std::max_element(components.cbegin(), components.cend(),
+                                           [](const auto& left, const auto& right) { return left.second < right.second; });
+    return {true, latency.value("mean_us").toDouble(), total,
+            energy.value("npu_arithmetic_pj").toDouble() / frames / 1'000'000.0,
+            dominant->first, total > 0.0 ? 100.0 * dominant->second / total : 0.0};
+  }
+
+  bool isGuidedSensitivityConfigured() const {
+    return QFileInfo(scenario_path_).absoluteFilePath() == QFileInfo(publicMnistProfilePath()).absoluteFilePath() &&
+           arithmetic_scale_->currentData().isValid() &&
+           std::abs(arithmetic_scale_->currentData().toDouble() - 0.333333) < 0.000001;
+  }
+
+  void handleTutorialResult(const QJsonObject& result) {
+    const bool public_profile = result.value("workload_mode").toString() == "profiled_graph";
+    if (tutorial_step_ == TutorialStep::AwaitingPublicRun) {
+      if (!public_profile) {
+        tutorial_notice_ = "This guide needs the public MNIST-12 profiled workload. Select Run public MNIST-12 to continue.";
+        updateTutorialPanel();
+        return;
+      }
+      tutorial_baseline_ = tutorialSnapshot(result);
+      tutorial_notice_ = QString("This public-workload run completed at %1 µs mean latency and %2 µJ/frame. %3 is the largest modeled energy component (%4%). These are model outputs, not silicon measurements.")
+          .arg(tutorial_baseline_.mean_latency_us, 0, 'f', 2)
+          .arg(tutorial_baseline_.energy_per_frame_uj, 0, 'f', 2)
+          .arg(tutorial_baseline_.dominant_component)
+          .arg(tutorial_baseline_.dominant_share_percent, 0, 'f', 1);
+      tutorial_step_ = TutorialStep::ExplainingBaseline;
+      updateTutorialPanel();
+      if (tutorial_smoke_run_) {
+        QTimer::singleShot(0, this, [this] {
+          prepareGuidedSensitivity();
+          runScenario();
+        });
+      }
+      return;
+    }
+    if (tutorial_step_ != TutorialStep::AwaitingSensitivityRun) return;
+    if (!public_profile || !isGuidedSensitivityConfigured()) {
+      tutorial_notice_ = "This run did not use the guided public profile and 3× arithmetic-energy setting. Restore the guided setting, then run the model again.";
+      updateTutorialPanel();
+      return;
+    }
+    const TutorialSnapshot candidate = tutorialSnapshot(result);
+    const double energy_delta = 100.0 * (candidate.energy_per_frame_uj / tutorial_baseline_.energy_per_frame_uj - 1.0);
+    const double latency_delta = 100.0 * (candidate.mean_latency_us / tutorial_baseline_.mean_latency_us - 1.0);
+    const QString energy_direction = energy_delta <= 0.0 ? "decreased" : "increased";
+    tutorial_notice_ = QString("Observed sensitivity: total modeled energy %1 by %2% while mean latency changed %3%. NPU arithmetic changed, but %4 remains the largest component at %5% of this run. This is why component-level efficiency should be evaluated at system level.")
+        .arg(energy_direction)
+        .arg(std::abs(energy_delta), 0, 'f', 1)
+        .arg(latency_delta, 0, 'f', 1)
+        .arg(candidate.dominant_component)
+        .arg(candidate.dominant_share_percent, 0, 'f', 1);
+    tutorial_step_ = TutorialStep::ExplainingTradeoff;
+    updateTutorialPanel();
+    if (tutorial_smoke_run_) {
+      QTimer::singleShot(0, this, [this] {
+        if (tutorial_step_ == TutorialStep::ExplainingTradeoff) QCoreApplication::exit(0);
+      });
+    }
   }
 
   void changeScenario(int index) {
@@ -731,7 +1044,7 @@ class AxisSimWindow final : public QMainWindow {
   }
 
   void runPublicMnistProfile() {
-    const QString profile_path = project_root_.filePath("configs/workloads/mnist12_profiled.conf");
+    const QString profile_path = publicMnistProfilePath();
     const int profile_index = scenario_->findData(profile_path);
     if (profile_index < 0) {
       showError("Public profile unavailable", "The checked-in MNIST-12 profile scenario could not be located:\n" + profile_path);
@@ -844,6 +1157,9 @@ class AxisSimWindow final : public QMainWindow {
     save_button_->setEnabled(!busy);
     run_button_->setEnabled(!busy);
     mnist_button_->setEnabled(!busy);
+    tutorial_start_button_->setEnabled(!busy);
+    tutorial_action_button_->setEnabled(!busy);
+    tutorial_skip_button_->setEnabled(!busy);
     sweep_button_->setEnabled(!busy);
     ara_button_->setEnabled(!busy);
     rvv_lanes_->setEnabled(!busy);
@@ -856,6 +1172,8 @@ class AxisSimWindow final : public QMainWindow {
     mnist_action_->setEnabled(!busy);
     sweep_action_->setEnabled(!busy);
     ara_action_->setEnabled(!busy);
+    tutorial_start_action_->setEnabled(!busy);
+    tutorial_reset_action_->setEnabled(!busy);
   }
 
   void showError(const QString& title, const QString& detail) {
@@ -935,6 +1253,7 @@ class AxisSimWindow final : public QMainWindow {
     result_context_->setText(QString("%1 · model %2 · result schema %3")
                                  .arg(result.value("scenario_name").toString(), result.value("model_version").toString(), result.value("schema_version").toString()));
     finishProcess(true, power.value("budget_w").toDouble() > 0.0 && !power.value("feasible").toBool() ? "Complete • budget exceeded" : "Model complete");
+    handleTutorialResult(result);
     if (!snapshot_path_.isEmpty()) {
       bool tab_ok = false;
       const int requested_tab = qEnvironmentVariable("AXISSIM_SNAPSHOT_TAB").toInt(&tab_ok);
@@ -1119,6 +1438,7 @@ class AxisSimWindow final : public QMainWindow {
   QLabel* nav_subtitle_ = nullptr;
   QLabel* nav_scope_ = nullptr;
   QLabel* appearance_label_ = nullptr;
+  QLabel* header_title_ = nullptr;
   QLabel* header_subtitle_ = nullptr;
   QVector<QPushButton*> nav_buttons_;
   QStringList nav_labels_;
@@ -1134,6 +1454,9 @@ class AxisSimWindow final : public QMainWindow {
   QPushButton* export_button_ = nullptr;
   QPushButton* run_button_ = nullptr;
   QPushButton* mnist_button_ = nullptr;
+  QPushButton* tutorial_start_button_ = nullptr;
+  QPushButton* tutorial_action_button_ = nullptr;
+  QPushButton* tutorial_skip_button_ = nullptr;
   QPushButton* sweep_button_ = nullptr;
   QPushButton* ara_button_ = nullptr;
   QAction* export_action_ = nullptr;
@@ -1143,12 +1466,18 @@ class AxisSimWindow final : public QMainWindow {
   QAction* mnist_action_ = nullptr;
   QAction* sweep_action_ = nullptr;
   QAction* ara_action_ = nullptr;
+  QAction* tutorial_start_action_ = nullptr;
+  QAction* tutorial_reset_action_ = nullptr;
   QLabel* status_pill_ = nullptr;
   QLabel* scenario_path_label_ = nullptr;
   QLabel* result_context_ = nullptr;
   QLabel* comparison_summary_ = nullptr;
   QLabel* profile_evidence_ = nullptr;
+  QLabel* tutorial_title_ = nullptr;
+  QLabel* tutorial_text_ = nullptr;
   QProgressBar* progress_ = nullptr;
+  QFrame* tutorial_panel_ = nullptr;
+  QWidget* tutorial_target_ = nullptr;
   QSplitter* splitter_ = nullptr;
   QPlainTextEdit* editor_ = nullptr;
   QPlainTextEdit* log_ = nullptr;
@@ -1173,7 +1502,12 @@ class AxisSimWindow final : public QMainWindow {
   std::unique_ptr<QProcess> process_;
   std::unique_ptr<QTemporaryDir> temporary_;
   QString snapshot_path_;
+  TutorialStep tutorial_step_ = TutorialStep::Inactive;
+  TutorialSnapshot tutorial_baseline_;
+  QString tutorial_notice_;
   bool exit_after_run_ = false;
+  bool tutorial_smoke_run_ = false;
+  bool tutorial_preview_ = false;
 };
 
 }  // namespace
@@ -1181,14 +1515,16 @@ class AxisSimWindow final : public QMainWindow {
 int main(int argc, char** argv) {
   const bool smoke_test = argc == 2 && QString::fromLocal8Bit(argv[1]) == "--smoke-test";
   const bool smoke_test_run = argc == 2 && QString::fromLocal8Bit(argv[1]) == "--smoke-test-run";
+  const bool tutorial_smoke_run = argc == 2 && QString::fromLocal8Bit(argv[1]) == "--tutorial-smoke-test-run";
   const bool audit_ui = argc == 2 && QString::fromLocal8Bit(argv[1]) == "--audit-ui";
   const bool snapshot_run = argc == 5 && QString::fromLocal8Bit(argv[1]) == "--snapshot-run";
-  const QString snapshot_path = snapshot_run ? QString::fromLocal8Bit(argv[2]) : QString();
+  const bool tutorial_preview = argc == 5 && QString::fromLocal8Bit(argv[1]) == "--tutorial-preview";
+  const QString snapshot_path = (snapshot_run || tutorial_preview) ? QString::fromLocal8Bit(argv[2]) : QString();
   bool width_ok = false;
   bool height_ok = false;
-  const int snapshot_width = snapshot_run ? QString::fromLocal8Bit(argv[3]).toInt(&width_ok) : 0;
-  const int snapshot_height = snapshot_run ? QString::fromLocal8Bit(argv[4]).toInt(&height_ok) : 0;
-  if (snapshot_run && (!width_ok || !height_ok || snapshot_width < 1'100 || snapshot_height < 720)) return 2;
+  const int snapshot_width = (snapshot_run || tutorial_preview) ? QString::fromLocal8Bit(argv[3]).toInt(&width_ok) : 0;
+  const int snapshot_height = (snapshot_run || tutorial_preview) ? QString::fromLocal8Bit(argv[4]).toInt(&height_ok) : 0;
+  if ((snapshot_run || tutorial_preview) && (!width_ok || !height_ok || snapshot_width < 1'100 || snapshot_height < 720)) return 2;
   QApplication application(argc, argv);
   Q_INIT_RESOURCE(gui);
   QCoreApplication::setOrganizationName("AxisSim");
@@ -1208,7 +1544,7 @@ int main(int argc, char** argv) {
                    });
 #endif
   AxisSimWindow window(smoke_test_run || snapshot_run, snapshot_path,
-                       snapshot_run ? QSize(snapshot_width, snapshot_height) : QSize());
+                       (snapshot_run || tutorial_preview) ? QSize(snapshot_width, snapshot_height) : QSize(), tutorial_smoke_run, tutorial_preview);
   window.show();
   if (smoke_test) QTimer::singleShot(0, &application, &QCoreApplication::quit);
   if (audit_ui) {
