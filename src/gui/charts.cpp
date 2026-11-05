@@ -28,7 +28,10 @@ void EnergyBreakdownWidget::paintEvent(QPaintEvent* event) {
   Q_UNUSED(event);
   QPainter painter(this);
   painter.setRenderHint(QPainter::Antialiasing);
-  constexpr int kHorizontalInset = 10;
+  // Chart content has a second, explicit gutter in addition to the panel
+  // layout margin.  This keeps titles, the allocation track, and wrapped
+  // legend entries visibly clear of the framed Energy Ledger at every size.
+  constexpr int kHorizontalInset = 16;
   const QRect content(kHorizontalInset, 0, std::max(0, width() - 2 * kHorizontalInset), height());
   painter.setPen(AxisTheme::textPrimary());
   QFont title_font = font();
@@ -119,7 +122,7 @@ void ResourceTimelineWidget::paintEvent(QPaintEvent* event) {
   Q_UNUSED(event);
   QPainter painter(this);
   painter.setRenderHint(QPainter::Antialiasing);
-  constexpr int kHorizontalInset = 10;
+  constexpr int kHorizontalInset = 16;
   const QRect content(kHorizontalInset, 0, std::max(0, width() - 2 * kHorizontalInset), height());
   QFont title_font = font();
   title_font.setPointSize(13);
