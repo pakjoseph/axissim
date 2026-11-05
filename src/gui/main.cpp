@@ -480,6 +480,8 @@ class AxisSimWindow final : public QMainWindow {
     traffic_card_ = new KpiCard("Dominant energy", "Largest modeled component", content_panel);
     const std::array<KpiCard*, 4> metrics = {latency_card_, deadline_card_, energy_card_, traffic_card_};
     for (std::size_t index = 0; index < metrics.size(); ++index) {
+      metrics[index]->setProperty("measurement", true);
+      metrics[index]->setProperty("separated", index > 0);
       metric_cards_.push_back(metrics[index]);
       metric_layout_->addWidget(metrics[index], 0, static_cast<int>(index));
       metric_layout_->setColumnStretch(static_cast<int>(index), 1);

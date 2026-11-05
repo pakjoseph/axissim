@@ -269,7 +269,7 @@ QPushButton[nav="true"]:checked { background: @SURFACE@; color: @TEXT@; border: 
 QFrame#contentPanel { background: transparent; border: none; border-radius: 0; }
 QFrame#metricStrip { background: transparent; border: none; border-radius: 0; }
 QFrame#metricPanel { background: transparent; border: none; border-radius: 0; }
-QFrame#metricPanel + QFrame#metricPanel { border-left: 1px solid @BORDER@; }
+QFrame#metricPanel[measurement="true"][separated="true"] { border-left: 1px solid @BORDER@; }
 QLabel#metricValue { font-size: 22px; }
 QFrame#findingsMargin { background: transparent; border: none; border-left: 1px solid @BORDER@; border-radius: 0; }
 QLabel#findingText { color: @TEXT@; font-size: 14px; font-weight: 600; }
