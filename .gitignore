@@ -1,6 +1,9 @@
 build/
 build-release/
 *.csv
+!reference_data/qos/periodic_30fps.csv
+!reference_data/qos/synthetic_burst_stress.csv
+!tests/reference/sensitivity_ranges.csv
 experiments/*.json
 experiments/figures/
 .DS_Store

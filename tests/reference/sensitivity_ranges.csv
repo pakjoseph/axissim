@@ -1,0 +1,3 @@
+parameter,low,nominal,high,unit,evidence_class,rationale
+dram_bandwidth_gbps,10,20,30,GB/s,assumed_sensitivity,architecture bandwidth study
+npu_mac_pj,0.1,0.2,0.3,pJ/MAC,assumed_sensitivity,illustrative arithmetic activity range
