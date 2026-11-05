@@ -222,10 +222,21 @@ struct ProfileOperator {
   std::string id;
   std::string mapping_class;
   std::vector<std::string> dependencies;
+  std::vector<std::string> inputs;
+  std::vector<std::string> outputs;
   std::uint64_t macs = 0;
   std::uint64_t vector_elements = 0;
   int ops_per_element = 0;
+  std::uint64_t activation_read_bytes = 0;
+  std::uint64_t activation_write_bytes = 0;
+  std::uint64_t weight_bytes = 0;
   std::uint64_t transfer_bytes = 0;
+};
+
+struct ProfileTransferLedgerEntry {
+  std::string operator_id;
+  std::string category;
+  std::uint64_t bytes = 0;
 };
 
 struct WorkloadProfile {
@@ -330,13 +341,15 @@ struct MappingPlan {
     operation.id = json_string_field(object, "id").value_or("");
     operation.mapping_class = json_string_field(object, "mapping_class").value_or("");
     operation.dependencies = json_string_array_field(object, "dependencies");
+    operation.inputs = json_string_array_field(object, "inputs");
+    operation.outputs = json_string_array_field(object, "outputs");
     operation.macs = json_unsigned_field(object, "macs").value_or(0);
     operation.vector_elements = json_unsigned_field(object, "vector_elements").value_or(0);
     operation.ops_per_element = static_cast<int>(json_unsigned_field(object, "ops_per_element").value_or(0));
-    const auto activation_read = json_unsigned_field(object, "activation_read_bytes").value_or(0);
-    const auto activation_write = json_unsigned_field(object, "activation_write_bytes").value_or(0);
-    const auto weights = json_unsigned_field(object, "weight_bytes").value_or(0);
-    operation.transfer_bytes = activation_read + activation_write + weights;
+    operation.activation_read_bytes = json_unsigned_field(object, "activation_read_bytes").value_or(0);
+    operation.activation_write_bytes = json_unsigned_field(object, "activation_write_bytes").value_or(0);
+    operation.weight_bytes = json_unsigned_field(object, "weight_bytes").value_or(0);
+    operation.transfer_bytes = operation.activation_read_bytes + operation.activation_write_bytes + operation.weight_bytes;
     if (operation.id.empty() || !ids.insert(operation.id).second) throw std::runtime_error("Profile operator IDs must be non-empty and unique");
     if (operation.mapping_class == "npu_compute" && operation.macs == 0) throw std::runtime_error("NPU profile operator requires positive MAC count: " + operation.id);
     if (operation.mapping_class == "rvv_elementwise" && (operation.vector_elements == 0 || operation.ops_per_element <= 0)) throw std::runtime_error("RVV profile operator requires positive vector geometry: " + operation.id);
@@ -345,12 +358,25 @@ struct MappingPlan {
   }
   std::map<std::string, int> indegree;
   std::map<std::string, std::vector<std::string>> successors;
+  std::map<std::string, std::string> producer;
   for (const auto& operation : profile.operators) indegree.emplace(operation.id, 0);
+  for (const auto& operation : profile.operators) {
+    if (operation.outputs.empty()) throw std::runtime_error("Profile operator must name at least one output: " + operation.id);
+    for (const auto& output : operation.outputs) {
+      if (output.empty() || !producer.emplace(output, operation.id).second) throw std::runtime_error("Profile tensor outputs must have one non-empty producer: " + output);
+    }
+  }
   for (const auto& operation : profile.operators) {
     for (const auto& dependency : operation.dependencies) {
       if (!ids.contains(dependency)) throw std::runtime_error("Profile dependency does not name an operator: " + dependency);
       ++indegree.at(operation.id);
       successors[dependency].push_back(operation.id);
+    }
+    for (const auto& input_name : operation.inputs) {
+      if (const auto producer_it = producer.find(input_name); producer_it != producer.end() &&
+          std::find(operation.dependencies.cbegin(), operation.dependencies.cend(), producer_it->second) == operation.dependencies.cend()) {
+        throw std::runtime_error("Profile dependency list omits producer " + producer_it->second + " for input tensor " + input_name);
+      }
     }
   }
   std::queue<std::string> ready;
@@ -442,6 +468,7 @@ class Simulator {
   [[nodiscard]] const std::vector<double>& vision_completion_times_us() const { return vision_completion_times_us_; }
   [[nodiscard]] const std::vector<double>& control_response_times_us() const { return control_response_times_us_; }
   [[nodiscard]] int max_pending_tasks() const { return max_pending_tasks_; }
+  [[nodiscard]] const std::vector<ProfileTransferLedgerEntry>& profile_transfer_ledger() const { return profile_transfer_ledger_; }
   [[nodiscard]] double profile_vector_ops_per_frame() const {
     return std::accumulate(profile_.operators.cbegin(), profile_.operators.cend(), 0.0,
                            [](double total, const ProfileOperator& operation) { return total + static_cast<double>(operation.vector_elements) * operation.ops_per_element; });
@@ -629,6 +656,20 @@ class Simulator {
 
   void run_profile_scheduler() {
     const auto& operations = profile_.operators;
+    profile_transfer_ledger_.clear();
+    for (const auto& operation : operations) {
+      const auto append_transfer = [this, &operation](const std::string& category, std::uint64_t bytes) {
+        if (bytes > 0) profile_transfer_ledger_.push_back({operation.id, category, bytes});
+      };
+      append_transfer("activation_read", operation.activation_read_bytes);
+      append_transfer("activation_write", operation.activation_write_bytes);
+      append_transfer("weight_read", operation.weight_bytes);
+    }
+    const auto ledger_bytes = std::accumulate(profile_transfer_ledger_.cbegin(), profile_transfer_ledger_.cend(), std::uint64_t{0},
+                                              [](std::uint64_t total, const ProfileTransferLedgerEntry& entry) { return total + entry.bytes; });
+    const auto profile_bytes = std::accumulate(operations.cbegin(), operations.cend(), std::uint64_t{0},
+                                               [](std::uint64_t total, const ProfileOperator& operation) { return total + operation.transfer_bytes; });
+    if (ledger_bytes != profile_bytes) throw std::runtime_error("Profile transfer ledger does not reconcile with operator transfer totals");
     std::map<std::string, int> index_for_id;
     std::vector<std::vector<int>> successors(operations.size());
     std::vector<int> base_dependencies(operations.size(), 0);
@@ -853,6 +894,7 @@ class Simulator {
 
   Config c_;
   WorkloadProfile profile_;
+  std::vector<ProfileTransferLedgerEntry> profile_transfer_ledger_;
   std::vector<double> frame_arrivals_us_;
   std::vector<TraceEvent> trace_;
   std::vector<double> latencies_us_;
@@ -945,6 +987,9 @@ void write_result_json(const std::string& path, const Simulator& simulator, cons
   const double queue_delay_mean = queue_delay.empty() ? 0.0 : std::accumulate(queue_delay.begin(), queue_delay.end(), 0.0) / queue_delay.size();
   const double queue_delay_max = queue_delay.empty() ? 0.0 : *std::max_element(queue_delay.begin(), queue_delay.end());
   const double control_response_max = control_response.empty() ? 0.0 : *std::max_element(control_response.begin(), control_response.end());
+  const auto& profile_ledger = simulator.profile_transfer_ledger();
+  const auto profile_ledger_bytes = std::accumulate(profile_ledger.cbegin(), profile_ledger.cend(), std::uint64_t{0},
+                                                     [](std::uint64_t total, const ProfileTransferLedgerEntry& entry) { return total + entry.bytes; });
   output << std::fixed << std::setprecision(6);
   output << "{\n"
          << "  \"schema_version\": \"1.2\",\n"
@@ -964,6 +1009,13 @@ void write_result_json(const std::string& path, const Simulator& simulator, cons
          << ", \"output_interval_jitter_max_us\": " << max_output_interval_jitter_us(simulator.vision_completion_times_us(), config.frame_period_us)
          << ", \"control_response_max_us\": " << control_response_max << ", \"max_pending_tasks\": " << simulator.max_pending_tasks() << "},\n"
          << "  \"traffic\": {\"dram_bytes\": " << simulator.total_dram_bytes() << "},\n"
+         << "  \"profile_transfer_ledger\": {\"per_frame_bytes\": " << profile_ledger_bytes << ", \"entries\": [";
+  for (std::size_t index = 0; index < profile_ledger.size(); ++index) {
+    const auto& entry = profile_ledger[index];
+    if (index > 0) output << ", ";
+    output << "{\"operator_id\": \"" << json_escape(entry.operator_id) << "\", \"category\": \"" << json_escape(entry.category) << "\", \"bytes\": " << entry.bytes << "}";
+  }
+  output << "]},\n"
          << "  \"energy\": {\"per_frame_uj\": " << energy_per_frame_uj << ", \"static_per_frame_uj\": " << static_energy_pj / latency.size() / 1'000'000.0 << ", \"it_per_frame_uj\": " << it_energy_pj / latency.size() / 1'000'000.0 << ", \"facility_per_frame_uj\": " << config.pue * it_energy_pj / latency.size() / 1'000'000.0 << ", \"vector_pj\": " << simulator.vector_energy_pj()
          << ", \"npu_arithmetic_pj\": " << simulator.npu_arithmetic_energy_pj() << ", \"dram_pj\": " << simulator.dram_energy_pj()
          << ", \"dma_pj\": " << simulator.dma_energy_pj() << "},\n"

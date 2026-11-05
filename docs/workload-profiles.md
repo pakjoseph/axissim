@@ -25,3 +25,12 @@ Version 1 maps only static-shape `Conv`, `Gemm`, `MatMul`, pooling,
 normalization, flatten, and a small set of elementwise operators. Unsupported, custom, dynamic-shape, or ambiguous
 operators stop extraction with an error. AxisSim must not assign unsupported
 work a zero-cost or generic-NPU mapping.
+
+Profiled scenarios may additionally reference a reviewed
+`axissim.mapping-plan.v1` artifact. A mapping plan names every source operator
+once and must match the profile's source-model SHA-256. The initial baseline
+plan makes existing placement explicit; it does not yet claim arbitrary
+cross-engine placement or fusion. Result JSON includes a per-frame transfer
+ledger that separates activation reads, activation writes, and weight reads.
+That ledger is an accounting basis for later, explicitly declared fusion or
+residency policies—not a measured runtime memory trace.

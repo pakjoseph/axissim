@@ -86,6 +86,9 @@ if(BUILD_TESTING)
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_profiled.conf)
   set_tests_properties(explicit_mapping_preserves_mnist_baseline PROPERTIES
                        PASS_REGULAR_EXPRESSION "latency mean / P99:  56.42 / 56.51 us")
+  add_test(NAME profile_transfer_ledger_reconciles
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/check_profile_transfer_ledger.sh $<TARGET_FILE:axissim>
+                   ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_profiled.conf)
   add_test(NAME mnist12_profiled_burst_qos_smoke
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/qos/mnist12_burst.conf)
   set_tests_properties(mnist12_profiled_burst_qos_smoke PROPERTIES
