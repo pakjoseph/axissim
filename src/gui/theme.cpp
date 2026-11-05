@@ -184,7 +184,7 @@ QPushButton[nav="true"] {
 QPushButton[nav="true"]:hover { background: #24313D; color: #FFFFFF; }
 QPushButton[nav="true"]:checked { background: @ACCENT@; color: @PRIMARY_TEXT@; border: 1px solid #8BD2D6; font-weight: 600; }
 QPushButton[nav="true"]:focus { border: 2px solid #5DB2B7; padding: 8px 10px; }
-QComboBox, QDoubleSpinBox, QSpinBox {
+QComboBox, QDoubleSpinBox, QSpinBox, QLineEdit {
   background: @SURFACE@;
   border: 1px solid @BORDER_STRONG@;
   border-radius: 6px;
@@ -192,8 +192,8 @@ QComboBox, QDoubleSpinBox, QSpinBox {
   min-height: 20px;
   padding: 7px 10px;
 }
-QComboBox:hover, QDoubleSpinBox:hover, QSpinBox:hover { background: @HOVER@; border-color: @ACCENT@; }
-QComboBox:focus, QDoubleSpinBox:focus, QSpinBox:focus { border: 2px solid @ACCENT@; padding: 6px 9px; }
+QComboBox:hover, QDoubleSpinBox:hover, QSpinBox:hover, QLineEdit:hover { background: @HOVER@; border-color: @ACCENT@; }
+QComboBox:focus, QDoubleSpinBox:focus, QSpinBox:focus, QLineEdit:focus { border: 2px solid @ACCENT@; padding: 6px 9px; }
 QComboBox::drop-down { border: none; width: 26px; }
 QComboBox QAbstractItemView { background: @SURFACE@; color: @TEXT@; border: 1px solid @BORDER_STRONG@; selection-background-color: @ACCENT@; selection-color: @PRIMARY_TEXT@; }
 QPlainTextEdit {
@@ -278,6 +278,23 @@ QFrame#findingDivider { background: @BORDER_STRONG@; border: none; min-height: 1
 QLabel#findingText { color: @TEXT@; font-size: 14px; font-weight: 600; }
 QLabel#evidenceLedger { color: @SECONDARY@; font-family: "IBM Plex Mono"; font-size: 12px; }
 QFrame#editorPanel { border-radius: 0; border-left: none; }
+QFrame#experimentLab { background: transparent; border: none; }
+QFrame#experimentHeader { background: transparent; border: none; border-bottom: 1px solid @BORDER_STRONG@; }
+QLabel#pageTitle { color: @TEXT@; font-size: 20px; font-weight: 600; }
+QLabel#experimentKicker { color: @SECONDARY@; font-size: 13px; }
+QLabel#experimentState { color: @SECONDARY@; font-family: "IBM Plex Mono"; font-size: 12px; }
+QFrame#parameterNavigator { background: transparent; border: none; border-right: 1px solid @BORDER_STRONG@; }
+QLabel#parameterGroup { color: @SECONDARY@; padding: 0 8px; font-size: 14px; }
+QLabel#activeParameterGroup { background: @MUTED_SURFACE@; color: @TEXT@; border-left: 3px solid @ACCENT@; padding: 0 5px; font-size: 14px; font-weight: 600; }
+QFrame#parameterEditor { background: transparent; border: none; }
+QFrame#experimentDelta { background: transparent; border: none; border-left: 1px solid @BORDER_STRONG@; }
+QFrame#experimentDivider { background: @BORDER_STRONG@; border: none; min-height: 1px; max-height: 1px; }
+QFrame#experimentField { background: transparent; border: none; border-bottom: 1px solid @BORDER@; }
+QLabel#fieldLabel { color: @TEXT@; font-size: 14px; font-weight: 600; }
+QFrame#capacityCheck { background: transparent; border: none; border-bottom: 1px solid @BORDER@; }
+QLabel#capacityValue, QLabel#deltaLedger { color: @TEXT@; font-family: "IBM Plex Mono"; font-size: 13px; }
+QFrame#interpretationNote { background: transparent; border: none; border-top: 2px solid @ACCENT@; }
+QPushButton#advancedManifestButton { text-align: left; font-weight: 500; }
 )QSS");
   const QString canvas = dark ? "#171918" : kCanvas;
   const QString surface = dark ? "#202321" : kSurface;

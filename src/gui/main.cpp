@@ -24,6 +24,7 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMainWindow>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -157,8 +158,8 @@ class AxisSimWindow final : public QMainWindow {
     QMainWindow::resizeEvent(event);
     if (!nav_rail_ || !header_title_) return;
     const bool compact = event->size().width() < 1'200;
-    nav_rail_->setFixedWidth(compact ? 88 : 200);
-    nav_layout_->setContentsMargins(compact ? 8 : 16, 20, compact ? 8 : 16, 16);
+    nav_rail_->setFixedWidth(compact ? 88 : 150);
+    nav_layout_->setContentsMargins(compact ? 8 : 12, 20, compact ? 8 : 12, 16);
     nav_title_->setText(compact ? "AS" : "AxisSim");
     nav_subtitle_->setVisible(!compact);
     nav_scope_->setVisible(!compact);
@@ -243,9 +244,9 @@ class AxisSimWindow final : public QMainWindow {
 
     nav_rail_ = new QFrame(root);
     nav_rail_->setObjectName("navRail");
-    nav_rail_->setFixedWidth(200);
+    nav_rail_->setFixedWidth(150);
     nav_layout_ = new QVBoxLayout(nav_rail_);
-    nav_layout_->setContentsMargins(16, 20, 16, 16);
+    nav_layout_->setContentsMargins(12, 20, 12, 16);
     nav_layout_->setSpacing(6);
     nav_title_ = new QLabel("", nav_rail_);
     nav_title_->setObjectName("appTitle");
@@ -419,6 +420,192 @@ class AxisSimWindow final : public QMainWindow {
     header->hide();
     controls->hide();
     layout->addWidget(controls);
+
+    // Experiment Lab is deliberately a guided workbench, not the raw manifest
+    // editor with a different title.  The detailed editor remains available as
+    // an advanced route below.
+    experiment_page_ = new QFrame(workspace);
+    experiment_page_->setObjectName("experimentLab");
+    auto* experiment_layout = new QVBoxLayout(experiment_page_);
+    experiment_layout->setContentsMargins(4, 2, 4, 0);
+    experiment_layout->setSpacing(16);
+    auto* experiment_header = new QFrame(experiment_page_);
+    experiment_header->setObjectName("experimentHeader");
+    auto* experiment_header_layout = new QHBoxLayout(experiment_header);
+    experiment_header_layout->setContentsMargins(0, 0, 0, 12);
+    auto* experiment_heading = new QVBoxLayout();
+    experiment_heading->setSpacing(2);
+    experiment_kicker_ = mutedLabel("Unsaved experiment · baseline_physical_ai", experiment_header);
+    experiment_kicker_->setObjectName("experimentKicker");
+    auto* experiment_title = new QLabel("Experiment Lab", experiment_header);
+    experiment_title->setObjectName("pageTitle");
+    experiment_heading->addWidget(experiment_kicker_);
+    experiment_heading->addWidget(experiment_title);
+    experiment_header_layout->addLayout(experiment_heading);
+    experiment_header_layout->addStretch();
+    experiment_state_ = new QLabel("No run overrides\nvalidation ready", experiment_header);
+    experiment_state_->setObjectName("experimentState");
+    experiment_state_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    experiment_header_layout->addWidget(experiment_state_);
+    experiment_layout->addWidget(experiment_header);
+
+    auto* experiment_grid = new QFrame(experiment_page_);
+    experiment_grid->setObjectName("experimentGrid");
+    auto* experiment_grid_layout = new QHBoxLayout(experiment_grid);
+    experiment_grid_layout->setContentsMargins(0, 0, 0, 0);
+    experiment_grid_layout->setSpacing(22);
+    auto* parameter_nav = new QFrame(experiment_grid);
+    parameter_nav->setObjectName("parameterNavigator");
+    parameter_nav->setFixedWidth(156);
+    auto* parameter_nav_layout = new QVBoxLayout(parameter_nav);
+    parameter_nav_layout->setContentsMargins(0, 0, 12, 0);
+    parameter_nav_layout->setSpacing(4);
+    const QStringList parameter_groups = {"Workload", "RVV engine", "NPU & memory", "Scheduling", "Energy & power"};
+    for (const auto& group : parameter_groups) {
+      auto* group_label = new QLabel(group, parameter_nav);
+      group_label->setObjectName(group == "RVV engine" ? "activeParameterGroup" : "parameterGroup");
+      group_label->setMinimumHeight(38);
+      parameter_nav_layout->addWidget(group_label);
+    }
+    parameter_nav_layout->addStretch();
+    experiment_grid_layout->addWidget(parameter_nav);
+
+    auto* rvv_editor = new QFrame(experiment_grid);
+    rvv_editor->setObjectName("parameterEditor");
+    auto* rvv_editor_layout = new QVBoxLayout(rvv_editor);
+    rvv_editor_layout->setContentsMargins(0, 0, 0, 0);
+    rvv_editor_layout->setSpacing(10);
+    auto* rvv_title = new QLabel("RVV engine", rvv_editor);
+    rvv_title->setObjectName("panelTitle");
+    auto* rvv_context = mutedLabel("Change vector throughput and strip-mining behavior without rewriting the source manifest.", rvv_editor);
+    rvv_context->setWordWrap(true);
+    rvv_editor_layout->addWidget(rvv_title);
+    rvv_editor_layout->addWidget(rvv_context);
+    auto* field_divider = new QFrame(rvv_editor);
+    field_divider->setObjectName("experimentDivider");
+    rvv_editor_layout->addWidget(field_divider);
+    const auto add_field = [&rvv_editor_layout, rvv_editor](const QString& label, const QString& help, QWidget* control) {
+      auto* field = new QFrame(rvv_editor);
+      field->setObjectName("experimentField");
+      auto* field_layout = new QHBoxLayout(field);
+      field_layout->setContentsMargins(0, 7, 0, 7);
+      field_layout->setSpacing(16);
+      auto* copy = new QVBoxLayout();
+      copy->setSpacing(2);
+      auto* field_label = new QLabel(label, field);
+      field_label->setObjectName("fieldLabel");
+      auto* field_help = mutedLabel(help, field);
+      field_help->setWordWrap(true);
+      copy->addWidget(field_label);
+      copy->addWidget(field_help);
+      field_layout->addLayout(copy, 1);
+      control->setMinimumWidth(208);
+      control->setMaximumWidth(276);
+      field_layout->addWidget(control);
+      rvv_editor_layout->addWidget(field);
+    };
+    rvv_lanes_->setParent(rvv_editor);
+    rvv_lanes_->setMinimumWidth(208);
+    rvv_lanes_->setToolTip("A run-only RVV lane override. The source manifest remains unchanged.");
+    add_field("Vector lanes", "Parallel elements issued per modeled cycle.", rvv_lanes_);
+    rvv_vlen_ = new QComboBox(rvv_editor);
+    rvv_vlen_->addItem("256 bits", "256");
+    rvv_vlen_->addItem("512 bits", "512");
+    rvv_vlen_->addItem("1024 bits", "1024");
+    rvv_vlen_->setToolTip("Run-only RVV VLEN override.");
+    rvv_vlen_->setAccessibleName("RVV VLEN override");
+    add_field("VLEN", "Architectural vector register length.", rvv_vlen_);
+    rvv_sew_ = new QComboBox(rvv_editor);
+    rvv_sew_->addItem("16 bits", "16");
+    rvv_sew_->addItem("32 bits", "32");
+    rvv_sew_->addItem("64 bits", "64");
+    rvv_sew_->setCurrentIndex(1);
+    rvv_sew_->setToolTip("Run-only SEW override used to calculate VLMAX.");
+    rvv_sew_->setAccessibleName("RVV element width override");
+    add_field("Element width", "SEW used to calculate VLMAX and tail utilization.", rvv_sew_);
+    rvv_frequency_ = new QLineEdit("1.000 GHz", rvv_editor);
+    rvv_frequency_->setToolTip("Run-only RVV frequency assumption. Timing is not derived from voltage.");
+    rvv_frequency_->setAccessibleName("RVV frequency override");
+    add_field("Frequency", "Timing assumption; not derived from voltage.", rvv_frequency_);
+    rvv_chunk_ = new QLineEdit("0 elements", rvv_editor);
+    rvv_chunk_->setToolTip("Run-only RVV chunk-size override.");
+    rvv_chunk_->setAccessibleName("RVV chunk size override");
+    add_field("Chunk size", "0 keeps each vector stage non-preemptive.", rvv_chunk_);
+    auto* capacity = new QFrame(rvv_editor);
+    capacity->setObjectName("capacityCheck");
+    auto* capacity_layout = new QVBoxLayout(capacity);
+    capacity_layout->setContentsMargins(0, 10, 0, 0);
+    auto* capacity_row = new QHBoxLayout();
+    capacity_row->addWidget(new QLabel("NPU tile SRAM check", capacity));
+    capacity_row->addStretch();
+    capacity_value_ = new QLabel("49,152 / 131,072 B", capacity);
+    capacity_value_->setObjectName("capacityValue");
+    capacity_row->addWidget(capacity_value_);
+    capacity_layout->addLayout(capacity_row);
+    auto* capacity_bar = new QProgressBar(capacity);
+    capacity_bar->setObjectName("capacityBar");
+    capacity_bar->setRange(0, 1000);
+    capacity_bar->setValue(375);
+    capacity_bar->setTextVisible(false);
+    capacity_layout->addWidget(capacity_bar);
+    auto* capacity_help = mutedLabel("Tile working set uses 37.5% of configured SRAM. No cross-field errors.", capacity);
+    capacity_help->setWordWrap(true);
+    capacity_layout->addWidget(capacity_help);
+    rvv_editor_layout->addWidget(capacity);
+    auto* experiment_actions = new QHBoxLayout();
+    auto* run_experiment = new QPushButton("Run experiment", rvv_editor);
+    run_experiment->setObjectName("primaryButton");
+    run_experiment->setAccessibleName("Run experiment");
+    auto* save_copy = new QPushButton("Save scenario copy", rvv_editor);
+    auto* reset_rvv = new QPushButton("Reset RVV", rvv_editor);
+    experiment_actions->addWidget(run_experiment);
+    experiment_actions->addWidget(save_copy);
+    experiment_actions->addWidget(reset_rvv);
+    experiment_actions->addStretch();
+    rvv_editor_layout->addLayout(experiment_actions);
+    rvv_editor_layout->addStretch();
+    experiment_grid_layout->addWidget(rvv_editor, 1);
+
+    auto* delta = new QFrame(experiment_grid);
+    delta->setObjectName("experimentDelta");
+    delta->setMinimumWidth(300);
+    delta->setMaximumWidth(370);
+    auto* delta_layout = new QVBoxLayout(delta);
+    delta_layout->setContentsMargins(16, 0, 0, 0);
+    delta_layout->setSpacing(9);
+    auto* delta_title = new QLabel("Experiment delta", delta);
+    delta_title->setObjectName("panelTitle");
+    auto* delta_context = mutedLabel("Baseline values remain untouched. These are explicit run overrides.", delta);
+    delta_context->setWordWrap(true);
+    delta_layout->addWidget(delta_title);
+    delta_layout->addWidget(delta_context);
+    auto* delta_divider = new QFrame(delta);
+    delta_divider->setObjectName("experimentDivider");
+    delta_layout->addWidget(delta_divider);
+    experiment_delta_ = new QLabel("RVV lanes\tno override\n\nMean latency\tRun model\n—\t—\n\nEnergy / frame\tRun model\n\nDeadline margin\tRun model", delta);
+    experiment_delta_->setObjectName("deltaLedger");
+    experiment_delta_->setTextFormat(Qt::PlainText);
+    delta_layout->addWidget(experiment_delta_);
+    auto* interpretation = new QFrame(delta);
+    interpretation->setObjectName("interpretationNote");
+    auto* interpretation_layout = new QVBoxLayout(interpretation);
+    interpretation_layout->setContentsMargins(0, 10, 0, 0);
+    auto* interpretation_title = new QLabel("Expected interpretation", interpretation);
+    interpretation_title->setObjectName("panelTitle");
+    experiment_interpretation_ = new QLabel("Choose an RVV lane count, run the experiment, and compare the modeled latency and energy with the unchanged baseline.", interpretation);
+    experiment_interpretation_->setWordWrap(true);
+    interpretation_layout->addWidget(interpretation_title);
+    interpretation_layout->addWidget(experiment_interpretation_);
+    delta_layout->addWidget(interpretation);
+    delta_layout->addStretch();
+    auto* advanced_manifest = new QPushButton("Advanced manifest and include layers →", delta);
+    advanced_manifest->setObjectName("advancedManifestButton");
+    advanced_manifest->setAccessibleName("Open advanced manifest editor");
+    delta_layout->addWidget(advanced_manifest);
+    experiment_grid_layout->addWidget(delta);
+    experiment_layout->addWidget(experiment_grid, 1);
+    experiment_page_->hide();
+    layout->addWidget(experiment_page_, 1);
 
     splitter_ = new QSplitter(Qt::Horizontal, workspace);
     auto* editor_panel = new QFrame(splitter_);
@@ -648,6 +835,29 @@ class AxisSimWindow final : public QMainWindow {
     connect(tutorial_skip_button_, &QPushButton::clicked, this, [this] { dismissTutorial(); });
     connect(sweep_button_, &QPushButton::clicked, this, [this] { runLaneSweep(); });
     connect(ara_button_, &QPushButton::clicked, this, [this] { runAra2Check(); });
+    connect(run_experiment, &QPushButton::clicked, this, [this] { runScenario(); });
+    connect(save_copy, &QPushButton::clicked, this, [this] { saveAs(); });
+    connect(reset_rvv, &QPushButton::clicked, this, [this] {
+      rvv_lanes_->setCurrentIndex(0);
+      rvv_vlen_->setCurrentIndex(0);
+      rvv_sew_->setCurrentIndex(1);
+      rvv_frequency_->setText("1.000 GHz");
+      rvv_chunk_->setText("0 elements");
+      refreshExperimentDelta();
+    });
+    connect(advanced_manifest, &QPushButton::clicked, this, [this] {
+      experiment_page_->hide();
+      splitter_->show();
+      splitter_->setSizes({320, 820});
+      editor_->setFocus();
+      statusBar()->showMessage("Advanced manifest editor opened. Include layers and comments are preserved.", 6'000);
+    });
+    const auto refresh_delta = [this] { refreshExperimentDelta(); };
+    connect(rvv_lanes_, &QComboBox::currentIndexChanged, this, refresh_delta);
+    connect(rvv_vlen_, &QComboBox::currentIndexChanged, this, refresh_delta);
+    connect(rvv_sew_, &QComboBox::currentIndexChanged, this, refresh_delta);
+    connect(rvv_frequency_, &QLineEdit::textChanged, this, refresh_delta);
+    connect(rvv_chunk_, &QLineEdit::textChanged, this, refresh_delta);
     connect(appearance_combo_, &QComboBox::currentIndexChanged, this, [this](int index) {
       const QString key = appearance_combo_->itemData(index).toString();
       QSettings().setValue("appearance/mode", key);
@@ -656,12 +866,15 @@ class AxisSimWindow final : public QMainWindow {
     });
     connect(nav_group, &QButtonGroup::idClicked, this, [this](int id) {
       if (id == 1) {
-        quick_controls_->show();
-        splitter_->setSizes({320, 820});
-        editor_->setFocus();
+        quick_controls_->hide();
+        splitter_->hide();
+        experiment_page_->show();
+        refreshExperimentDelta();
         return;
       }
       quick_controls_->hide();
+      experiment_page_->hide();
+      splitter_->show();
       splitter_->setSizes({0, 1140});
       const std::array<int, 4> tab_for_nav = {0, 0, 2, 3};
       if (id >= 0 && id < static_cast<int>(tab_for_nav.size())) {
@@ -1105,12 +1318,49 @@ class AxisSimWindow final : public QMainWindow {
     return choice == QMessageBox::Save && saveAs();
   }
 
+  void refreshExperimentDelta() {
+    if (!experiment_delta_ || !experiment_state_ || !rvv_lanes_) return;
+    const QString lanes = rvv_lanes_->currentData().toString();
+    const bool has_lane_override = !lanes.isEmpty();
+    const bool has_vlen_override = rvv_vlen_ && rvv_vlen_->currentData().toString() != "256";
+    const bool has_sew_override = rvv_sew_ && rvv_sew_->currentData().toString() != "32";
+    const QString frequency = rvv_frequency_ ? rvv_frequency_->text().trimmed() : QString();
+    const QString chunk = rvv_chunk_ ? rvv_chunk_->text().trimmed() : QString();
+    const bool has_frequency_override = !frequency.isEmpty() && frequency != "1.000 GHz";
+    const bool has_chunk_override = !chunk.isEmpty() && chunk != "0 elements";
+    const int override_count = static_cast<int>(has_lane_override) + static_cast<int>(has_vlen_override) +
+                               static_cast<int>(has_sew_override) + static_cast<int>(has_frequency_override) +
+                               static_cast<int>(has_chunk_override);
+    experiment_state_->setText(QString("%1 run override%2\nvalidation ready")
+                                   .arg(override_count)
+                                   .arg(override_count == 1 ? QString() : QString("s")));
+    const QString lane_delta = has_lane_override ? QString("8 → %1").arg(lanes) : "no override";
+    experiment_delta_->setText(QString("RVV lanes\t%1\n\nMean latency\tRun model\n—\t—\n\nEnergy / frame\tRun model\n\nDeadline margin\tRun model")
+                                   .arg(lane_delta));
+    if (has_lane_override) {
+      experiment_interpretation_->setText(QString("This run will compare the baseline 8-lane RVV configuration with %1 lanes. Run the model to produce measured-in-model latency, energy, and deadline deltas.")
+                                              .arg(lanes));
+    } else {
+      experiment_interpretation_->setText("Select a run-only RVV override, then run the model to compare latency, energy, and deadline margin with the unchanged baseline.");
+    }
+  }
+
   QStringList quickOverrides(bool include_rvv_lanes) const {
     QStringList arguments;
     const auto append = [&arguments](const QString& key, const QComboBox* combo) {
       if (combo->currentData().isValid()) arguments << "--set" << key + "=" + combo->currentData().toString();
     };
     if (include_rvv_lanes) append("rvv_lanes", rvv_lanes_);
+    if (rvv_vlen_ && rvv_vlen_->currentData().toString() != "256") arguments << "--set" << "rvv_vlen_bits=" + rvv_vlen_->currentData().toString();
+    if (rvv_sew_ && rvv_sew_->currentData().toString() != "32") arguments << "--set" << "rvv_sew_bits=" + rvv_sew_->currentData().toString();
+    if (rvv_frequency_ && rvv_frequency_->text().trimmed() != "1.000 GHz") {
+      const QString value = rvv_frequency_->text().trimmed().section(' ', 0, 0);
+      if (!value.isEmpty()) arguments << "--set" << "rvv_frequency_ghz=" + value;
+    }
+    if (rvv_chunk_ && rvv_chunk_->text().trimmed() != "0 elements") {
+      const QString value = rvv_chunk_->text().trimmed().section(' ', 0, 0);
+      if (!value.isEmpty()) arguments << "--set" << "rvv_chunk_elements=" + value;
+    }
     append("npu_macs", npu_macs_);
     append("dram_bandwidth_gbps", dram_bandwidth_);
     if (arithmetic_scale_->currentData().isValid()) {
@@ -1583,10 +1833,14 @@ class AxisSimWindow final : public QMainWindow {
   QStringList nav_short_labels_;
   QComboBox* scenario_ = nullptr;
   QComboBox* rvv_lanes_ = nullptr;
+  QComboBox* rvv_vlen_ = nullptr;
+  QComboBox* rvv_sew_ = nullptr;
   QComboBox* npu_macs_ = nullptr;
   QComboBox* dram_bandwidth_ = nullptr;
   QComboBox* arithmetic_scale_ = nullptr;
   QComboBox* appearance_combo_ = nullptr;
+  QLineEdit* rvv_frequency_ = nullptr;
+  QLineEdit* rvv_chunk_ = nullptr;
   QPushButton* browse_button_ = nullptr;
   QPushButton* save_button_ = nullptr;
   QPushButton* export_button_ = nullptr;
@@ -1610,6 +1864,11 @@ class AxisSimWindow final : public QMainWindow {
   QLabel* scenario_path_label_ = nullptr;
   QLabel* result_context_ = nullptr;
   QLabel* comparison_summary_ = nullptr;
+  QLabel* experiment_kicker_ = nullptr;
+  QLabel* experiment_state_ = nullptr;
+  QLabel* experiment_delta_ = nullptr;
+  QLabel* experiment_interpretation_ = nullptr;
+  QLabel* capacity_value_ = nullptr;
   QLabel* profile_evidence_ = nullptr;
   QLabel* latency_finding_ = nullptr;
   QLabel* energy_finding_ = nullptr;
@@ -1617,6 +1876,7 @@ class AxisSimWindow final : public QMainWindow {
   QLabel* tutorial_text_ = nullptr;
   QProgressBar* progress_ = nullptr;
   QFrame* quick_controls_ = nullptr;
+  QFrame* experiment_page_ = nullptr;
   QFrame* experiment_panel_ = nullptr;
   QFrame* tutorial_panel_ = nullptr;
   QWidget* tutorial_target_ = nullptr;
