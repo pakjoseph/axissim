@@ -271,6 +271,27 @@ compiler mapping, hardware-power measurement, or claim about Velaura silicon.
 See [workload profile rules](docs/workload-profiles.md) and the profile's source
 metadata before interpreting the result.
 
+### Mapping-policy study
+
+The same profiled graph can be evaluated under explicit, reviewable mapping
+policies—not inferred generic “optimization” percentages. The checked-in study
+compares the baseline with a legal direct `Plus30 → ReLU32` fusion, capacity-
+checked persistence for two named NPU weight tensors, and their combination:
+
+```sh
+bash experiments/run_mnist12_mapping_policy_study.sh ./build/axissim \
+  experiments/mnist12_mapping_policy_study.csv
+```
+
+For this scenario, the combined policy changes modeled mean latency from
+56.42 to 53.25 µs, modeled IT energy from 4.95 to 3.91 µJ/frame, and total
+30-frame DRAM traffic from 8.71 to 6.81 MB. The JSON ledger preserves the
+reason: one named fusion removes 50,176 B/frame of intermediate transfers and
+two named NPU tensors avoid 13,600 B only after frame 0, subject to a declared
+16 KiB weight-SRAM capacity. These are reproducible **model outputs under this
+profile and configuration**, not a measured compiler transformation, ML
+accuracy result, or silicon-power claim.
+
 `calibrate` compares a traceable reference CSV with the selected model. For `rvv_stream` references that preserve raw RTL cycles, cycles are primary; normalized latency is secondary. It reports predicted/reference values and absolute/relative error for every point:
 
 ```sh

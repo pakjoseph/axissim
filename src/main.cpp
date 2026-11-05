@@ -1184,6 +1184,12 @@ void print_results(const Simulator& simulator, const Config& config) {
     if (simulator.profile_fusion_count() > 0) {
       std::cout << "  fused intermediate traffic avoided: " << simulator.profile_fused_intermediate_bytes_avoided() << " bytes / frame\n";
     }
+    if (simulator.profile_persistent_weight_operator_count() > 0) {
+      std::cout << "  persistent NPU weight operators: " << simulator.profile_persistent_weight_operator_count()
+                << " (first / steady transfer: " << simulator.profile_first_frame_transfer_bytes() << " / "
+                << simulator.profile_steady_state_transfer_bytes() << " bytes; "
+                << simulator.profile_persistent_weight_bytes_avoided_per_steady_frame() << " bytes avoided after frame 0)\n";
+    }
   }
   std::cout << "  latency mean / P99:  " << mean << " / " << percentile(latency, 0.99) << " us\n"
             << "  latency min / max:   " << *std::min_element(latency.begin(), latency.end()) << " / " << *std::max_element(latency.begin(), latency.end()) << " us\n"

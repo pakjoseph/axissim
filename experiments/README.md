@@ -18,6 +18,20 @@ The script generates three CSV files that can be plotted or reviewed directly.
 
 All results are model outputs derived from the configuration assumptions—not measurements of a real SoC. Record the exact configuration and simulator revision with any chart or architectural recommendation.
 
+## Public-model mapping-policy study
+
+```sh
+bash experiments/run_mnist12_mapping_policy_study.sh ./build/axissim \
+  experiments/mnist12_mapping_policy_study.csv
+```
+
+This four-point study holds the static public MNIST-12 operation profile fixed
+and compares only named mapping policies: baseline, one legal single-consumer
+fusion, two capacity-checked persistent NPU weight tensors, and both together.
+Its CSV records traffic, latency, energy, first-frame/steady-state transfer
+totals, and the declared bytes avoided by each policy. It is not a compiler
+benchmark or a silicon measurement.
+
 ## Plot a sweep
 
 The plotting helper requires Python with `matplotlib` available:
