@@ -60,6 +60,22 @@ ID and source-model SHA-256 and record an externally evaluated metric, dataset,
 evaluator, and source URL. Without that artifact, result JSON and the desktop
 Evidence view explicitly report that accuracy evidence was not supplied.
 
+Use `tools/evaluate_onnx_classifier.py` to produce evidence from two
+user-supplied ONNX classifiers and a local NPZ dataset (`inputs` and `labels`
+arrays). It evaluates both through ONNX Runtime's CPU provider and records the
+two model hashes, dataset hash, evaluator version, top-1 accuracy, and delta.
+It deliberately does not quantize, download data, or imply target-hardware
+accuracy:
+
+```sh
+python3 -m pip install -r tools/requirements-onnx-evaluator.txt
+python3 tools/evaluate_onnx_classifier.py baseline.onnx candidate.onnx eval.npz \
+  --mapping-plan-id mnist12_fp16_storage_assumption \
+  --source-model-sha256 <profile-model-sha256> \
+  --dataset-name "declared evaluation set" --dataset-source-url https://example.invalid/dataset \
+  --output accuracy-evidence.json
+```
+
 The same artifact can declare a graph-wide storage-precision mapping policy.
 The profile must first carry an extractor-derived `tensor_storage_precision`
 in its source metadata; the plan must name that exact source precision and a
