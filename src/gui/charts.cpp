@@ -1,4 +1,5 @@
 #include "charts.hpp"
+#include "theme.hpp"
 
 #include <QFontMetrics>
 #include <QPainter>
@@ -8,19 +9,11 @@
 #include <algorithm>
 #include <numeric>
 
-namespace {
-
-const QColor kText("#e6edf7");
-const QColor kMuted("#8fa3bf");
-const QColor kGrid("#27344d");
-const QColor kTrack("#1a2438");
-const QColor kAccent("#38bdf8");
-
-}  // namespace
-
 EnergyBreakdownWidget::EnergyBreakdownWidget(QWidget* parent) : QWidget(parent) {
   setMinimumHeight(160);
   setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+  setAccessibleName("Energy composition per frame chart");
+  setToolTip("Modeled per-frame energy split by vector, arithmetic, memory movement, DMA, and static energy");
 }
 
 void EnergyBreakdownWidget::setSegments(QVector<EnergySegment> segments) {
@@ -32,7 +25,7 @@ void EnergyBreakdownWidget::paintEvent(QPaintEvent* event) {
   Q_UNUSED(event);
   QPainter painter(this);
   painter.setRenderHint(QPainter::Antialiasing);
-  painter.setPen(kText);
+  painter.setPen(AxisTheme::textPrimary());
   QFont title_font = font();
   title_font.setPointSize(13);
   title_font.setWeight(QFont::DemiBold);
@@ -43,10 +36,10 @@ void EnergyBreakdownWidget::paintEvent(QPaintEvent* event) {
                                        [](double sum, const EnergySegment& segment) { return sum + std::max(0.0, segment.value); });
   const QRectF track(0, 42, width(), 22);
   painter.setPen(Qt::NoPen);
-  painter.setBrush(kTrack);
+  painter.setBrush(AxisTheme::chartBackground());
   painter.drawRoundedRect(track, 7, 7);
   if (total <= 0.0) {
-    painter.setPen(kMuted);
+    painter.setPen(AxisTheme::textSecondary());
     painter.drawText(QRect(0, 78, width(), 28), Qt::AlignLeft | Qt::AlignVCenter, "Run a scenario to populate the modeled energy ledger.");
     return;
   }
@@ -80,7 +73,7 @@ void EnergyBreakdownWidget::paintEvent(QPaintEvent* event) {
     painter.setPen(Qt::NoPen);
     painter.setBrush(segment.color);
     painter.drawRoundedRect(QRectF(legend_x, legend_y + 5, 10, 10), 3, 3);
-    painter.setPen(kMuted);
+    painter.setPen(AxisTheme::textSecondary());
     painter.drawText(QRect(legend_x + 18, legend_y, item_width - 18, 22), Qt::AlignLeft | Qt::AlignVCenter, text);
     legend_x += item_width;
   }
@@ -89,6 +82,80 @@ void EnergyBreakdownWidget::paintEvent(QPaintEvent* event) {
 SweepChartWidget::SweepChartWidget(QWidget* parent) : QWidget(parent) {
   setMinimumHeight(220);
   setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+  setAccessibleName("RVV lane scaling chart");
+  setToolTip("Modeled mean latency for each emitted RVV lane sweep point");
+}
+
+ResourceTimelineWidget::ResourceTimelineWidget(QWidget* parent) : QWidget(parent) {
+  setMinimumHeight(230);
+  setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+  setAccessibleName("Frame zero resource timeline");
+  setToolTip("Real modeled task trace on DMA and DRAM, RVV, and NPU resource lanes");
+}
+
+void ResourceTimelineWidget::setEvents(QVector<TimelineEvent> events) {
+  events_ = std::move(events);
+  update();
+}
+
+void ResourceTimelineWidget::paintEvent(QPaintEvent* event) {
+  Q_UNUSED(event);
+  QPainter painter(this);
+  painter.setRenderHint(QPainter::Antialiasing);
+  QFont title_font = font();
+  title_font.setPointSize(13);
+  title_font.setWeight(QFont::DemiBold);
+  painter.setFont(title_font);
+  painter.setPen(AxisTheme::textPrimary());
+  painter.drawText(QRect(0, 0, width(), 26), Qt::AlignLeft | Qt::AlignVCenter, "Frame 0 resource pipeline");
+  if (events_.isEmpty()) {
+    painter.setPen(AxisTheme::textSecondary());
+    painter.drawText(QRect(0, 38, width(), height() - 38), Qt::AlignCenter,
+                     "Run a scenario to trace DMA, RVV, and NPU work across the frame.");
+    return;
+  }
+  const QStringList resources = {"DMA+DRAM", "RVV", "NPU"};
+  double end_us = 0.0;
+  for (const auto& item : events_) end_us = std::max(end_us, item.end_us);
+  const QRectF plot(102, 38, std::max(10, width() - 118), std::max(10, height() - 76));
+  const double lane_height = plot.height() / resources.size();
+  QFont label_font = font();
+  label_font.setPointSize(10);
+  painter.setFont(label_font);
+  for (int lane = 0; lane < resources.size(); ++lane) {
+    const double y = plot.top() + lane * lane_height;
+    painter.setPen(QPen(AxisTheme::border(), 1));
+    painter.drawLine(QPointF(plot.left(), y + lane_height), QPointF(plot.right(), y + lane_height));
+    painter.setPen(AxisTheme::textSecondary());
+    painter.drawText(QRectF(0, y, 92, lane_height), Qt::AlignRight | Qt::AlignVCenter, resources[lane]);
+  }
+  for (const auto& item : events_) {
+    const int lane = resources.indexOf(item.resource);
+    if (lane < 0) continue;
+    const double x = plot.left() + plot.width() * item.start_us / end_us;
+    const double right = plot.left() + plot.width() * item.end_us / end_us;
+    const QRectF bar(x, plot.top() + lane * lane_height + 10, std::max(2.0, right - x), lane_height - 20);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(item.color);
+    painter.drawRoundedRect(bar, 3, 3);
+    if (bar.width() > 110) {
+      painter.setPen(AxisTheme::canvas());
+      painter.drawText(bar.adjusted(6, 0, -6, 0), Qt::AlignCenter | Qt::TextSingleLine, item.task + QString(" · %1 µs").arg(item.end_us - item.start_us, 0, 'f', 1));
+    }
+  }
+  painter.setPen(QPen(AxisTheme::border(), 1));
+  painter.drawLine(QPointF(plot.left(), plot.bottom()), QPointF(plot.right(), plot.bottom()));
+  for (int tick = 0; tick <= 4; ++tick) {
+    const double ratio = static_cast<double>(tick) / 4.0;
+    const double x = plot.left() + ratio * plot.width();
+    painter.setPen(QPen(AxisTheme::border(), 1));
+    painter.drawLine(QPointF(x, plot.bottom()), QPointF(x, plot.bottom() + 5));
+    painter.setPen(AxisTheme::textSecondary());
+    painter.drawText(QRectF(x - 30, plot.bottom() + 6, 60, 18), Qt::AlignCenter,
+                     QString::number(ratio * end_us, 'f', 0));
+  }
+  painter.setPen(AxisTheme::textSecondary());
+  painter.drawText(QRectF(plot.left(), plot.bottom() + 25, plot.width(), 18), Qt::AlignCenter, "Modeled frame time (µs)");
 }
 
 void SweepChartWidget::setPoints(QVector<SweepPoint> points) {
@@ -101,7 +168,7 @@ void SweepChartWidget::paintEvent(QPaintEvent* event) {
   Q_UNUSED(event);
   QPainter painter(this);
   painter.setRenderHint(QPainter::Antialiasing);
-  painter.setPen(kText);
+  painter.setPen(AxisTheme::textPrimary());
   QFont title_font = font();
   title_font.setPointSize(13);
   title_font.setWeight(QFont::DemiBold);
@@ -109,7 +176,7 @@ void SweepChartWidget::paintEvent(QPaintEvent* event) {
   painter.drawText(QRect(0, 0, width(), 26), Qt::AlignLeft | Qt::AlignVCenter, "RVV lanes vs. modeled mean latency");
 
   if (points_.isEmpty()) {
-    painter.setPen(kMuted);
+    painter.setPen(AxisTheme::textSecondary());
     painter.drawText(QRect(0, 42, width(), height() - 42), Qt::AlignCenter, "Run the RVV lane sweep to compare scaling.");
     return;
   }
@@ -123,7 +190,7 @@ void SweepChartWidget::paintEvent(QPaintEvent* event) {
   const double y_min = std::max(0.0, min_latency - range * 0.15);
   const double y_max = max_latency + range * 0.15;
 
-  painter.setPen(QPen(kGrid, 1));
+  painter.setPen(QPen(AxisTheme::border(), 1));
   QFont axis_font = font();
   axis_font.setPointSize(9);
   painter.setFont(axis_font);
@@ -131,10 +198,10 @@ void SweepChartWidget::paintEvent(QPaintEvent* event) {
     const double ratio = static_cast<double>(line) / 4.0;
     const double y = plot.bottom() - ratio * plot.height();
     painter.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y));
-    painter.setPen(kMuted);
+    painter.setPen(AxisTheme::textSecondary());
     painter.drawText(QRectF(0, y - 10, 50, 20), Qt::AlignRight | Qt::AlignVCenter,
                      QString::number(y_min + ratio * (y_max - y_min), 'f', 0));
-    painter.setPen(QPen(kGrid, 1));
+    painter.setPen(QPen(AxisTheme::border(), 1));
   }
 
   QPainterPath path;
@@ -147,13 +214,13 @@ void SweepChartWidget::paintEvent(QPaintEvent* event) {
     if (index == 0) path.moveTo(point); else path.lineTo(point);
   }
 
-  painter.setPen(QPen(kAccent, 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+  painter.setPen(QPen(AxisTheme::accent(), 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
   painter.drawPath(path);
   for (qsizetype index = 0; index < plotted.size(); ++index) {
-    painter.setPen(QPen(QColor("#0b1020"), 2));
-    painter.setBrush(kAccent);
+    painter.setPen(QPen(AxisTheme::canvas(), 2));
+    painter.setBrush(AxisTheme::accent());
     painter.drawEllipse(plotted[index], 6, 6);
-    painter.setPen(kMuted);
+    painter.setPen(AxisTheme::textSecondary());
     painter.drawText(QRectF(plotted[index].x() - 28, plot.bottom() + 8, 56, 20), Qt::AlignCenter,
                      QString::number(points_[index].lanes, 'f', 0));
   }
@@ -161,9 +228,9 @@ void SweepChartWidget::paintEvent(QPaintEvent* event) {
   painter.save();
   painter.translate(13, plot.center().y());
   painter.rotate(-90);
-  painter.setPen(kMuted);
+  painter.setPen(AxisTheme::textSecondary());
   painter.drawText(QRectF(-70, -10, 140, 20), Qt::AlignCenter, "Latency (µs)");
   painter.restore();
-  painter.setPen(kMuted);
+  painter.setPen(AxisTheme::textSecondary());
   painter.drawText(QRectF(plot.left(), plot.bottom() + 28, plot.width(), 20), Qt::AlignCenter, "RVV lanes");
 }

@@ -17,6 +17,8 @@ if(AXISSIM_BUILD_GUI)
         src/gui/main.cpp
         src/gui/charts.cpp
         src/gui/charts.hpp
+        src/gui/theme.cpp
+        src/gui/theme.hpp
         resources/gui.qrc
         resources/AxisSim.icns)
     if(APPLE)
@@ -63,6 +65,23 @@ if(BUILD_TESTING)
   add_test(NAME rejects_unknown_configuration_key
            COMMAND axissim validate ${CMAKE_SOURCE_DIR}/tests/unknown_key.conf)
   set_tests_properties(rejects_unknown_configuration_key PROPERTIES WILL_FAIL TRUE)
+  add_test(NAME validates_workload_profile_contract
+           COMMAND axissim profile-validate ${CMAKE_SOURCE_DIR}/tests/reference/tiny_workload_profile.json)
+  add_test(NAME executes_workload_profile_dag
+           COMMAND axissim run ${CMAKE_SOURCE_DIR}/tests/tiny_profile.conf)
+  set_tests_properties(executes_workload_profile_dag PROPERTIES
+                       PASS_REGULAR_EXPRESSION "latency mean / P99:  0.30 / 0.30 us")
+  add_test(NAME mnist12_profiled_graph_smoke
+           COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_profiled.conf)
+  set_tests_properties(mnist12_profiled_graph_smoke PROPERTIES
+                       PASS_REGULAR_EXPRESSION "workload mode:        profiled_graph")
+  add_test(NAME mnist12_profiled_burst_qos_smoke
+           COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/qos/mnist12_burst.conf)
+  set_tests_properties(mnist12_profiled_burst_qos_smoke PROPERTIES
+                       PASS_REGULAR_EXPRESSION "frame arrivals:       trace")
+  add_test(NAME rejects_incomplete_arrival_trace_configuration
+           COMMAND axissim validate ${CMAKE_SOURCE_DIR}/tests/invalid_arrival_trace.conf)
+  set_tests_properties(rejects_incomplete_arrival_trace_configuration PROPERTIES WILL_FAIL TRUE)
   add_test(NAME rejects_tile_that_does_not_fit_sram
            COMMAND axissim validate ${CMAKE_SOURCE_DIR}/tests/insufficient_sram.conf)
   set_tests_properties(rejects_tile_that_does_not_fit_sram PROPERTIES WILL_FAIL TRUE)
@@ -125,6 +144,15 @@ if(BUILD_TESTING)
   set_tests_properties(implementation_proxies_are_explicit PROPERTIES PASS_REGULAR_EXPRESSION "reliability proxy expected failures: 0.10")
   add_test(NAME exact_deployment_and_proxy_accounting
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/check_deployment_and_proxies.sh $<TARGET_FILE:axissim> ${CMAKE_SOURCE_DIR}/tests/tiny_pipeline.conf)
+  add_test(NAME deterministic_arrival_trace_qos
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/check_arrival_trace.sh $<TARGET_FILE:axissim>
+                   ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
+                   ${CMAKE_SOURCE_DIR}/configs/qos/periodic_trace.conf
+                   ${CMAKE_SOURCE_DIR}/configs/qos/synthetic_burst.conf)
+  add_test(NAME deterministic_sensitivity_analysis
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/check_sensitivity_analysis.sh $<TARGET_FILE:axissim>
+                   ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
+                   ${CMAKE_SOURCE_DIR}/tests/reference/sensitivity_ranges.csv)
   add_test(NAME calibration_fixture_smoke
            COMMAND axissim calibrate ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
                    --reference ${CMAKE_SOURCE_DIR}/tests/reference/synthetic_latency.csv)
@@ -159,5 +187,13 @@ if(BUILD_TESTING)
     set_tests_properties(desktop_gui_initializes PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_test(NAME desktop_gui_runs_model COMMAND axissim-gui --smoke-test-run)
     set_tests_properties(desktop_gui_runs_model PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 15)
+    add_test(NAME desktop_gui_accessibility_audit COMMAND axissim-gui --audit-ui)
+    set_tests_properties(desktop_gui_accessibility_audit PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_test(NAME desktop_gui_light_theme COMMAND axissim-gui --smoke-test)
+    set_tests_properties(desktop_gui_light_theme PROPERTIES
+                         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;AXISSIM_APPEARANCE_OVERRIDE=light")
+    add_test(NAME desktop_gui_dark_theme COMMAND axissim-gui --smoke-test)
+    set_tests_properties(desktop_gui_dark_theme PROPERTIES
+                         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;AXISSIM_APPEARANCE_OVERRIDE=dark")
   endif()
 endif()

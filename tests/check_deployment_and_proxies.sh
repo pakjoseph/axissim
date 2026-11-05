@@ -33,7 +33,7 @@ jq -e '
   ((.timing.makespan_us / 1000000) / $tau_s) as $normalized_time |
   (25 + ($steady_c - 25) * (1 - (-$normalized_time | exp))) as $end_c |
   (100 * 2 * 1000 * 1000 / 1000000000) as $failures |
-  .schema_version == "1.1" and
+  .schema_version == "1.2" and
   close(.deployment.electricity_cost_per_kwh; 0.1; 0.000001) and
   # Derived values use full-precision internals while JSON inputs are printed to
   # six decimals, so comparisons allow only the resulting serialization error.

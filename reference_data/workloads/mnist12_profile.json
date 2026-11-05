@@ -1,0 +1,279 @@
+{
+  "operators": [
+    {
+      "activation_read_bytes": 3136,
+      "activation_write_bytes": 25088,
+      "dependencies": [],
+      "id": "Convolution28",
+      "inputs": [
+        "Input3",
+        "Parameter5"
+      ],
+      "macs": 156800,
+      "mapping_class": "npu_compute",
+      "mapping_rule_version": "axissim.mapping.v1",
+      "op_type": "Conv",
+      "ops_per_element": 0,
+      "outputs": [
+        "Convolution28_Output_0"
+      ],
+      "vector_elements": 0,
+      "weight_bytes": 800
+    },
+    {
+      "activation_read_bytes": 25088,
+      "activation_write_bytes": 25088,
+      "dependencies": [
+        "Convolution28"
+      ],
+      "id": "Plus30",
+      "inputs": [
+        "Convolution28_Output_0",
+        "Parameter6"
+      ],
+      "macs": 0,
+      "mapping_class": "rvv_elementwise",
+      "mapping_rule_version": "axissim.mapping.v1",
+      "op_type": "Add",
+      "ops_per_element": 1,
+      "outputs": [
+        "Plus30_Output_0"
+      ],
+      "vector_elements": 6272,
+      "weight_bytes": 32
+    },
+    {
+      "activation_read_bytes": 25088,
+      "activation_write_bytes": 25088,
+      "dependencies": [
+        "Plus30"
+      ],
+      "id": "ReLU32",
+      "inputs": [
+        "Plus30_Output_0"
+      ],
+      "macs": 0,
+      "mapping_class": "rvv_elementwise",
+      "mapping_rule_version": "axissim.mapping.v1",
+      "op_type": "Relu",
+      "ops_per_element": 1,
+      "outputs": [
+        "ReLU32_Output_0"
+      ],
+      "vector_elements": 6272,
+      "weight_bytes": 0
+    },
+    {
+      "activation_read_bytes": 25088,
+      "activation_write_bytes": 6272,
+      "dependencies": [
+        "ReLU32"
+      ],
+      "id": "Pooling66",
+      "inputs": [
+        "ReLU32_Output_0"
+      ],
+      "macs": 0,
+      "mapping_class": "rvv_elementwise",
+      "mapping_rule_version": "axissim.mapping.v1",
+      "op_type": "MaxPool",
+      "ops_per_element": 1,
+      "outputs": [
+        "Pooling66_Output_0"
+      ],
+      "vector_elements": 1568,
+      "weight_bytes": 0
+    },
+    {
+      "activation_read_bytes": 6272,
+      "activation_write_bytes": 12544,
+      "dependencies": [
+        "Pooling66"
+      ],
+      "id": "Convolution110",
+      "inputs": [
+        "Pooling66_Output_0",
+        "Parameter87"
+      ],
+      "macs": 627200,
+      "mapping_class": "npu_compute",
+      "mapping_rule_version": "axissim.mapping.v1",
+      "op_type": "Conv",
+      "ops_per_element": 0,
+      "outputs": [
+        "Convolution110_Output_0"
+      ],
+      "vector_elements": 0,
+      "weight_bytes": 12800
+    },
+    {
+      "activation_read_bytes": 12544,
+      "activation_write_bytes": 12544,
+      "dependencies": [
+        "Convolution110"
+      ],
+      "id": "Plus112",
+      "inputs": [
+        "Convolution110_Output_0",
+        "Parameter88"
+      ],
+      "macs": 0,
+      "mapping_class": "rvv_elementwise",
+      "mapping_rule_version": "axissim.mapping.v1",
+      "op_type": "Add",
+      "ops_per_element": 1,
+      "outputs": [
+        "Plus112_Output_0"
+      ],
+      "vector_elements": 3136,
+      "weight_bytes": 64
+    },
+    {
+      "activation_read_bytes": 12544,
+      "activation_write_bytes": 12544,
+      "dependencies": [
+        "Plus112"
+      ],
+      "id": "ReLU114",
+      "inputs": [
+        "Plus112_Output_0"
+      ],
+      "macs": 0,
+      "mapping_class": "rvv_elementwise",
+      "mapping_rule_version": "axissim.mapping.v1",
+      "op_type": "Relu",
+      "ops_per_element": 1,
+      "outputs": [
+        "ReLU114_Output_0"
+      ],
+      "vector_elements": 3136,
+      "weight_bytes": 0
+    },
+    {
+      "activation_read_bytes": 12544,
+      "activation_write_bytes": 1024,
+      "dependencies": [
+        "ReLU114"
+      ],
+      "id": "Pooling160",
+      "inputs": [
+        "ReLU114_Output_0"
+      ],
+      "macs": 0,
+      "mapping_class": "rvv_elementwise",
+      "mapping_rule_version": "axissim.mapping.v1",
+      "op_type": "MaxPool",
+      "ops_per_element": 1,
+      "outputs": [
+        "Pooling160_Output_0"
+      ],
+      "vector_elements": 256,
+      "weight_bytes": 0
+    },
+    {
+      "activation_read_bytes": 1024,
+      "activation_write_bytes": 1024,
+      "dependencies": [
+        "Pooling160"
+      ],
+      "id": "Times212_reshape0",
+      "inputs": [
+        "Pooling160_Output_0",
+        "Pooling160_Output_0_reshape0_shape"
+      ],
+      "macs": 0,
+      "mapping_class": "rvv_elementwise",
+      "mapping_rule_version": "axissim.mapping.v1",
+      "op_type": "Reshape",
+      "ops_per_element": 1,
+      "outputs": [
+        "Pooling160_Output_0_reshape0"
+      ],
+      "vector_elements": 256,
+      "weight_bytes": 16
+    },
+    {
+      "activation_read_bytes": 0,
+      "activation_write_bytes": 10240,
+      "dependencies": [],
+      "id": "Times212_reshape1",
+      "inputs": [
+        "Parameter193",
+        "Parameter193_reshape1_shape"
+      ],
+      "macs": 0,
+      "mapping_class": "rvv_elementwise",
+      "mapping_rule_version": "axissim.mapping.v1",
+      "op_type": "Reshape",
+      "ops_per_element": 1,
+      "outputs": [
+        "Parameter193_reshape1"
+      ],
+      "vector_elements": 2560,
+      "weight_bytes": 10256
+    },
+    {
+      "activation_read_bytes": 11264,
+      "activation_write_bytes": 40,
+      "dependencies": [
+        "Times212_reshape0",
+        "Times212_reshape1"
+      ],
+      "id": "Times212",
+      "inputs": [
+        "Pooling160_Output_0_reshape0",
+        "Parameter193_reshape1"
+      ],
+      "macs": 2560,
+      "mapping_class": "npu_compute",
+      "mapping_rule_version": "axissim.mapping.v1",
+      "op_type": "MatMul",
+      "ops_per_element": 0,
+      "outputs": [
+        "Times212_Output_0"
+      ],
+      "vector_elements": 0,
+      "weight_bytes": 0
+    },
+    {
+      "activation_read_bytes": 40,
+      "activation_write_bytes": 40,
+      "dependencies": [
+        "Times212"
+      ],
+      "id": "Plus214",
+      "inputs": [
+        "Times212_Output_0",
+        "Parameter194"
+      ],
+      "macs": 0,
+      "mapping_class": "rvv_elementwise",
+      "mapping_rule_version": "axissim.mapping.v1",
+      "op_type": "Add",
+      "ops_per_element": 1,
+      "outputs": [
+        "Plus214_Output_0"
+      ],
+      "vector_elements": 10,
+      "weight_bytes": 40
+    }
+  ],
+  "schema_version": "axissim.workload-profile.v1",
+  "scope": "Static ONNX operation and tensor-traffic characterization; not a measured runtime, compiler mapping, or silicon-power validation.",
+  "source": {
+    "extractor_version": "1",
+    "license": "MIT",
+    "model_name": "MNIST-12",
+    "model_sha256": "5c688690f8bacf667d4c2074af5ad0646ca328d7ab03eccf944a65b320171bdd",
+    "opset": 12,
+    "source_url": "https://github.com/onnx/models/raw/main/validated/vision/classification/mnist/model/mnist-12.onnx",
+    "static_input_shapes": {
+      "Input3": [
+        1,
+        1,
+        28,
+        28
+      ]
+    }
+  }
+}

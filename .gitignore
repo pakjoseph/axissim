@@ -5,3 +5,5 @@ experiments/*.json
 experiments/figures/
 .DS_Store
 __pycache__/
+.agents/
+.impeccable/

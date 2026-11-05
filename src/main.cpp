@@ -13,6 +13,7 @@
 #include <numeric>
 #include <optional>
 #include <queue>
+#include <regex>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -85,7 +86,7 @@ template <typename T>
 
 [[nodiscard]] const std::set<std::string>& supported_keys() {
   static const std::set<std::string> keys = {
-      "scenario_name", "model_version", "workload_mode", "scheduler_policy", "frames", "frame_period_us", "deadline_us", "dram_bandwidth_gbps", "dma_setup_us", "control_period_us", "control_deadline_us", "control_ops",
+      "scenario_name", "model_version", "workload_mode", "workload_profile", "scheduler_policy", "frame_arrival_mode", "frame_arrival_trace", "frame_arrival_provenance", "frames", "frame_period_us", "deadline_us", "dram_bandwidth_gbps", "dma_setup_us", "control_period_us", "control_deadline_us", "control_ops",
       "rvv_vlen_bits", "rvv_sew_bits", "rvv_lmul", "rvv_lanes", "rvv_ops_per_lane_cycle", "rvv_frequency_ghz", "rvv_stripmine_overhead_cycles", "rvv_timing_model", "rvv_affine_overhead_cycles", "rvv_compute_cycle_scale", "rvv_chunk_elements", "rvv_memory_accounting", "rvv_memory_bytes_per_element",
       "npu_macs", "npu_frequency_ghz", "input_bytes", "preprocess_elements", "preprocess_ops_per_element", "preprocess_output_bytes",
       "gemm_m", "gemm_n", "gemm_k", "npu_tile_m", "npu_tile_n", "npu_tile_k",
@@ -106,7 +107,11 @@ template <typename T>
   if (values.contains("scenario_name")) c.scenario_name = values.at("scenario_name");
   if (values.contains("model_version")) c.model_version = values.at("model_version");
   if (values.contains("workload_mode")) c.workload_mode = values.at("workload_mode");
+  if (values.contains("workload_profile")) c.workload_profile = (std::filesystem::path(path).parent_path() / values.at("workload_profile")).lexically_normal().string();
   if (values.contains("scheduler_policy")) c.scheduler_policy = values.at("scheduler_policy");
+  if (values.contains("frame_arrival_mode")) c.frame_arrival_mode = values.at("frame_arrival_mode");
+  if (values.contains("frame_arrival_trace")) c.frame_arrival_trace = (std::filesystem::path(path).parent_path() / values.at("frame_arrival_trace")).lexically_normal().string();
+  if (values.contains("frame_arrival_provenance")) c.frame_arrival_provenance = (std::filesystem::path(path).parent_path() / values.at("frame_arrival_provenance")).lexically_normal().string();
   if (values.contains("rvv_timing_model")) c.rvv_timing_model = values.at("rvv_timing_model");
   if (values.contains("rvv_memory_accounting")) c.rvv_memory_accounting = values.at("rvv_memory_accounting");
 #define AXISSIM_LOAD(field) c.field = parse_number(values, #field, c.field)
@@ -129,9 +134,16 @@ template <typename T>
   return c;
 }
 
+[[nodiscard]] std::vector<double> load_frame_arrivals(const Config& config);
+
 void validate(const Config& c) {
   if (c.frames < 1 || c.frame_period_us <= 0 || c.deadline_us <= 0) throw std::runtime_error("Frame configuration must be positive");
-  if (c.workload_mode != "physical_ai" && c.workload_mode != "rvv_stream") throw std::runtime_error("workload_mode must be physical_ai or rvv_stream");
+  if (c.workload_mode != "physical_ai" && c.workload_mode != "rvv_stream" && c.workload_mode != "profiled_graph") throw std::runtime_error("workload_mode must be physical_ai, rvv_stream, or profiled_graph");
+  if (c.workload_mode == "profiled_graph" && c.workload_profile.empty()) throw std::runtime_error("profiled_graph workloads require workload_profile");
+  if (c.workload_mode != "profiled_graph" && !c.workload_profile.empty()) throw std::runtime_error("workload_profile is only valid with workload_mode=profiled_graph");
+  if (c.frame_arrival_mode != "periodic" && c.frame_arrival_mode != "trace") throw std::runtime_error("frame_arrival_mode must be periodic or trace");
+  if (c.frame_arrival_mode == "periodic" && (!c.frame_arrival_trace.empty() || !c.frame_arrival_provenance.empty())) throw std::runtime_error("Periodic arrivals must not specify trace or provenance files");
+  if (c.frame_arrival_mode == "trace" && (c.frame_arrival_trace.empty() || c.frame_arrival_provenance.empty())) throw std::runtime_error("Trace arrivals require frame_arrival_trace and frame_arrival_provenance");
   if (c.rvv_timing_model != "compute_envelope" && c.rvv_timing_model != "affine_overhead") throw std::runtime_error("rvv_timing_model must be compute_envelope or affine_overhead");
   if (c.rvv_memory_accounting != "pipeline_dma" && c.rvv_memory_accounting != "extra_traffic") throw std::runtime_error("rvv_memory_accounting must be pipeline_dma or extra_traffic");
   if (c.scheduler_policy != "fcfs" && c.scheduler_policy != "fixed_priority" && c.scheduler_policy != "edf") throw std::runtime_error("scheduler_policy must be fcfs, fixed_priority, or edf");
@@ -150,6 +162,190 @@ void validate(const Config& c) {
   if (c.vector_op_pj < 0 || c.npu_mac_pj < 0 || c.npu_arithmetic_energy_scale <= 0 || c.arithmetic_voltage_ratio <= 0 || c.dram_byte_pj < 0 || c.dma_byte_pj < 0) throw std::runtime_error("Energy values must be non-negative (scale and voltage ratio must be positive)");
   if (c.static_power_w < 0 || c.npu_static_power_per_mac_w < 0 || c.rvv_static_power_per_lane_w < 0 || c.sram_static_power_per_kib_w < 0 || c.dram_interface_static_power_w < 0 || c.it_power_budget_w < 0 || c.pue < 1.0 || c.electricity_cost_per_kwh < 0 || c.deployment_xpu_count < 1 || c.deployment_hours < 0) throw std::runtime_error("Power and deployment parameters are invalid");
   if (c.base_area_mm2 < 0 || c.npu_area_per_mac_mm2 < 0 || c.rvv_area_per_lane_mm2 < 0 || c.sram_area_per_kib_mm2 < 0 || c.max_area_mm2 < 0 || c.thermal_resistance_c_per_w < 0 || c.thermal_capacitance_j_per_c < 0 || c.reliability_fit_rate < 0 || c.reliability_voltage_fit_multiplier <= 0) throw std::runtime_error("Area, thermal, and reliability proxy parameters are invalid");
+  if (c.frame_arrival_mode == "trace") (void)load_frame_arrivals(c);
+}
+
+[[nodiscard]] std::vector<double> load_frame_arrivals(const Config& config) {
+  std::vector<double> releases;
+  releases.reserve(static_cast<std::size_t>(config.frames));
+  if (config.frame_arrival_mode == "periodic") {
+    for (int frame = 0; frame < config.frames; ++frame) releases.push_back(frame * config.frame_period_us);
+    return releases;
+  }
+
+  std::ifstream provenance(config.frame_arrival_provenance);
+  if (!provenance) throw std::runtime_error("Unable to open frame-arrival provenance: " + config.frame_arrival_provenance);
+  if (provenance.peek() == std::ifstream::traits_type::eof()) throw std::runtime_error("Frame-arrival provenance must not be empty");
+  std::ifstream input(config.frame_arrival_trace);
+  if (!input) throw std::runtime_error("Unable to open frame-arrival trace: " + config.frame_arrival_trace);
+  std::string header;
+  if (!std::getline(input, header) || trim(header) != "frame,release_us") {
+    throw std::runtime_error("Frame-arrival trace header must be exactly: frame,release_us");
+  }
+  std::string line;
+  int expected_frame = 0;
+  double previous_release = -1.0;
+  while (std::getline(input, line)) {
+    if (trim(line).empty() || trim(line).starts_with('#')) continue;
+    const auto comma = line.find(',');
+    if (comma == std::string::npos || line.find(',', comma + 1) != std::string::npos) {
+      throw std::runtime_error("Frame-arrival trace rows must contain frame,release_us");
+    }
+    int frame = -1;
+    double release = -1.0;
+    try {
+      const std::string frame_text = trim(line.substr(0, comma));
+      const std::string release_text = trim(line.substr(comma + 1));
+      std::size_t frame_consumed = 0;
+      std::size_t release_consumed = 0;
+      frame = std::stoi(frame_text, &frame_consumed);
+      release = std::stod(release_text, &release_consumed);
+      if (frame_consumed != frame_text.size() || release_consumed != release_text.size()) throw std::invalid_argument("trailing data");
+    } catch (const std::exception&) {
+      throw std::runtime_error("Invalid frame-arrival trace row: " + line);
+    }
+    if (frame != expected_frame) throw std::runtime_error("Frame-arrival trace must contain exactly one ordered row for every frame");
+    if (!std::isfinite(release) || release < 0.0 || release < previous_release) {
+      throw std::runtime_error("Frame-arrival release times must be finite, nonnegative, and monotonic");
+    }
+    releases.push_back(release);
+    previous_release = release;
+    ++expected_frame;
+  }
+  if (expected_frame != config.frames) throw std::runtime_error("Frame-arrival trace row count must equal configured frames");
+  return releases;
+}
+
+struct ProfileOperator {
+  std::string id;
+  std::string mapping_class;
+  std::vector<std::string> dependencies;
+  std::uint64_t macs = 0;
+  std::uint64_t vector_elements = 0;
+  int ops_per_element = 0;
+  std::uint64_t transfer_bytes = 0;
+};
+
+struct WorkloadProfile {
+  std::string source_url;
+  std::string license;
+  std::string sha256;
+  std::vector<ProfileOperator> operators;
+};
+
+[[nodiscard]] std::optional<std::string> json_string_field(const std::string& object, const std::string& key) {
+  const std::regex expression("\\\"" + key + "\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"");
+  std::smatch match;
+  if (!std::regex_search(object, match, expression)) return std::nullopt;
+  return match[1].str();
+}
+
+[[nodiscard]] std::optional<std::uint64_t> json_unsigned_field(const std::string& object, const std::string& key) {
+  const std::regex expression("\\\"" + key + "\\\"\\s*:\\s*([0-9]+)");
+  std::smatch match;
+  if (!std::regex_search(object, match, expression)) return std::nullopt;
+  try {
+    return static_cast<std::uint64_t>(std::stoull(match[1].str()));
+  } catch (const std::exception&) {
+    throw std::runtime_error("Invalid unsigned JSON field: " + key);
+  }
+}
+
+[[nodiscard]] std::vector<std::string> json_string_array_field(const std::string& object, const std::string& key) {
+  const std::regex expression("\\\"" + key + "\\\"\\s*:\\s*\\[([^\\]]*)\\]");
+  std::smatch match;
+  if (!std::regex_search(object, match, expression)) throw std::runtime_error("Profile operator missing array field: " + key);
+  const std::string contents = trim(match[1].str());
+  if (contents.empty()) return {};
+  std::vector<std::string> values;
+  const std::regex item("\\\"([^\\\"]+)\\\"");
+  for (std::sregex_iterator iterator(contents.begin(), contents.end(), item), end; iterator != end; ++iterator) values.push_back((*iterator)[1].str());
+  if (values.empty()) throw std::runtime_error("Profile array field has invalid JSON strings: " + key);
+  return values;
+}
+
+[[nodiscard]] std::vector<std::string> json_array_objects(const std::string& json, const std::string& key) {
+  const std::string marker = "\"" + key + "\"";
+  const auto key_position = json.find(marker);
+  if (key_position == std::string::npos) throw std::runtime_error("Profile is missing array: " + key);
+  const auto array_start = json.find('[', key_position + marker.size());
+  if (array_start == std::string::npos) throw std::runtime_error("Profile array is malformed: " + key);
+  std::vector<std::string> objects;
+  int array_depth = 0;
+  int object_depth = 0;
+  std::size_t object_start = std::string::npos;
+  for (std::size_t index = array_start; index < json.size(); ++index) {
+    const char character = json[index];
+    if (character == '[') ++array_depth;
+    if (character == ']') {
+      --array_depth;
+      if (array_depth == 0) break;
+    }
+    if (array_depth <= 0) continue;
+    if (character == '{') {
+      if (object_depth++ == 0) object_start = index;
+    } else if (character == '}') {
+      if (--object_depth < 0) throw std::runtime_error("Profile object nesting is malformed");
+      if (object_depth == 0 && object_start != std::string::npos) objects.push_back(json.substr(object_start, index - object_start + 1));
+    }
+  }
+  if (array_depth != 0 || object_depth != 0 || objects.empty()) throw std::runtime_error("Profile operators array is malformed or empty");
+  return objects;
+}
+
+[[nodiscard]] WorkloadProfile load_workload_profile(const std::string& path) {
+  std::ifstream input(path);
+  if (!input) throw std::runtime_error("Unable to open workload profile: " + path);
+  const std::string json((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+  if (json_string_field(json, "schema_version") != std::optional<std::string>("axissim.workload-profile.v1")) {
+    throw std::runtime_error("Unsupported workload-profile schema; expected axissim.workload-profile.v1");
+  }
+  WorkloadProfile profile;
+  profile.source_url = json_string_field(json, "source_url").value_or("");
+  profile.license = json_string_field(json, "license").value_or("");
+  profile.sha256 = json_string_field(json, "model_sha256").value_or("");
+  if (profile.source_url.empty() || profile.license.empty() || profile.sha256.size() != 64) {
+    throw std::runtime_error("Workload profile source URL, license, and 64-character SHA-256 are required");
+  }
+  const auto objects = json_array_objects(json, "operators");
+  std::set<std::string> ids;
+  for (const auto& object : objects) {
+    ProfileOperator operation;
+    operation.id = json_string_field(object, "id").value_or("");
+    operation.mapping_class = json_string_field(object, "mapping_class").value_or("");
+    operation.dependencies = json_string_array_field(object, "dependencies");
+    operation.macs = json_unsigned_field(object, "macs").value_or(0);
+    operation.vector_elements = json_unsigned_field(object, "vector_elements").value_or(0);
+    operation.ops_per_element = static_cast<int>(json_unsigned_field(object, "ops_per_element").value_or(0));
+    const auto activation_read = json_unsigned_field(object, "activation_read_bytes").value_or(0);
+    const auto activation_write = json_unsigned_field(object, "activation_write_bytes").value_or(0);
+    const auto weights = json_unsigned_field(object, "weight_bytes").value_or(0);
+    operation.transfer_bytes = activation_read + activation_write + weights;
+    if (operation.id.empty() || !ids.insert(operation.id).second) throw std::runtime_error("Profile operator IDs must be non-empty and unique");
+    if (operation.mapping_class == "npu_compute" && operation.macs == 0) throw std::runtime_error("NPU profile operator requires positive MAC count: " + operation.id);
+    if (operation.mapping_class == "rvv_elementwise" && (operation.vector_elements == 0 || operation.ops_per_element <= 0)) throw std::runtime_error("RVV profile operator requires positive vector geometry: " + operation.id);
+    if (operation.mapping_class != "npu_compute" && operation.mapping_class != "rvv_elementwise") throw std::runtime_error("Unsupported profile mapping class: " + operation.mapping_class);
+    profile.operators.push_back(std::move(operation));
+  }
+  std::map<std::string, int> indegree;
+  std::map<std::string, std::vector<std::string>> successors;
+  for (const auto& operation : profile.operators) indegree.emplace(operation.id, 0);
+  for (const auto& operation : profile.operators) {
+    for (const auto& dependency : operation.dependencies) {
+      if (!ids.contains(dependency)) throw std::runtime_error("Profile dependency does not name an operator: " + dependency);
+      ++indegree.at(operation.id);
+      successors[dependency].push_back(operation.id);
+    }
+  }
+  std::queue<std::string> ready;
+  for (const auto& [id, count] : indegree) if (count == 0) ready.push(id);
+  int visited = 0;
+  while (!ready.empty()) {
+    const auto id = ready.front(); ready.pop(); ++visited;
+    for (const auto& successor : successors[id]) if (--indegree.at(successor) == 0) ready.push(successor);
+  }
+  if (visited != static_cast<int>(profile.operators.size())) throw std::runtime_error("Workload profile dependency graph contains a cycle");
+  return profile;
 }
 
 struct TraceEvent { int frame; std::string task; std::string resource; double start_us; double end_us; };
@@ -159,7 +355,13 @@ class Simulator {
   explicit Simulator(Config config) : c_(std::move(config)) {}
 
   void run() {
-    run_event_scheduler();
+    frame_arrivals_us_ = load_frame_arrivals(c_);
+    if (c_.workload_mode == "profiled_graph") {
+      profile_ = load_workload_profile(c_.workload_profile);
+      run_profile_scheduler();
+    } else {
+      run_event_scheduler();
+    }
   }
 
   [[nodiscard]] const std::vector<TraceEvent>& trace() const { return trace_; }
@@ -167,6 +369,19 @@ class Simulator {
   [[nodiscard]] int deadline_misses() const { return deadline_misses_; }
   [[nodiscard]] int control_tasks() const { return control_tasks_; }
   [[nodiscard]] int control_deadline_misses() const { return control_deadline_misses_; }
+  [[nodiscard]] const std::vector<double>& vision_start_delays_us() const { return vision_start_delays_us_; }
+  [[nodiscard]] const std::vector<double>& vision_resource_queue_delays_us() const { return vision_resource_queue_delays_us_; }
+  [[nodiscard]] const std::vector<double>& vision_completion_times_us() const { return vision_completion_times_us_; }
+  [[nodiscard]] const std::vector<double>& control_response_times_us() const { return control_response_times_us_; }
+  [[nodiscard]] int max_pending_tasks() const { return max_pending_tasks_; }
+  [[nodiscard]] double profile_vector_ops_per_frame() const {
+    return std::accumulate(profile_.operators.cbegin(), profile_.operators.cend(), 0.0,
+                           [](double total, const ProfileOperator& operation) { return total + static_cast<double>(operation.vector_elements) * operation.ops_per_element; });
+  }
+  [[nodiscard]] double profile_npu_macs_per_frame() const {
+    return std::accumulate(profile_.operators.cbegin(), profile_.operators.cend(), 0.0,
+                           [](double total, const ProfileOperator& operation) { return total + static_cast<double>(operation.macs); });
+  }
   [[nodiscard]] double total_energy_pj() const { return total_energy_pj_; }
   [[nodiscard]] double vector_energy_pj() const { return vector_energy_pj_; }
   [[nodiscard]] double npu_arithmetic_energy_pj() const { return npu_arithmetic_energy_pj_; }
@@ -261,7 +476,7 @@ class Simulator {
 
  private:
   enum class RuntimeResource : std::size_t { Dma = 0, Rvv = 1, Npu = 2 };
-  enum class RuntimeStage : int { Camera = 0, PreRead, Preprocess, PreWrite, NpuData, NpuCompute, PostRead, Postprocess, Control, VectorKernel };
+  enum class RuntimeStage : int { Camera = 0, PreRead, Preprocess, PreWrite, NpuData, NpuCompute, PostRead, Postprocess, Control, VectorKernel, ProfileTransfer, ProfileCompute };
 
   struct RuntimeTask {
     int frame = 0;
@@ -277,6 +492,7 @@ class Simulator {
     std::uint64_t vector_elements = 0;
     int priority = 1;
     std::string name;
+    int profile_index = -1;
   };
 
   struct FutureTaskOrder {
@@ -333,12 +549,139 @@ class Simulator {
         task = {frame, stage, RuntimeResource::Rvv, release_us, ready_us, vector_duration_us(elements, c_.preprocess_ops_per_element), static_cast<double>(elements) * c_.preprocess_ops_per_element * c_.vector_op_pj, 0.0, vector_transfer_bytes(elements), vector_offset, elements, 1, "rvv_stream_kernel"};
         break;
       }
+      case RuntimeStage::ProfileTransfer:
+      case RuntimeStage::ProfileCompute: throw std::runtime_error("Profile tasks are constructed by the profile scheduler");
     }
     return task;
   }
 
   [[nodiscard]] double transfer_duration_us(std::uint64_t bytes) const {
     return c_.dma_setup_us + static_cast<double>(bytes) / c_.dram_bandwidth_gbps / 1000.0;
+  }
+
+  void run_profile_scheduler() {
+    const auto& operations = profile_.operators;
+    std::map<std::string, int> index_for_id;
+    std::vector<std::vector<int>> successors(operations.size());
+    std::vector<int> base_dependencies(operations.size(), 0);
+    for (std::size_t index = 0; index < operations.size(); ++index) index_for_id.emplace(operations[index].id, static_cast<int>(index));
+    for (std::size_t index = 0; index < operations.size(); ++index) {
+      base_dependencies[index] = static_cast<int>(operations[index].dependencies.size());
+      for (const auto& dependency : operations[index].dependencies) successors[static_cast<std::size_t>(index_for_id.at(dependency))].push_back(static_cast<int>(index));
+    }
+    std::vector<int> roots;
+    int terminals_per_frame = 0;
+    for (std::size_t index = 0; index < operations.size(); ++index) {
+      if (base_dependencies[index] == 0) roots.push_back(static_cast<int>(index));
+      if (successors[index].empty()) ++terminals_per_frame;
+    }
+    std::priority_queue<RuntimeTask, std::vector<RuntimeTask>, FutureTaskOrder> future;
+    std::priority_queue<Completion, std::vector<Completion>, CompletionOrder> completions;
+    std::array<std::vector<RuntimeTask>, 3> pending;
+    std::array<bool, 3> busy = {false, false, false};
+    std::vector<std::vector<int>> remaining(static_cast<std::size_t>(c_.frames), base_dependencies);
+    std::vector<int> remaining_terminals(static_cast<std::size_t>(c_.frames), terminals_per_frame);
+    std::vector<double> terminal_end(static_cast<std::size_t>(c_.frames), 0.0);
+
+    const auto make_profile_task = [this, &operations](int frame, int profile_index, bool transfer, double release, double ready) {
+      const auto& operation = operations[static_cast<std::size_t>(profile_index)];
+      RuntimeTask task;
+      task.frame = frame;
+      task.stage = transfer ? RuntimeStage::ProfileTransfer : RuntimeStage::ProfileCompute;
+      task.release_us = release;
+      task.ready_us = ready;
+      task.profile_index = profile_index;
+      if (transfer) {
+        task.resource = RuntimeResource::Dma;
+        task.duration_us = transfer_duration_us(operation.transfer_bytes);
+        task.transfer_bytes = operation.transfer_bytes;
+        task.name = "profile_dma:" + operation.id;
+      } else if (operation.mapping_class == "npu_compute") {
+        task.resource = RuntimeResource::Npu;
+        task.duration_us = std::ceil(static_cast<double>(operation.macs) / c_.npu_macs) / (c_.npu_frequency_ghz * 1000.0);
+        task.npu_energy_pj = static_cast<double>(operation.macs) * c_.npu_mac_pj * c_.npu_arithmetic_energy_scale * c_.arithmetic_voltage_ratio * c_.arithmetic_voltage_ratio;
+        task.name = "profile_npu:" + operation.id;
+      } else {
+        task.resource = RuntimeResource::Rvv;
+        task.duration_us = vector_duration_us(operation.vector_elements, operation.ops_per_element);
+        task.vector_energy_pj = static_cast<double>(operation.vector_elements) * operation.ops_per_element * c_.vector_op_pj;
+        task.name = "profile_rvv:" + operation.id;
+      }
+      return task;
+    };
+    const auto enqueue_operation = [&future, &make_profile_task, &operations](int frame, int operation, double release, double ready) {
+      future.push(make_profile_task(frame, operation, operations[static_cast<std::size_t>(operation)].transfer_bytes > 0, release, ready));
+    };
+    for (int frame = 0; frame < c_.frames; ++frame) {
+      const double release = frame_arrivals_us_[static_cast<std::size_t>(frame)];
+      for (const int root : roots) enqueue_operation(frame, root, release, release);
+    }
+    if (c_.control_period_us > 0.0) {
+      const double horizon_us = frame_arrivals_us_.back() + c_.frame_period_us;
+      for (double release = 0.0; release < horizon_us; release += c_.control_period_us) future.push(make_runtime_task(-1, RuntimeStage::Control, release, release));
+    }
+    const auto resource_name = [](RuntimeResource resource) { return resource == RuntimeResource::Dma ? "DMA+DRAM" : resource == RuntimeResource::Rvv ? "RVV" : "NPU"; };
+    double time = 0.0;
+    while (!future.empty() || !completions.empty()) {
+      const double next_future = future.empty() ? std::numeric_limits<double>::infinity() : future.top().ready_us;
+      const double next_completion = completions.empty() ? std::numeric_limits<double>::infinity() : completions.top().end_us;
+      time = std::min(next_future, next_completion);
+      while (!future.empty() && future.top().ready_us <= time) { RuntimeTask task = future.top(); future.pop(); pending[static_cast<std::size_t>(task.resource)].push_back(std::move(task)); }
+      int pending_count = 0;
+      for (const auto& queue : pending) pending_count += static_cast<int>(queue.size());
+      max_pending_tasks_ = std::max(max_pending_tasks_, pending_count);
+      while (!completions.empty() && completions.top().end_us <= time) {
+        Completion completion = completions.top(); completions.pop();
+        busy[static_cast<std::size_t>(completion.resource)] = false;
+        const RuntimeTask& task = completion.task;
+        if (task.stage == RuntimeStage::ProfileTransfer) {
+          future.push(make_profile_task(task.frame, task.profile_index, false, task.release_us, completion.end_us));
+        } else if (task.stage == RuntimeStage::ProfileCompute) {
+          const auto operation = static_cast<std::size_t>(task.profile_index);
+          for (const int successor : successors[operation]) {
+            if (--remaining[static_cast<std::size_t>(task.frame)][static_cast<std::size_t>(successor)] == 0) {
+              enqueue_operation(task.frame, successor, task.release_us, completion.end_us);
+            }
+          }
+          if (successors[operation].empty()) {
+            auto& end = terminal_end[static_cast<std::size_t>(task.frame)];
+            end = std::max(end, completion.end_us);
+            if (--remaining_terminals[static_cast<std::size_t>(task.frame)] == 0) {
+              const double latency = end - task.release_us;
+              latencies_us_.push_back(latency);
+              vision_completion_times_us_.push_back(end);
+              if (latency > c_.deadline_us) ++deadline_misses_;
+            }
+          }
+        } else if (task.stage == RuntimeStage::Control) {
+          ++control_tasks_;
+          const double response = completion.end_us - task.release_us;
+          control_response_times_us_.push_back(response);
+          if (response > c_.control_deadline_us) ++control_deadline_misses_;
+        }
+      }
+      for (std::size_t index = 0; index < pending.size(); ++index) {
+        if (busy[index] || pending[index].empty()) continue;
+        auto& queue = pending[index];
+        const auto selected = std::min_element(queue.begin(), queue.end(), [this](const RuntimeTask& left, const RuntimeTask& right) {
+          if (c_.scheduler_policy == "fixed_priority" && left.priority != right.priority) return left.priority < right.priority;
+          if (c_.scheduler_policy == "edf") {
+            const double left_deadline = left.release_us + (left.stage == RuntimeStage::Control ? c_.control_deadline_us : c_.deadline_us);
+            const double right_deadline = right.release_us + (right.stage == RuntimeStage::Control ? c_.control_deadline_us : c_.deadline_us);
+            if (left_deadline != right_deadline) return left_deadline < right_deadline;
+          }
+          return left.ready_us < right.ready_us;
+        });
+        RuntimeTask task = *selected; queue.erase(selected); busy[index] = true;
+        if (task.frame >= 0) vision_resource_queue_delays_us_.push_back(time - task.ready_us);
+        trace_.push_back({task.frame, task.name, resource_name(task.resource), time, time + task.duration_us});
+        vector_energy_pj_ += task.vector_energy_pj;
+        npu_arithmetic_energy_pj_ += task.npu_energy_pj;
+        if (task.transfer_bytes > 0) { total_dram_bytes_ += task.transfer_bytes; dram_energy_pj_ += static_cast<double>(task.transfer_bytes) * c_.dram_byte_pj; dma_energy_pj_ += static_cast<double>(task.transfer_bytes) * c_.dma_byte_pj; }
+        total_energy_pj_ += task.vector_energy_pj + task.npu_energy_pj + static_cast<double>(task.transfer_bytes) * (c_.dram_byte_pj + c_.dma_byte_pj);
+        completions.push({time + task.duration_us, task.resource, std::move(task)});
+      }
+    }
   }
 
   void run_event_scheduler() {
@@ -348,12 +691,12 @@ class Simulator {
     std::array<bool, 3> busy = {false, false, false};
     const auto initial_stage = c_.workload_mode == "rvv_stream" ? RuntimeStage::VectorKernel : RuntimeStage::Camera;
     if (c_.dma_double_buffering == 1) {
-      for (int frame = 0; frame < c_.frames; ++frame) future.push(make_runtime_task(frame, initial_stage, frame * c_.frame_period_us, frame * c_.frame_period_us));
+      for (int frame = 0; frame < c_.frames; ++frame) future.push(make_runtime_task(frame, initial_stage, frame_arrivals_us_[static_cast<std::size_t>(frame)], frame_arrivals_us_[static_cast<std::size_t>(frame)]));
     } else {
       future.push(make_runtime_task(0, initial_stage, 0.0, 0.0));
     }
     if (c_.control_period_us > 0.0) {
-      const double horizon_us = c_.frames * c_.frame_period_us;
+      const double horizon_us = frame_arrivals_us_.back() + c_.frame_period_us;
       for (double release = 0.0; release < horizon_us; release += c_.control_period_us) future.push(make_runtime_task(-1, RuntimeStage::Control, release, release));
     }
     auto resource_name = [](RuntimeResource resource) { return resource == RuntimeResource::Dma ? "DMA+DRAM" : resource == RuntimeResource::Rvv ? "RVV" : "NPU"; };
@@ -366,6 +709,9 @@ class Simulator {
         RuntimeTask task = future.top(); future.pop();
         pending[static_cast<std::size_t>(task.resource)].push_back(std::move(task));
       }
+      int pending_count = 0;
+      for (const auto& queue : pending) pending_count += static_cast<int>(queue.size());
+      max_pending_tasks_ = std::max(max_pending_tasks_, pending_count);
       while (!completions.empty() && completions.top().end_us <= time) {
         Completion completion = completions.top(); completions.pop();
         busy[static_cast<std::size_t>(completion.resource)] = false;
@@ -376,14 +722,17 @@ class Simulator {
         } else if (task.stage == RuntimeStage::Postprocess || task.stage == RuntimeStage::VectorKernel) {
           const double latency = completion.end_us - task.release_us;
           latencies_us_.push_back(latency);
+          vision_completion_times_us_.push_back(completion.end_us);
           if (latency > c_.deadline_us) ++deadline_misses_;
           if (c_.dma_double_buffering == 0 && task.frame + 1 < c_.frames) {
-            const double next_release = (task.frame + 1) * c_.frame_period_us;
+            const double next_release = frame_arrivals_us_[static_cast<std::size_t>(task.frame + 1)];
             future.push(make_runtime_task(task.frame + 1, initial_stage, next_release, std::max(next_release, completion.end_us)));
           }
         } else if (task.stage == RuntimeStage::Control) {
           ++control_tasks_;
-          if (completion.end_us - task.release_us > c_.control_deadline_us) ++control_deadline_misses_;
+          const double response = completion.end_us - task.release_us;
+          control_response_times_us_.push_back(response);
+          if (response > c_.control_deadline_us) ++control_deadline_misses_;
         } else {
           future.push(make_runtime_task(task.frame, static_cast<RuntimeStage>(static_cast<int>(task.stage) + 1), task.release_us, completion.end_us));
         }
@@ -403,6 +752,10 @@ class Simulator {
         RuntimeTask task = *selected;
         queue.erase(selected);
         busy[index] = true;
+        if (task.frame >= 0) vision_resource_queue_delays_us_.push_back(time - task.ready_us);
+        if ((task.stage == RuntimeStage::Camera || task.stage == RuntimeStage::VectorKernel) && task.vector_offset == 0) {
+          vision_start_delays_us_.push_back(time - task.release_us);
+        }
         const double end = time + task.duration_us;
         trace_.push_back({task.frame, task.name, resource_name(task.resource), time, end});
         vector_energy_pj_ += task.vector_energy_pj;
@@ -431,11 +784,18 @@ class Simulator {
   }
 
   Config c_;
+  WorkloadProfile profile_;
+  std::vector<double> frame_arrivals_us_;
   std::vector<TraceEvent> trace_;
   std::vector<double> latencies_us_;
+  std::vector<double> vision_start_delays_us_;
+  std::vector<double> vision_resource_queue_delays_us_;
+  std::vector<double> vision_completion_times_us_;
+  std::vector<double> control_response_times_us_;
   int deadline_misses_ = 0;
   int control_tasks_ = 0;
   int control_deadline_misses_ = 0;
+  int max_pending_tasks_ = 0;
   double total_energy_pj_ = 0.0;
   double vector_energy_pj_ = 0.0;
   double npu_arithmetic_energy_pj_ = 0.0;
@@ -450,6 +810,15 @@ class Simulator {
   const auto low = static_cast<std::size_t>(std::floor(index));
   const auto high = static_cast<std::size_t>(std::ceil(index));
   return values[low] + (values[high] - values[low]) * (index - low);
+}
+
+[[nodiscard]] double max_output_interval_jitter_us(const std::vector<double>& completions, double nominal_period_us) {
+  if (completions.size() < 2) return 0.0;
+  double maximum = 0.0;
+  for (std::size_t index = 1; index < completions.size(); ++index) {
+    maximum = std::max(maximum, std::abs((completions[index] - completions[index - 1]) - nominal_period_us));
+  }
+  return maximum;
 }
 
 void write_trace_csv(const std::string& path, const std::vector<TraceEvent>& trace) {
@@ -503,18 +872,27 @@ void write_result_json(const std::string& path, const Simulator& simulator, cons
   const double tau_s = config.thermal_resistance_c_per_w * config.thermal_capacitance_j_per_c;
   const double end_temp_c = tau_s > 0 ? config.ambient_temp_c + (steady_temp_c - config.ambient_temp_c) * (1.0 - std::exp(-(simulator.makespan_us() / 1'000'000.0) / tau_s)) : steady_temp_c;
   const double expected_failures = config.reliability_fit_rate * config.reliability_voltage_fit_multiplier * config.deployment_xpu_count * config.deployment_hours / 1'000'000'000.0;
+  const auto& queue_delay = simulator.vision_resource_queue_delays_us();
+  const auto& control_response = simulator.control_response_times_us();
+  const double queue_delay_mean = queue_delay.empty() ? 0.0 : std::accumulate(queue_delay.begin(), queue_delay.end(), 0.0) / queue_delay.size();
+  const double queue_delay_max = queue_delay.empty() ? 0.0 : *std::max_element(queue_delay.begin(), queue_delay.end());
+  const double control_response_max = control_response.empty() ? 0.0 : *std::max_element(control_response.begin(), control_response.end());
   output << std::fixed << std::setprecision(6);
   output << "{\n"
-         << "  \"schema_version\": \"1.1\",\n"
+         << "  \"schema_version\": \"1.2\",\n"
          << "  \"scenario_name\": \"" << json_escape(config.scenario_name) << "\",\n"
          << "  \"model_version\": \"" << json_escape(config.model_version) << "\",\n"
          << "  \"workload_mode\": \"" << json_escape(config.workload_mode) << "\",\n"
          << "  \"scheduler_policy\": \"" << json_escape(config.scheduler_policy) << "\",\n"
+         << "  \"arrival_mode\": \"" << json_escape(config.frame_arrival_mode) << "\",\n"
          << "  \"assumptions\": {\"npu_arithmetic_energy_scale\": " << config.npu_arithmetic_energy_scale << ", \"arithmetic_voltage_ratio\": " << config.arithmetic_voltage_ratio << ", \"base_static_power_w\": " << config.static_power_w << ", \"npu_static_power_per_mac_w\": " << config.npu_static_power_per_mac_w << ", \"rvv_static_power_per_lane_w\": " << config.rvv_static_power_per_lane_w << ", \"sram_static_power_per_kib_w\": " << config.sram_static_power_per_kib_w << ", \"dram_interface_static_power_w\": " << config.dram_interface_static_power_w << ", \"pue\": " << config.pue << ", \"it_power_budget_w\": " << config.it_power_budget_w << "},\n"
          << "  \"timing\": {\"makespan_us\": " << simulator.makespan_us() << "},\n"
          << "  \"latency\": {\"mean_us\": " << mean << ", \"p99_us\": " << percentile(latency, 0.99) << "},\n"
          << "  \"deadlines\": {\"vision_misses\": " << simulator.deadline_misses() << ", \"vision_jobs\": " << latency.size()
          << ", \"control_misses\": " << simulator.control_deadline_misses() << ", \"control_jobs\": " << simulator.control_tasks() << "},\n"
+         << "  \"qos\": {\"vision_queue_delay_mean_us\": " << queue_delay_mean << ", \"vision_queue_delay_max_us\": " << queue_delay_max
+         << ", \"output_interval_jitter_max_us\": " << max_output_interval_jitter_us(simulator.vision_completion_times_us(), config.frame_period_us)
+         << ", \"control_response_max_us\": " << control_response_max << ", \"max_pending_tasks\": " << simulator.max_pending_tasks() << "},\n"
          << "  \"traffic\": {\"dram_bytes\": " << simulator.total_dram_bytes() << "},\n"
          << "  \"energy\": {\"per_frame_uj\": " << energy_per_frame_uj << ", \"static_per_frame_uj\": " << static_energy_pj / latency.size() / 1'000'000.0 << ", \"it_per_frame_uj\": " << it_energy_pj / latency.size() / 1'000'000.0 << ", \"facility_per_frame_uj\": " << config.pue * it_energy_pj / latency.size() / 1'000'000.0 << ", \"vector_pj\": " << simulator.vector_energy_pj()
          << ", \"npu_arithmetic_pj\": " << simulator.npu_arithmetic_energy_pj() << ", \"dram_pj\": " << simulator.dram_energy_pj()
@@ -541,10 +919,15 @@ void print_results(const Simulator& simulator, const Config& config) {
   const double tau_s = config.thermal_resistance_c_per_w * config.thermal_capacitance_j_per_c;
   const double end_temp_c = tau_s > 0 ? config.ambient_temp_c + (steady_temp_c - config.ambient_temp_c) * (1.0 - std::exp(-(simulator.makespan_us() / 1'000'000.0) / tau_s)) : steady_temp_c;
   const double expected_failures = config.reliability_fit_rate * config.reliability_voltage_fit_multiplier * config.deployment_xpu_count * config.deployment_hours / 1'000'000'000.0;
+  const auto& queue_delay = simulator.vision_resource_queue_delays_us();
+  const auto& control_response = simulator.control_response_times_us();
+  const double queue_delay_mean = queue_delay.empty() ? 0.0 : std::accumulate(queue_delay.begin(), queue_delay.end(), 0.0) / queue_delay.size();
+  const double queue_delay_max = queue_delay.empty() ? 0.0 : *std::max_element(queue_delay.begin(), queue_delay.end());
+  const double control_response_max = control_response.empty() ? 0.0 : *std::max_element(control_response.begin(), control_response.end());
   const auto per_frame_uj = [&latency](double energy_pj) { return energy_pj / latency.size() / 1'000'000.0; };
   const double makespan = simulator.makespan_us();
-  const double vector_ops_per_frame = static_cast<double>(config.preprocess_elements) * config.preprocess_ops_per_element + (config.workload_mode == "physical_ai" ? static_cast<double>(config.postprocess_elements) * config.postprocess_ops_per_element : 0.0);
-  const double npu_macs_per_frame = config.workload_mode == "physical_ai" ? static_cast<double>(config.gemm_m) * config.gemm_n * config.gemm_k : 0.0;
+  const double vector_ops_per_frame = config.workload_mode == "profiled_graph" ? simulator.profile_vector_ops_per_frame() : static_cast<double>(config.preprocess_elements) * config.preprocess_ops_per_element + (config.workload_mode == "physical_ai" ? static_cast<double>(config.postprocess_elements) * config.postprocess_ops_per_element : 0.0);
+  const double npu_macs_per_frame = config.workload_mode == "profiled_graph" ? simulator.profile_npu_macs_per_frame() : config.workload_mode == "physical_ai" ? static_cast<double>(config.gemm_m) * config.gemm_n * config.gemm_k : 0.0;
   const auto utilization = [&simulator, makespan](const std::string& resource) {
     return makespan > 0.0 ? 100.0 * simulator.resource_busy_us(resource) / makespan : 0.0;
   };
@@ -552,6 +935,7 @@ void print_results(const Simulator& simulator, const Config& config) {
   std::cout << "AxisSim results\n"
             << "  scenario / model:    " << config.scenario_name << " / " << config.model_version << "\n"
             << "  workload mode:        " << config.workload_mode << "\n"
+            << "  frame arrivals:       " << config.frame_arrival_mode << "\n"
             << "  RVV timing model:     " << config.rvv_timing_model << "\n"
             << "  RVV memory accounting:" << config.rvv_memory_accounting << "\n"
             << "  arithmetic voltage ratio: " << config.arithmetic_voltage_ratio << " (energy sensitivity only)\n"
@@ -567,12 +951,17 @@ void print_results(const Simulator& simulator, const Config& config) {
               << static_cast<double>(simulator.npu_steady_state_dram_bytes_per_frame()) / 1'000'000.0 << " MB\n"
               << "  persistent weights / double buffer: " << (config.npu_weights_resident == 1 ? "on" : "off") << " / "
               << (config.dma_double_buffering == 1 ? "on" : "off") << "\n";
-  } else {
+  } else if (config.workload_mode == "rvv_stream") {
     std::cout << "\n  stream scope:         RVV compute only (no DMA, cache, scalar, or NPU stages)\n";
+  } else {
+    std::cout << "\n  profile scope:        Static operation/traffic characterization; not measured runtime or compiler mapping\n";
   }
   std::cout << "  latency mean / P99:  " << mean << " / " << percentile(latency, 0.99) << " us\n"
             << "  latency min / max:   " << *std::min_element(latency.begin(), latency.end()) << " / " << *std::max_element(latency.begin(), latency.end()) << " us\n"
+            << "  vision queue delay mean / max: " << queue_delay_mean << " / " << queue_delay_max << " us\n"
+            << "  output interval jitter max: " << max_output_interval_jitter_us(simulator.vision_completion_times_us(), config.frame_period_us) << " us\n"
             << "  max concurrent tasks:" << simulator.max_concurrent_tasks() << "\n"
+            << "  max pending tasks:    " << simulator.max_pending_tasks() << "\n"
             << "  utilization DMA/RVV/NPU: " << utilization("DMA+DRAM") << "% / " << utilization("RVV") << "% / " << utilization("NPU") << "%\n"
             << "  deadline misses:     " << simulator.deadline_misses() << " / " << latency.size() << " (deadline " << config.deadline_us << " us)\n"
             << "  DRAM traffic:        " << static_cast<double>(simulator.total_dram_bytes()) / 1'000'000.0 << " MB\n"
@@ -590,7 +979,8 @@ void print_results(const Simulator& simulator, const Config& config) {
   if (config.reliability_fit_rate > 0 && config.deployment_hours > 0) std::cout << "  reliability proxy expected failures: " << expected_failures << " (assumption-driven FIT extrapolation)\n";
   if (simulator.control_tasks() > 0) {
     std::cout << "  control deadline misses: " << simulator.control_deadline_misses() << " / " << simulator.control_tasks()
-              << " (deadline " << config.control_deadline_us << " us)\n";
+              << " (deadline " << config.control_deadline_us << " us)\n"
+              << "  control response max: " << control_response_max << " us\n";
   }
 }
 
@@ -605,6 +995,187 @@ void print_results(const Simulator& simulator, const Config& config) {
   }
   if (result.empty()) throw std::runtime_error("Sweep requires at least one value");
   return result;
+}
+
+struct SensitivityRange {
+  std::string parameter;
+  double low = 0.0;
+  double nominal = 0.0;
+  double high = 0.0;
+  std::string unit;
+  std::string evidence_class;
+  std::string rationale;
+};
+
+struct AnalysisPoint {
+  std::string analysis;
+  std::string parameter;
+  std::string setting;
+  double mean_latency_us = 0.0;
+  double p99_latency_us = 0.0;
+  int deadline_misses = 0;
+  double it_energy_per_frame_uj = 0.0;
+  double average_it_power_w = 0.0;
+  double thermal_end_c = 0.0;
+  bool feasible = true;
+};
+
+[[nodiscard]] const std::set<std::string>& sensitivity_supported_keys() {
+  static const std::set<std::string> keys = {
+      "dram_bandwidth_gbps", "dma_setup_us", "rvv_frequency_ghz", "npu_frequency_ghz",
+      "vector_op_pj", "npu_mac_pj", "npu_arithmetic_energy_scale", "arithmetic_voltage_ratio",
+      "dram_byte_pj", "dma_byte_pj", "static_power_w", "npu_static_power_per_mac_w",
+      "rvv_static_power_per_lane_w", "sram_static_power_per_kib_w", "dram_interface_static_power_w",
+      "it_power_budget_w", "ambient_temp_c", "thermal_resistance_c_per_w", "thermal_capacitance_j_per_c",
+      "max_junction_temp_c", "reliability_fit_rate", "reliability_voltage_fit_multiplier"};
+  return keys;
+}
+
+[[nodiscard]] double strict_csv_double(const std::string& value, const std::string& field) {
+  std::size_t consumed = 0;
+  double result = 0.0;
+  try {
+    result = std::stod(value, &consumed);
+  } catch (const std::exception&) {
+    throw std::runtime_error("Invalid sensitivity " + field + ": " + value);
+  }
+  if (consumed != value.size() || !std::isfinite(result)) throw std::runtime_error("Invalid sensitivity " + field + ": " + value);
+  return result;
+}
+
+[[nodiscard]] std::vector<SensitivityRange> read_sensitivity_ranges(const std::string& path) {
+  std::ifstream input(path);
+  if (!input) throw std::runtime_error("Unable to open sensitivity ranges: " + path);
+  std::string header;
+  if (!std::getline(input, header) || trim(header) != "parameter,low,nominal,high,unit,evidence_class,rationale") {
+    throw std::runtime_error("Sensitivity ranges header must be exactly: parameter,low,nominal,high,unit,evidence_class,rationale");
+  }
+  std::vector<SensitivityRange> ranges;
+  std::set<std::string> seen;
+  std::string line;
+  while (std::getline(input, line)) {
+    if (trim(line).empty() || trim(line).starts_with('#')) continue;
+    const auto fields = split_csv_values(line);
+    if (fields.size() != 7) throw std::runtime_error("Sensitivity range rows must have seven comma-free fields");
+    SensitivityRange range;
+    range.parameter = fields[0];
+    range.low = strict_csv_double(fields[1], "low bound");
+    range.nominal = strict_csv_double(fields[2], "nominal value");
+    range.high = strict_csv_double(fields[3], "high bound");
+    range.unit = fields[4];
+    range.evidence_class = fields[5];
+    range.rationale = fields[6];
+    if (!sensitivity_supported_keys().contains(range.parameter)) throw std::runtime_error("Unsupported sensitivity parameter: " + range.parameter);
+    if (range.low > range.nominal || range.nominal > range.high) throw std::runtime_error("Sensitivity bounds must satisfy low <= nominal <= high for " + range.parameter);
+    if (range.unit.empty() || range.rationale.empty()) throw std::runtime_error("Sensitivity unit and rationale must be non-empty");
+    if (range.evidence_class != "assumed_sensitivity" && range.evidence_class != "published_reference" && range.evidence_class != "reproduced_reference") {
+      throw std::runtime_error("Sensitivity evidence_class must be assumed_sensitivity, published_reference, or reproduced_reference");
+    }
+    if (!seen.insert(range.parameter).second) throw std::runtime_error("Duplicate sensitivity parameter: " + range.parameter);
+    ranges.push_back(std::move(range));
+  }
+  if (ranges.empty()) throw std::runtime_error("Sensitivity ranges must contain at least one parameter");
+  if (ranges.size() > 4) throw std::runtime_error("Sensitivity analysis supports at most four parameters for bounded corner exploration");
+  return ranges;
+}
+
+[[nodiscard]] std::string format_setting(double value) {
+  std::ostringstream stream;
+  stream << std::setprecision(12) << value;
+  return stream.str();
+}
+
+[[nodiscard]] AnalysisPoint evaluate_analysis_point(const std::string& config_path, const std::map<std::string, std::string>& overrides,
+                                                     std::string analysis, std::string parameter, std::string setting) {
+  const Config config = load_config(config_path, overrides);
+  validate(config);
+  Simulator simulator(config);
+  simulator.run();
+  const auto& latency = simulator.latencies_us();
+  const double static_power_w = modeled_static_power_w(config);
+  const double static_energy_pj = static_power_w * simulator.makespan_us() * 1'000'000.0;
+  const double it_energy_pj = simulator.total_energy_pj() + static_energy_pj;
+  const double average_it_power_w = simulator.makespan_us() > 0 ? it_energy_pj / simulator.makespan_us() / 1'000'000.0 : 0.0;
+  const double steady_temp_c = config.ambient_temp_c + average_it_power_w * config.thermal_resistance_c_per_w;
+  const double tau_s = config.thermal_resistance_c_per_w * config.thermal_capacitance_j_per_c;
+  const double end_temp_c = tau_s > 0 ? config.ambient_temp_c + (steady_temp_c - config.ambient_temp_c) * (1.0 - std::exp(-(simulator.makespan_us() / 1'000'000.0) / tau_s)) : steady_temp_c;
+  const bool power_feasible = config.it_power_budget_w == 0.0 || average_it_power_w <= config.it_power_budget_w;
+  const bool area_feasible = config.max_area_mm2 == 0.0 || modeled_area_mm2(config) <= config.max_area_mm2;
+  const bool thermal_feasible = config.max_junction_temp_c == 0.0 || end_temp_c <= config.max_junction_temp_c;
+  return {std::move(analysis), std::move(parameter), std::move(setting),
+          std::accumulate(latency.begin(), latency.end(), 0.0) / latency.size(), percentile(latency, 0.99),
+          simulator.deadline_misses(), it_energy_pj / latency.size() / 1'000'000.0,
+          average_it_power_w, end_temp_c, power_feasible && area_feasible && thermal_feasible};
+}
+
+void write_analysis_csv(const std::vector<AnalysisPoint>& points, std::ostream& output) {
+  output << "analysis,parameter,setting,mean_latency_us,p99_latency_us,deadline_misses,it_energy_per_frame_uj,average_it_power_w,thermal_end_c,feasible\n";
+  output << std::fixed << std::setprecision(6);
+  for (const auto& point : points) {
+    output << point.analysis << ',' << point.parameter << ',' << point.setting << ',' << point.mean_latency_us << ',' << point.p99_latency_us << ','
+           << point.deadline_misses << ',' << point.it_energy_per_frame_uj << ',' << point.average_it_power_w << ',' << point.thermal_end_c << ','
+           << (point.feasible ? "true" : "false") << '\n';
+  }
+}
+
+void write_analysis_json(const std::vector<SensitivityRange>& ranges, const std::vector<AnalysisPoint>& points, std::ostream& output) {
+  const auto [min_latency, max_latency] = std::minmax_element(points.cbegin(), points.cend(), [](const AnalysisPoint& left, const AnalysisPoint& right) {
+    return left.mean_latency_us < right.mean_latency_us;
+  });
+  const auto [min_energy, max_energy] = std::minmax_element(points.cbegin(), points.cend(), [](const AnalysisPoint& left, const AnalysisPoint& right) {
+    return left.it_energy_per_frame_uj < right.it_energy_per_frame_uj;
+  });
+  const bool all_feasible = std::all_of(points.cbegin(), points.cend(), [](const AnalysisPoint& point) { return point.feasible && point.deadline_misses == 0; });
+  output << std::fixed << std::setprecision(6);
+  output << "{\n  \"schema_version\": \"axissim.sensitivity.v1\",\n"
+         << "  \"interpretation\": \"Declared sensitivity bounds, not statistical confidence intervals or measured silicon error bars.\",\n"
+         << "  \"decision_stability\": \"" << (all_feasible ? "robust within declared sensitivity bounds" : "conditional: feasibility or deadline outcome changes across declared sensitivity bounds") << "\",\n"
+         << "  \"ranges\": [\n";
+  for (std::size_t index = 0; index < ranges.size(); ++index) {
+    const auto& range = ranges[index];
+    output << "    {\"parameter\": \"" << json_escape(range.parameter) << "\", \"low\": " << range.low << ", \"nominal\": " << range.nominal
+           << ", \"high\": " << range.high << ", \"unit\": \"" << json_escape(range.unit) << "\", \"evidence_class\": \"" << json_escape(range.evidence_class)
+           << "\", \"rationale\": \"" << json_escape(range.rationale) << "\"}" << (index + 1 == ranges.size() ? "\n" : ",\n");
+  }
+  output << "  ],\n  \"summary\": {\"point_count\": " << points.size() << ", \"latency_min_us\": " << min_latency->mean_latency_us
+         << ", \"latency_max_us\": " << max_latency->mean_latency_us << ", \"energy_min_uj\": " << min_energy->it_energy_per_frame_uj
+         << ", \"energy_max_uj\": " << max_energy->it_energy_per_frame_uj << "}\n}\n";
+}
+
+void run_sensitivity_analysis(const std::string& config_path, const std::map<std::string, std::string>& base_overrides,
+                              const std::vector<SensitivityRange>& ranges, std::ostream* csv_output, std::ostream* json_output) {
+  std::vector<AnalysisPoint> points;
+  for (const auto& range : ranges) {
+    for (const auto& [name, value] : std::array<std::pair<const char*, double>, 3>{{{"low", range.low}, {"nominal", range.nominal}, {"high", range.high}}}) {
+      auto overrides = base_overrides;
+      overrides[range.parameter] = format_setting(value);
+      points.push_back(evaluate_analysis_point(config_path, overrides, "one_at_a_time", range.parameter, name));
+    }
+  }
+  std::vector<std::map<std::string, std::string>> corners = {base_overrides};
+  for (const auto& range : ranges) {
+    std::vector<std::map<std::string, std::string>> next;
+    for (const auto& corner : corners) {
+      for (const double value : {range.low, range.nominal, range.high}) {
+        auto expanded = corner;
+        expanded[range.parameter] = format_setting(value);
+        next.push_back(std::move(expanded));
+      }
+    }
+    corners = std::move(next);
+  }
+  for (const auto& corner : corners) {
+    std::ostringstream setting;
+    bool first = true;
+    for (const auto& range : ranges) {
+      if (!first) setting << ';';
+      setting << range.parameter << '=' << corner.at(range.parameter);
+      first = false;
+    }
+    points.push_back(evaluate_analysis_point(config_path, corner, "corner", "all", setting.str()));
+  }
+  if (csv_output) write_analysis_csv(points, *csv_output);
+  if (json_output) write_analysis_json(ranges, points, *json_output);
 }
 
 void write_sweep_csv(const std::string& config_path, const std::map<std::string, std::string>& base_overrides,
@@ -716,8 +1287,14 @@ void write_calibration_csv(const std::string& config_path, const std::map<std::s
 int main(int argc, char** argv) {
   using namespace axissim;
   try {
+    if (argc == 3 && std::string(argv[1]) == "profile-validate") {
+      const WorkloadProfile profile = load_workload_profile(argv[2]);
+      std::cout << "Workload profile is valid: " << argv[2] << " (" << profile.operators.size() << " operators; source " << profile.source_url << ")\n";
+      return 0;
+    }
     if (argc < 3) {
-      std::cerr << "Usage: axissim <validate|run|sweep|calibrate> <config.conf> [options]\n";
+      std::cerr << "Usage: axissim <validate|run|sweep|calibrate|analyze> <config.conf> [options]\n"
+                   "       axissim profile-validate <workload-profile.json>\n";
       return 2;
     }
     const std::string command = argv[1];
@@ -726,6 +1303,7 @@ int main(int argc, char** argv) {
     std::optional<std::string> output_path;
     std::optional<std::string> sweep_assignment;
     std::optional<std::string> reference_path;
+    std::optional<std::string> ranges_path;
     std::map<std::string, std::string> overrides;
     for (int argument = 3; argument < argc; ++argument) {
       const std::string option = argv[argument];
@@ -744,6 +1322,9 @@ int main(int argc, char** argv) {
       } else if (option == "--reference") {
         if (++argument >= argc || reference_path.has_value()) throw std::runtime_error("--reference requires one CSV path and may appear once");
         reference_path = argv[argument];
+      } else if (option == "--ranges") {
+        if (++argument >= argc || ranges_path.has_value()) throw std::runtime_error("--ranges requires one CSV path and may appear once");
+        ranges_path = argv[argument];
       } else if (option == "--set") {
         if (++argument >= argc) throw std::runtime_error("--set requires key=value");
         const std::string assignment = argv[argument];
@@ -783,7 +1364,27 @@ int main(int argc, char** argv) {
       }
       return 0;
     }
-    if (output_path || sweep_assignment || reference_path) throw std::runtime_error("--csv, --sweep, and --reference are only valid with sweep or calibrate");
+    if (command == "analyze") {
+      if (!ranges_path || trace_path || sweep_assignment || reference_path || (!output_path && !json_path)) {
+        throw std::runtime_error("analyze requires --ranges and at least one of --csv or --json; it does not support --trace, --sweep, or --reference");
+      }
+      const auto ranges = read_sensitivity_ranges(*ranges_path);
+      std::optional<std::ofstream> csv;
+      std::optional<std::ofstream> json;
+      if (output_path) {
+        csv.emplace(*output_path);
+        if (!*csv) throw std::runtime_error("Unable to write CSV: " + *output_path);
+      }
+      if (json_path) {
+        json.emplace(*json_path);
+        if (!*json) throw std::runtime_error("Unable to write JSON: " + *json_path);
+      }
+      run_sensitivity_analysis(argv[2], overrides, ranges, csv ? &*csv : nullptr, json ? &*json : nullptr);
+      if (output_path) std::cout << "Wrote sensitivity points to " << *output_path << '\n';
+      if (json_path) std::cout << "Wrote sensitivity summary to " << *json_path << '\n';
+      return 0;
+    }
+    if (output_path || sweep_assignment || reference_path || ranges_path) throw std::runtime_error("--csv, --sweep, --reference, and --ranges are only valid with their matching commands");
     const Config config = load_config(argv[2], overrides);
     validate(config);
     if (command == "validate") {

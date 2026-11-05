@@ -38,6 +38,8 @@ flowchart LR
 - Static-capacity power, PUE, fixed-budget feasibility, and deployment electricity-cost extrapolation
 - Optional, assumption-driven area, first-order thermal, and FIT reliability proxies
 - Mean/P99 latency, deadline misses, engine utilization, pipeline concurrency, traffic, energy/frame, and CSV traces
+- Deterministic release-trace QoS studies with explicit provenance, queue-delay, output-jitter, and control-response metrics
+- Declared-bounds sensitivity analysis with one-at-a-time and bounded corner exploration
 - CTest smoke coverage for valid and invalid configurations
 - Reference-data calibration reports with public/reproduced provenance labels
 
@@ -219,7 +221,39 @@ Generate a CSV for a reproducible architecture experiment:
 
 Each result also includes a vector/NPU-arithmetic/DRAM/DMA energy breakdown. The NPU arithmetic scale is deliberately an independent hypothetical input, not a claim about a particular technology or full-system power reduction.
 
+## Declared sensitivity analysis
+
+`analyze` explores a bounded set of explicit assumptions. It is deliberately deterministic: the low/nominal/high inputs are **declared sensitivity bounds**, not confidence intervals, probability distributions, or measured silicon error bars.
+
+```sh
+./build/axissim analyze configs/baseline/manifest.conf \
+  --ranges tests/reference/sensitivity_ranges.csv \
+  --csv experiments/sensitivity_points.csv \
+  --json experiments/sensitivity_summary.json
+```
+
+The range file records a parameter, its low/nominal/high values, unit, evidence class, and rationale. AxisSim runs one-at-a-time points plus the bounded corner set (at most four parameters), then reports the span of modeled latency/energy and whether feasibility or deadlines change within those declared bounds. Inputs are tagged `reproduced_reference`, `published_reference`, or `assumed_sensitivity`; those categories are never collapsed into a single validation score.
+
 ## RVV calibration workflow
+
+## Public-model workload profile
+
+AxisSim includes a provenance-pinned static ONNX characterization of the public
+MNIST-12 vision model. It has 12 mapped operators and is scheduled as a
+dependency graph with explicit DMA/RVV/NPU work:
+
+```sh
+./build/axissim profile-validate reference_data/workloads/mnist12_profile.json
+./build/axissim run configs/workloads/mnist12_profiled.conf \
+  --trace experiments/mnist12_trace.csv --json experiments/mnist12_result.json
+```
+
+The checked-in baseline result is a modeled 56.42 µs mean latency and 4.95 µJ
+per frame under the scenario's explicit assumptions. It characterizes a public
+model's operations and tensor traffic; it is not a measured MNIST runtime,
+compiler mapping, hardware-power measurement, or claim about Velaura silicon.
+See [workload profile rules](docs/workload-profiles.md) and the profile's source
+metadata before interpreting the result.
 
 `calibrate` compares a traceable reference CSV with the selected model. For `rvv_stream` references that preserve raw RTL cycles, cycles are primary; normalized latency is secondary. It reports predicted/reference values and absolute/relative error for every point:
 
@@ -258,6 +292,16 @@ Set `rvv_chunk_elements` to split vector stages into independently scheduled wor
 ```
 
 This models deadline-sensitive resource contention; it is not a functional-safety certification model.
+
+## Deterministic release-trace QoS studies
+
+For Physical-AI scheduling sensitivity, a scenario can replace periodic releases with a checked-in `frame,release_us` trace and a non-empty provenance note:
+
+```sh
+./build/axissim run configs/qos/synthetic_burst.conf --json experiments/qos_burst.json
+```
+
+The included burst trace is synthetic, deterministic stress input—not field sensor data. AxisSim reports modeled resource queue delay, output interval jitter, control response time, and pending-work depth. It preserves the existing non-preemptive scheduler: fixed priority and EDF choose the next ready task but do not interrupt work already in flight. See [`reference_data/qos`](reference_data/qos/) for the trace and its boundary statement.
 
 ## Weight residency and frame buffering
 

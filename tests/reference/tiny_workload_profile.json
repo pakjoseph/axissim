@@ -1,0 +1,33 @@
+{
+  "schema_version": "axissim.workload-profile.v1",
+  "source": {
+    "model_name": "hand-calculated fixture",
+    "source_url": "https://example.invalid/fixture",
+    "license": "test-only",
+    "model_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  "operators": [
+    {
+      "id": "conv0",
+      "mapping_class": "npu_compute",
+      "dependencies": [],
+      "macs": 216,
+      "vector_elements": 0,
+      "ops_per_element": 0,
+      "activation_read_bytes": 12,
+      "activation_write_bytes": 16,
+      "weight_bytes": 24
+    },
+    {
+      "id": "relu0",
+      "mapping_class": "rvv_elementwise",
+      "dependencies": ["conv0"],
+      "macs": 0,
+      "vector_elements": 4,
+      "ops_per_element": 1,
+      "activation_read_bytes": 16,
+      "activation_write_bytes": 16,
+      "weight_bytes": 0
+    }
+  ]
+}

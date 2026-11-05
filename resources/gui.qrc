@@ -1,6 +1,12 @@
 <RCC>
   <qresource prefix="/">
     <file alias="icons/axissim.png">axissim.png</file>
-    <file alias="theme/dark.qss">dark.qss</file>
+    <file alias="fonts/IBMPlexSans-Regular.ttf">fonts/IBMPlexSans-Regular.ttf</file>
+    <file alias="fonts/IBMPlexSans-Medium.ttf">fonts/IBMPlexSans-Medium.ttf</file>
+    <file alias="fonts/IBMPlexSans-SemiBold.ttf">fonts/IBMPlexSans-SemiBold.ttf</file>
+    <file alias="fonts/IBMPlexMono-Regular.ttf">fonts/IBMPlexMono-Regular.ttf</file>
+    <file alias="fonts/IBMPlexMono-Medium.ttf">fonts/IBMPlexMono-Medium.ttf</file>
+    <file alias="fonts/IBMPlexMono-SemiBold.ttf">fonts/IBMPlexMono-SemiBold.ttf</file>
+    <file alias="fonts/OFL.txt">fonts/OFL.txt</file>
   </qresource>
 </RCC>
