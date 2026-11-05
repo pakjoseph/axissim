@@ -256,6 +256,12 @@ struct WorkloadProfile {
   std::string source_storage_precision = "profile-native";
   std::string target_storage_precision = "profile-native";
   double mapped_npu_arithmetic_energy_scale = 1.0;
+  std::string accuracy_evidence_status = "not_supplied";
+  std::string accuracy_metric;
+  std::string accuracy_dataset;
+  std::string accuracy_evaluator;
+  std::string accuracy_source_url;
+  double accuracy_value = 0.0;
   std::vector<ProfileOperator> operators;
 };
 
@@ -280,6 +286,7 @@ struct MappingPlan {
   std::string source_storage_precision;
   std::string target_storage_precision;
   double npu_arithmetic_energy_scale = 1.0;
+  std::string accuracy_evidence_path;
 };
 
 [[nodiscard]] std::optional<std::string> json_string_field(const std::string& object, const std::string& key) {
@@ -460,6 +467,24 @@ struct MappingPlan {
   if (plan.npu_arithmetic_energy_scale <= 0.0) {
     throw std::runtime_error("Mapping-plan npu_arithmetic_energy_scale must be positive");
   }
+  if (const auto evidence = json_string_field(json, "accuracy_evidence")) {
+    plan.accuracy_evidence_path = (std::filesystem::path(path).parent_path() / *evidence).lexically_normal().string();
+    std::ifstream evidence_input(plan.accuracy_evidence_path);
+    if (!evidence_input) throw std::runtime_error("Unable to open mapping-plan accuracy evidence: " + plan.accuracy_evidence_path);
+    const std::string evidence_json((std::istreambuf_iterator<char>(evidence_input)), std::istreambuf_iterator<char>());
+    if (json_string_field(evidence_json, "schema_version") != std::optional<std::string>("axissim.accuracy-evidence.v1") ||
+        json_string_field(evidence_json, "mapping_plan_id") != std::optional<std::string>(plan.id) ||
+        json_string_field(evidence_json, "source_model_sha256") != std::optional<std::string>(profile.sha256) ||
+        json_string_field(evidence_json, "evaluation_status") != std::optional<std::string>("external_evaluated")) {
+      throw std::runtime_error("Accuracy evidence must bind this mapping plan, source-model SHA-256, and external_evaluated status");
+    }
+    const auto metric = json_string_field(evidence_json, "metric").value_or("");
+    const auto dataset = json_string_field(evidence_json, "dataset").value_or("");
+    const auto evaluator = json_string_field(evidence_json, "evaluator").value_or("");
+    const auto source_url = json_string_field(evidence_json, "source_url").value_or("");
+    const auto value = json_double_field(evidence_json, "value");
+    if (metric.empty() || dataset.empty() || evaluator.empty() || source_url.empty() || !value) throw std::runtime_error("Accuracy evidence requires metric, value, dataset, evaluator, and source_url");
+  }
   const auto objects = json_array_objects(json, "entries");
   std::set<std::string> mapped_ids;
   for (const auto& object : objects) {
@@ -592,6 +617,16 @@ void apply_mapping_plan(WorkloadProfile& profile, const MappingPlan& plan, const
     profile.target_storage_precision = plan.target_storage_precision;
   }
   profile.mapped_npu_arithmetic_energy_scale = plan.npu_arithmetic_energy_scale;
+  if (!plan.accuracy_evidence_path.empty()) {
+    std::ifstream input(plan.accuracy_evidence_path);
+    const std::string json((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    profile.accuracy_evidence_status = "external_evaluated";
+    profile.accuracy_metric = json_string_field(json, "metric").value_or("");
+    profile.accuracy_dataset = json_string_field(json, "dataset").value_or("");
+    profile.accuracy_evaluator = json_string_field(json, "evaluator").value_or("");
+    profile.accuracy_source_url = json_string_field(json, "source_url").value_or("");
+    profile.accuracy_value = *json_double_field(json, "value");
+  }
 }
 
 struct TraceEvent { int frame; std::string task; std::string resource; double start_us; double end_us; };
@@ -630,6 +665,7 @@ class Simulator {
   [[nodiscard]] const std::string& profile_source_storage_precision() const { return profile_.source_storage_precision; }
   [[nodiscard]] const std::string& profile_target_storage_precision() const { return profile_.target_storage_precision; }
   [[nodiscard]] double profile_mapped_npu_arithmetic_energy_scale() const { return profile_.mapped_npu_arithmetic_energy_scale; }
+  [[nodiscard]] const WorkloadProfile& profile() const { return profile_; }
   [[nodiscard]] std::uint64_t profile_first_frame_transfer_bytes() const { return profile_first_frame_transfer_bytes_; }
   [[nodiscard]] std::uint64_t profile_steady_state_transfer_bytes() const { return profile_steady_state_transfer_bytes_; }
   [[nodiscard]] double profile_vector_ops_per_frame() const {
@@ -1201,6 +1237,12 @@ void write_result_json(const std::string& path, const Simulator& simulator, cons
          << ", \"target_storage_precision\": \"" << json_escape(simulator.profile_target_storage_precision()) << "\""
          << ", \"precision_traffic_bytes_avoided_per_frame\": " << simulator.profile_precision_traffic_bytes_avoided_per_frame()
          << ", \"mapped_npu_arithmetic_energy_scale\": " << simulator.profile_mapped_npu_arithmetic_energy_scale() << "},\n"
+         << "  \"accuracy_evidence\": {\"status\": \"" << json_escape(simulator.profile().accuracy_evidence_status) << "\""
+         << ", \"metric\": \"" << json_escape(simulator.profile().accuracy_metric) << "\""
+         << ", \"value\": " << simulator.profile().accuracy_value
+         << ", \"dataset\": \"" << json_escape(simulator.profile().accuracy_dataset) << "\""
+         << ", \"evaluator\": \"" << json_escape(simulator.profile().accuracy_evaluator) << "\""
+         << ", \"source_url\": \"" << json_escape(simulator.profile().accuracy_source_url) << "\"},\n"
          << "  \"energy\": {\"per_frame_uj\": " << energy_per_frame_uj << ", \"static_per_frame_uj\": " << static_energy_pj / latency.size() / 1'000'000.0 << ", \"it_per_frame_uj\": " << it_energy_pj / latency.size() / 1'000'000.0 << ", \"facility_per_frame_uj\": " << config.pue * it_energy_pj / latency.size() / 1'000'000.0 << ", \"vector_pj\": " << simulator.vector_energy_pj()
          << ", \"npu_arithmetic_pj\": " << simulator.npu_arithmetic_energy_pj() << ", \"dram_pj\": " << simulator.dram_energy_pj()
          << ", \"dma_pj\": " << simulator.dma_energy_pj() << "},\n"

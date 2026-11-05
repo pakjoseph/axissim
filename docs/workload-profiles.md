@@ -54,6 +54,12 @@ avoided. It does not
 claim cache behavior, compiler-managed residency, accuracy preservation, or
 measured silicon performance.
 
+An optional `accuracy_evidence` path in a mapping plan may point to an
+`axissim.accuracy-evidence.v1` artifact. It must bind the exact mapping-plan
+ID and source-model SHA-256 and record an externally evaluated metric, dataset,
+evaluator, and source URL. Without that artifact, result JSON and the desktop
+Evidence view explicitly report that accuracy evidence was not supplied.
+
 The same artifact can declare a graph-wide storage-precision mapping policy.
 The profile must first carry an extractor-derived `tensor_storage_precision`
 in its source metadata; the plan must name that exact source precision and a

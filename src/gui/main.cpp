@@ -1899,13 +1899,20 @@ class AxisSimWindow final : public QMainWindow {
           ? QJsonDocument::fromJson(profile.readAll(), &profile_error) : QJsonDocument();
       const QJsonObject profile_root = profile_document.object();
       const QJsonObject source = profile_root.value("source").toObject();
-      profile_evidence_->setText(QString("Public workload evidence · %1 · %2 operators · static input %3 · %4 license · SHA-256 %5 · %6\nStatic operation/traffic characterization only; not a measured runtime or compiler mapping.")
+      const QJsonObject accuracy = result.value("accuracy_evidence").toObject();
+      const QString accuracy_text = accuracy.value("status").toString() == "external_evaluated"
+          ? QString("Accuracy evidence · %1 %2 on %3 · externally evaluated by %4 · %5")
+                .arg(accuracy.value("metric").toString()).arg(accuracy.value("value").toDouble(), 0, 'g', 6)
+                .arg(accuracy.value("dataset").toString(), accuracy.value("evaluator").toString(), accuracy.value("source_url").toString())
+          : "Accuracy evidence · not supplied; AxisSim makes no accuracy claim for this mapping policy.";
+      profile_evidence_->setText(QString("Public workload evidence · %1 · %2 operators · static input %3 · %4 license · SHA-256 %5 · %6\n%7\nStatic operation/traffic characterization only; not a measured runtime or compiler mapping.")
           .arg(source.value("model_name").toString("MNIST-12"))
           .arg(profile_root.value("operators").toArray().size())
           .arg("1×1×28×28")
           .arg(source.value("license").toString("recorded upstream"))
           .arg(source.value("model_sha256").toString("unavailable"))
-          .arg(source.value("source_url").toString("source unavailable")));
+          .arg(source.value("source_url").toString("source unavailable"))
+          .arg(accuracy_text));
     } else {
       profile_evidence_->setText("No public workload profile is selected. Profile evidence appears here when a profiled-graph scenario runs.");
     }
