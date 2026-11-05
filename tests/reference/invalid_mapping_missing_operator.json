@@ -1,0 +1,9 @@
+{
+  "schema_version": "axissim.mapping-plan.v1",
+  "id": "invalid_incomplete_mapping",
+  "source_model_sha256": "5c688690f8bacf667d4c2074af5ad0646ca328d7ab03eccf944a65b320171bdd",
+  "mapping_rule_version": "axissim.mapping-plan.v1",
+  "entries": [
+    {"operator_id": "Convolution28", "mapping_class": "npu_compute"}
+  ]
+}

@@ -86,7 +86,7 @@ template <typename T>
 
 [[nodiscard]] const std::set<std::string>& supported_keys() {
   static const std::set<std::string> keys = {
-      "scenario_name", "model_version", "workload_mode", "workload_profile", "scheduler_policy", "frame_arrival_mode", "frame_arrival_trace", "frame_arrival_provenance", "frames", "frame_period_us", "deadline_us", "dram_bandwidth_gbps", "dma_setup_us", "control_period_us", "control_deadline_us", "control_ops",
+      "scenario_name", "model_version", "workload_mode", "workload_profile", "mapping_plan", "scheduler_policy", "frame_arrival_mode", "frame_arrival_trace", "frame_arrival_provenance", "frames", "frame_period_us", "deadline_us", "dram_bandwidth_gbps", "dma_setup_us", "control_period_us", "control_deadline_us", "control_ops",
       "rvv_vlen_bits", "rvv_sew_bits", "rvv_lmul", "rvv_lanes", "rvv_ops_per_lane_cycle", "rvv_frequency_ghz", "rvv_stripmine_overhead_cycles", "rvv_timing_model", "rvv_affine_overhead_cycles", "rvv_compute_cycle_scale", "rvv_chunk_elements", "rvv_memory_accounting", "rvv_memory_bytes_per_element",
       "npu_macs", "npu_frequency_ghz", "input_bytes", "preprocess_elements", "preprocess_ops_per_element", "preprocess_output_bytes",
       "gemm_m", "gemm_n", "gemm_k", "npu_tile_m", "npu_tile_n", "npu_tile_k",
@@ -108,6 +108,7 @@ template <typename T>
   if (values.contains("model_version")) c.model_version = values.at("model_version");
   if (values.contains("workload_mode")) c.workload_mode = values.at("workload_mode");
   if (values.contains("workload_profile")) c.workload_profile = (std::filesystem::path(path).parent_path() / values.at("workload_profile")).lexically_normal().string();
+  if (values.contains("mapping_plan")) c.mapping_plan = (std::filesystem::path(path).parent_path() / values.at("mapping_plan")).lexically_normal().string();
   if (values.contains("scheduler_policy")) c.scheduler_policy = values.at("scheduler_policy");
   if (values.contains("frame_arrival_mode")) c.frame_arrival_mode = values.at("frame_arrival_mode");
   if (values.contains("frame_arrival_trace")) c.frame_arrival_trace = (std::filesystem::path(path).parent_path() / values.at("frame_arrival_trace")).lexically_normal().string();
@@ -141,6 +142,7 @@ void validate(const Config& c) {
   if (c.workload_mode != "physical_ai" && c.workload_mode != "rvv_stream" && c.workload_mode != "profiled_graph") throw std::runtime_error("workload_mode must be physical_ai, rvv_stream, or profiled_graph");
   if (c.workload_mode == "profiled_graph" && c.workload_profile.empty()) throw std::runtime_error("profiled_graph workloads require workload_profile");
   if (c.workload_mode != "profiled_graph" && !c.workload_profile.empty()) throw std::runtime_error("workload_profile is only valid with workload_mode=profiled_graph");
+  if (c.workload_mode != "profiled_graph" && !c.mapping_plan.empty()) throw std::runtime_error("mapping_plan is only valid with workload_mode=profiled_graph");
   if (c.frame_arrival_mode != "periodic" && c.frame_arrival_mode != "trace") throw std::runtime_error("frame_arrival_mode must be periodic or trace");
   if (c.frame_arrival_mode == "periodic" && (!c.frame_arrival_trace.empty() || !c.frame_arrival_provenance.empty())) throw std::runtime_error("Periodic arrivals must not specify trace or provenance files");
   if (c.frame_arrival_mode == "trace" && (c.frame_arrival_trace.empty() || c.frame_arrival_provenance.empty())) throw std::runtime_error("Trace arrivals require frame_arrival_trace and frame_arrival_provenance");
@@ -230,7 +232,21 @@ struct WorkloadProfile {
   std::string source_url;
   std::string license;
   std::string sha256;
+  std::string mapping_plan_id = "implicit-profile-mapping";
+  std::string mapping_rule_version = "implicit";
   std::vector<ProfileOperator> operators;
+};
+
+struct MappingPlanEntry {
+  std::string operator_id;
+  std::string mapping_class;
+};
+
+struct MappingPlan {
+  std::string id;
+  std::string source_model_sha256;
+  std::string mapping_rule_version;
+  std::vector<MappingPlanEntry> entries;
 };
 
 [[nodiscard]] std::optional<std::string> json_string_field(const std::string& object, const std::string& key) {
@@ -348,6 +364,57 @@ struct WorkloadProfile {
   return profile;
 }
 
+[[nodiscard]] MappingPlan load_mapping_plan(const std::string& path, const WorkloadProfile& profile) {
+  std::ifstream input(path);
+  if (!input) throw std::runtime_error("Unable to open mapping plan: " + path);
+  const std::string json((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+  if (json_string_field(json, "schema_version") != std::optional<std::string>("axissim.mapping-plan.v1")) {
+    throw std::runtime_error("Unsupported mapping-plan schema; expected axissim.mapping-plan.v1");
+  }
+  MappingPlan plan;
+  plan.id = json_string_field(json, "id").value_or("");
+  plan.source_model_sha256 = json_string_field(json, "source_model_sha256").value_or("");
+  plan.mapping_rule_version = json_string_field(json, "mapping_rule_version").value_or("");
+  if (plan.id.empty() || plan.mapping_rule_version.empty() || plan.source_model_sha256 != profile.sha256) {
+    throw std::runtime_error("Mapping plan requires id/rule version and an exact workload source-model SHA-256 match");
+  }
+  const auto objects = json_array_objects(json, "entries");
+  std::set<std::string> mapped_ids;
+  for (const auto& object : objects) {
+    MappingPlanEntry entry;
+    entry.operator_id = json_string_field(object, "operator_id").value_or("");
+    entry.mapping_class = json_string_field(object, "mapping_class").value_or("");
+    if (entry.operator_id.empty() || !mapped_ids.insert(entry.operator_id).second) {
+      throw std::runtime_error("Mapping plan operator IDs must be non-empty and unique");
+    }
+    if (entry.mapping_class != "npu_compute" && entry.mapping_class != "rvv_elementwise") {
+      throw std::runtime_error("Unsupported mapping-plan placement class: " + entry.mapping_class);
+    }
+    plan.entries.push_back(std::move(entry));
+  }
+  if (plan.entries.size() != profile.operators.size()) {
+    throw std::runtime_error("Mapping plan must account for every workload-profile operator exactly once");
+  }
+  return plan;
+}
+
+void apply_mapping_plan(WorkloadProfile& profile, const MappingPlan& plan) {
+  std::map<std::string, std::string> mapping_by_id;
+  for (const auto& entry : plan.entries) mapping_by_id.emplace(entry.operator_id, entry.mapping_class);
+  for (auto& operation : profile.operators) {
+    const auto it = mapping_by_id.find(operation.id);
+    if (it == mapping_by_id.end()) throw std::runtime_error("Mapping plan omits workload operator: " + operation.id);
+    // V1 makes the current implicit placement explicit. Cross-engine
+    // placement becomes legal only once each profile records a valid cost
+    // model for both resources; never invent a zero-cost alternate mapping.
+    if (it->second != operation.mapping_class) {
+      throw std::runtime_error("Mapping-plan placement is unsupported for operator " + operation.id + " in v1; provide the baseline class");
+    }
+  }
+  profile.mapping_plan_id = plan.id;
+  profile.mapping_rule_version = plan.mapping_rule_version;
+}
+
 struct TraceEvent { int frame; std::string task; std::string resource; double start_us; double end_us; };
 
 class Simulator {
@@ -358,6 +425,7 @@ class Simulator {
     frame_arrivals_us_ = load_frame_arrivals(c_);
     if (c_.workload_mode == "profiled_graph") {
       profile_ = load_workload_profile(c_.workload_profile);
+      if (!c_.mapping_plan.empty()) apply_mapping_plan(profile_, load_mapping_plan(c_.mapping_plan, profile_));
       run_profile_scheduler();
     } else {
       run_event_scheduler();
@@ -883,6 +951,7 @@ void write_result_json(const std::string& path, const Simulator& simulator, cons
          << "  \"scenario_name\": \"" << json_escape(config.scenario_name) << "\",\n"
          << "  \"model_version\": \"" << json_escape(config.model_version) << "\",\n"
          << "  \"workload_mode\": \"" << json_escape(config.workload_mode) << "\",\n"
+         << "  \"mapping_plan\": \"" << json_escape(config.mapping_plan.empty() ? "implicit-profile-mapping" : std::filesystem::path(config.mapping_plan).filename().string()) << "\",\n"
          << "  \"scheduler_policy\": \"" << json_escape(config.scheduler_policy) << "\",\n"
          << "  \"arrival_mode\": \"" << json_escape(config.frame_arrival_mode) << "\",\n"
          << "  \"deadline_us\": " << config.deadline_us << ",\n"
@@ -955,7 +1024,8 @@ void print_results(const Simulator& simulator, const Config& config) {
   } else if (config.workload_mode == "rvv_stream") {
     std::cout << "\n  stream scope:         RVV compute only (no DMA, cache, scalar, or NPU stages)\n";
   } else {
-    std::cout << "\n  profile scope:        Static operation/traffic characterization; not measured runtime or compiler mapping\n";
+    std::cout << "\n  mapping plan:         " << (config.mapping_plan.empty() ? "implicit-profile-mapping" : std::filesystem::path(config.mapping_plan).filename().string())
+              << "\n  profile scope:        Static operation/traffic characterization; mapping-policy assumptions, not measured runtime or compiler validation\n";
   }
   std::cout << "  latency mean / P99:  " << mean << " / " << percentile(latency, 0.99) << " us\n"
             << "  latency min / max:   " << *std::min_element(latency.begin(), latency.end()) << " / " << *std::max_element(latency.begin(), latency.end()) << " us\n"
@@ -1288,14 +1358,17 @@ void write_calibration_csv(const std::string& config_path, const std::map<std::s
 int main(int argc, char** argv) {
   using namespace axissim;
   try {
-    if (argc == 3 && std::string(argv[1]) == "profile-validate") {
+    if ((argc == 3 || argc == 4) && std::string(argv[1]) == "profile-validate") {
       const WorkloadProfile profile = load_workload_profile(argv[2]);
-      std::cout << "Workload profile is valid: " << argv[2] << " (" << profile.operators.size() << " operators; source " << profile.source_url << ")\n";
+      if (argc == 4) (void)load_mapping_plan(argv[3], profile);
+      std::cout << "Workload profile is valid: " << argv[2] << " (" << profile.operators.size() << " operators; source " << profile.source_url << ")";
+      if (argc == 4) std::cout << "; mapping plan valid: " << argv[3];
+      std::cout << '\n';
       return 0;
     }
     if (argc < 3) {
       std::cerr << "Usage: axissim <validate|run|sweep|calibrate|analyze> <config.conf> [options]\n"
-                   "       axissim profile-validate <workload-profile.json>\n";
+                   "       axissim profile-validate <workload-profile.json> [mapping-plan.json]\n";
       return 2;
     }
     const std::string command = argv[1];

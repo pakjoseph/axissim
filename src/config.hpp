@@ -12,6 +12,7 @@ struct Config {
   std::string model_version = "0.1";
   std::string workload_mode = "physical_ai";
   std::string workload_profile;
+  std::string mapping_plan;
   std::string scheduler_policy = "fixed_priority";
   std::string frame_arrival_mode = "periodic";
   std::string frame_arrival_trace;

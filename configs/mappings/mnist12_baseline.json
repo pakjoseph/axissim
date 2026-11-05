@@ -1,0 +1,20 @@
+{
+  "schema_version": "axissim.mapping-plan.v1",
+  "id": "mnist12_explicit_baseline",
+  "source_model_sha256": "5c688690f8bacf667d4c2074af5ad0646ca328d7ab03eccf944a65b320171bdd",
+  "mapping_rule_version": "axissim.mapping-plan.v1",
+  "entries": [
+    {"operator_id": "Convolution28", "mapping_class": "npu_compute"},
+    {"operator_id": "Plus30", "mapping_class": "rvv_elementwise"},
+    {"operator_id": "ReLU32", "mapping_class": "rvv_elementwise"},
+    {"operator_id": "Pooling66", "mapping_class": "rvv_elementwise"},
+    {"operator_id": "Convolution110", "mapping_class": "npu_compute"},
+    {"operator_id": "Plus112", "mapping_class": "rvv_elementwise"},
+    {"operator_id": "ReLU114", "mapping_class": "rvv_elementwise"},
+    {"operator_id": "Pooling160", "mapping_class": "rvv_elementwise"},
+    {"operator_id": "Times212_reshape0", "mapping_class": "rvv_elementwise"},
+    {"operator_id": "Times212_reshape1", "mapping_class": "rvv_elementwise"},
+    {"operator_id": "Times212", "mapping_class": "npu_compute"},
+    {"operator_id": "Plus214", "mapping_class": "rvv_elementwise"}
+  ]
+}

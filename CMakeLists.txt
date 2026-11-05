@@ -67,6 +67,13 @@ if(BUILD_TESTING)
   set_tests_properties(rejects_unknown_configuration_key PROPERTIES WILL_FAIL TRUE)
   add_test(NAME validates_workload_profile_contract
            COMMAND axissim profile-validate ${CMAKE_SOURCE_DIR}/tests/reference/tiny_workload_profile.json)
+  add_test(NAME validates_explicit_mnist_mapping_plan
+           COMMAND axissim profile-validate ${CMAKE_SOURCE_DIR}/reference_data/workloads/mnist12_profile.json
+                   ${CMAKE_SOURCE_DIR}/configs/mappings/mnist12_baseline.json)
+  add_test(NAME rejects_incomplete_mapping_plan
+           COMMAND axissim profile-validate ${CMAKE_SOURCE_DIR}/reference_data/workloads/mnist12_profile.json
+                   ${CMAKE_SOURCE_DIR}/tests/reference/invalid_mapping_missing_operator.json)
+  set_tests_properties(rejects_incomplete_mapping_plan PROPERTIES WILL_FAIL TRUE)
   add_test(NAME executes_workload_profile_dag
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/tests/tiny_profile.conf)
   set_tests_properties(executes_workload_profile_dag PROPERTIES
@@ -75,6 +82,10 @@ if(BUILD_TESTING)
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_profiled.conf)
   set_tests_properties(mnist12_profiled_graph_smoke PROPERTIES
                        PASS_REGULAR_EXPRESSION "workload mode:        profiled_graph")
+  add_test(NAME explicit_mapping_preserves_mnist_baseline
+           COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_profiled.conf)
+  set_tests_properties(explicit_mapping_preserves_mnist_baseline PROPERTIES
+                       PASS_REGULAR_EXPRESSION "latency mean / P99:  56.42 / 56.51 us")
   add_test(NAME mnist12_profiled_burst_qos_smoke
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/qos/mnist12_burst.conf)
   set_tests_properties(mnist12_profiled_burst_qos_smoke PROPERTIES
