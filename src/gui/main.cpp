@@ -508,8 +508,12 @@ class AxisSimWindow final : public QMainWindow {
     analysis_layout->addWidget(timeline_panel, 3);
     auto* energy_panel = new QFrame(analysis);
     energy_panel->setObjectName("energyPanel");
+    // Preserve a readable empty state and prevent it from being squeezed
+    // against the following scope/status region on short desktop windows.
+    energy_panel->setMinimumHeight(208);
     auto* energy_panel_layout = new QVBoxLayout(energy_panel);
     energy_panel_layout->setContentsMargins(12, 10, 12, 10);
+    energy_panel_layout->setSpacing(0);
     energy_chart_ = new EnergyBreakdownWidget(energy_panel);
     energy_panel_layout->addWidget(energy_chart_);
     analysis_layout->addWidget(energy_panel, 1);
@@ -526,6 +530,7 @@ class AxisSimWindow final : public QMainWindow {
     scope_note->setWordWrap(true);
     auto* scope_panel = new QFrame(analysis);
     scope_panel->setObjectName("scopePanel");
+    scope_panel->setMinimumHeight(50);
     auto* scope_layout = new QVBoxLayout(scope_panel);
     scope_layout->setContentsMargins(12, 8, 12, 8);
     scope_layout->addWidget(scope_note);

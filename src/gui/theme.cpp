@@ -247,7 +247,7 @@ QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
 QScrollBar::handle:vertical { background: @BORDER_STRONG@; border-radius: 4px; min-height: 30px; }
 QScrollBar::handle:vertical:hover { background: @ACCENT@; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-QStatusBar { background: @CANVAS@; color: @SECONDARY@; border-top: 1px solid @BORDER@; }
+QStatusBar { background: @CANVAS@; color: @SECONDARY@; border-top: 1px solid @BORDER@; padding: 3px 8px; min-height: 22px; }
 QToolTip { background: #151D26; color: #FFFFFF; border: 1px solid @BORDER_STRONG@; padding: 5px; }
 QMenuBar { background: @CANVAS@; color: @TEXT@; border-bottom: 1px solid @BORDER@; }
 QMenuBar::item:selected { background: @ACCENT@; color: @PRIMARY_TEXT@; }

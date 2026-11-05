@@ -10,7 +10,10 @@
 #include <numeric>
 
 EnergyBreakdownWidget::EnergyBreakdownWidget(QWidget* parent) : QWidget(parent) {
-  setMinimumHeight(160);
+  // The empty-state explanation needs the same deliberate breathing room as
+  // the populated ledger.  A preferred-height widget could otherwise be
+  // compressed until its text visually meets the containing panel border.
+  setMinimumHeight(184);
   setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
   setAccessibleName("Energy composition per frame chart");
   setToolTip("Modeled per-frame energy split by vector, arithmetic, memory movement, DMA, and static energy");
@@ -34,21 +37,27 @@ void EnergyBreakdownWidget::paintEvent(QPaintEvent* event) {
 
   const double total = std::accumulate(segments_.cbegin(), segments_.cend(), 0.0,
                                        [](double sum, const EnergySegment& segment) { return sum + std::max(0.0, segment.value); });
-  const QRectF track(0, 42, width(), 22);
   painter.setPen(AxisTheme::textSecondary());
   QFont total_font = font();
   total_font.setPointSize(11);
   painter.setFont(total_font);
   painter.drawText(QRect(0, 0, width(), 24), Qt::AlignRight | Qt::AlignVCenter,
                    total > 0.0 ? QString("%1 µJ / frame").arg(total, 0, 'f', 2) : QString());
+  if (total <= 0.0) {
+    painter.setPen(AxisTheme::textSecondary());
+    // Do not draw a chart track before there is data: this is an explanatory
+    // empty state, not a zero-valued result.  Keep the copy inset and centered
+    // in the available panel space so it cannot compete with a boundary.
+    painter.drawText(QRect(8, 42, std::max(0, width() - 16), std::max(32, height() - 54)),
+                     Qt::AlignLeft | Qt::AlignVCenter | Qt::TextWordWrap,
+                     "Run a scenario to populate the modeled energy ledger.");
+    return;
+  }
+
+  const QRectF track(0, 42, width(), 22);
   painter.setPen(Qt::NoPen);
   painter.setBrush(AxisTheme::chartBackground());
   painter.drawRoundedRect(track, 7, 7);
-  if (total <= 0.0) {
-    painter.setPen(AxisTheme::textSecondary());
-    painter.drawText(QRect(0, 78, width(), 28), Qt::AlignLeft | Qt::AlignVCenter, "Run a scenario to populate the modeled energy ledger.");
-    return;
-  }
 
   double x = track.x();
   for (const auto& segment : segments_) {
