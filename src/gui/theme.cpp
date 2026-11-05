@@ -266,12 +266,15 @@ QLabel#appTitle, QLabel#appSubtitle { min-height: 0px; max-height: 0px; }
 QPushButton[nav="true"] { color: @SECONDARY@; border-radius: 3px; padding: 9px 10px; }
 QPushButton[nav="true"]:hover { background: @HOVER@; color: @TEXT@; }
 QPushButton[nav="true"]:checked { background: @SURFACE@; color: @TEXT@; border: none; border-left: 3px solid @ACCENT@; padding-left: 7px; }
-QFrame#contentPanel { background: transparent; border: none; border-radius: 0; }
-QFrame#metricStrip { background: transparent; border: none; border-radius: 0; }
+QFrame#contentPanel { background: transparent; border: 1px solid @BORDER_STRONG@; border-radius: 4px; }
+QFrame#metricStrip { background: @MUTED_SURFACE@; border: 1px solid @BORDER_STRONG@; border-radius: 4px; }
 QFrame#metricPanel { background: transparent; border: none; border-radius: 0; }
 QFrame#metricPanel[measurement="true"][separated="true"] { border-left: 1px solid @BORDER@; }
 QLabel#metricValue { font-size: 22px; }
-QFrame#findingsMargin { background: transparent; border: none; border-left: 1px solid @BORDER@; border-radius: 0; }
+QFrame#timelinePanel, QFrame#energyPanel { background: @SURFACE@; border: 1px solid @BORDER_STRONG@; border-radius: 4px; }
+QFrame#findingsMargin { background: @SURFACE@; border: 1px solid @BORDER_STRONG@; border-radius: 4px; }
+QFrame#scopePanel { background: @MUTED_SURFACE@; border: 1px solid @BORDER@; border-radius: 4px; }
+QFrame#findingDivider { background: @BORDER_STRONG@; border: none; min-height: 1px; max-height: 1px; }
 QLabel#findingText { color: @TEXT@; font-size: 14px; font-weight: 600; }
 QLabel#evidenceLedger { color: @SECONDARY@; font-family: "IBM Plex Mono"; font-size: 12px; }
 QFrame#editorPanel { border-radius: 0; border-left: none; }
