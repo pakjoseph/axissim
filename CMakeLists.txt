@@ -93,6 +93,14 @@ if(BUILD_TESTING)
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/check_profile_fusion.sh $<TARGET_FILE:axissim>
                    ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_profiled.conf
                    ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_plus_relu_fused.conf)
+  add_test(NAME named_profile_weight_residency_accounts_for_first_and_steady_frames
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/check_profile_persistent_weights.sh $<TARGET_FILE:axissim>
+                   ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_profiled.conf
+                   ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_persistent_weights.conf)
+  add_test(NAME rejects_profile_weight_residency_that_exceeds_declared_sram
+           COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_persistent_weights.conf
+                   --set weight_sram_capacity_bytes=1)
+  set_tests_properties(rejects_profile_weight_residency_that_exceeds_declared_sram PROPERTIES WILL_FAIL TRUE)
   add_test(NAME mnist12_profiled_burst_qos_smoke
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/qos/mnist12_burst.conf)
   set_tests_properties(mnist12_profiled_burst_qos_smoke PROPERTIES

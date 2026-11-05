@@ -41,3 +41,13 @@ and matching consumer read. It does not change operation count, infer a generic
 percentage saving, or permit branched/multi-consumer fusion. The checked-in
 MNIST `Plus30 → ReLU32` study is an example mapping assumption, not evidence of
 a production compiler transformation.
+
+Mapping entries may also declare `"weight_residency": "persistent"` for an
+NPU operator with explicitly profiled weights. This is a capacity-checked
+mapping assumption: the sum of those named weight tensors must fit the
+scenario's `weight_sram_capacity_bytes`. AxisSim keeps the weights in the
+first-frame transfer ledger and removes only their declared weight-read bytes
+from later frames. Result JSON therefore exposes `first_frame_bytes`,
+`steady_state_bytes`, and the named steady-frame bytes avoided. It does not
+claim cache behavior, compiler-managed residency, accuracy preservation, or
+measured silicon performance.

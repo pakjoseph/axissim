@@ -231,6 +231,7 @@ struct ProfileOperator {
   std::uint64_t activation_write_bytes = 0;
   std::uint64_t weight_bytes = 0;
   std::uint64_t transfer_bytes = 0;
+  bool persistent_weights = false;
 };
 
 struct ProfileTransferLedgerEntry {
@@ -246,13 +247,16 @@ struct WorkloadProfile {
   std::string mapping_plan_id = "implicit-profile-mapping";
   std::string mapping_rule_version = "implicit";
   std::uint64_t fused_intermediate_bytes_avoided = 0;
+  std::uint64_t persistent_weight_bytes_avoided_per_steady_frame = 0;
   int fusion_count = 0;
+  int persistent_weight_operator_count = 0;
   std::vector<ProfileOperator> operators;
 };
 
 struct MappingPlanEntry {
   std::string operator_id;
   std::string mapping_class;
+  std::string weight_residency = "streamed";
 };
 
 struct MappingFusion {
@@ -425,6 +429,10 @@ struct MappingPlan {
     if (entry.mapping_class != "npu_compute" && entry.mapping_class != "rvv_elementwise") {
       throw std::runtime_error("Unsupported mapping-plan placement class: " + entry.mapping_class);
     }
+    entry.weight_residency = json_string_field(object, "weight_residency").value_or("streamed");
+    if (entry.weight_residency != "streamed" && entry.weight_residency != "persistent") {
+      throw std::runtime_error("Unsupported mapping-plan weight residency: " + entry.weight_residency);
+    }
     plan.entries.push_back(std::move(entry));
   }
   if (plan.entries.size() != profile.operators.size()) {
@@ -468,18 +476,32 @@ struct MappingPlan {
   return plan;
 }
 
-void apply_mapping_plan(WorkloadProfile& profile, const MappingPlan& plan) {
-  std::map<std::string, std::string> mapping_by_id;
-  for (const auto& entry : plan.entries) mapping_by_id.emplace(entry.operator_id, entry.mapping_class);
+void apply_mapping_plan(WorkloadProfile& profile, const MappingPlan& plan, const Config& config) {
+  std::map<std::string, MappingPlanEntry> mapping_by_id;
+  for (const auto& entry : plan.entries) mapping_by_id.emplace(entry.operator_id, entry);
+  std::uint64_t persistent_weight_bytes = 0;
   for (auto& operation : profile.operators) {
     const auto it = mapping_by_id.find(operation.id);
     if (it == mapping_by_id.end()) throw std::runtime_error("Mapping plan omits workload operator: " + operation.id);
     // V1 makes the current implicit placement explicit. Cross-engine
     // placement becomes legal only once each profile records a valid cost
     // model for both resources; never invent a zero-cost alternate mapping.
-    if (it->second != operation.mapping_class) {
+    if (it->second.mapping_class != operation.mapping_class) {
       throw std::runtime_error("Mapping-plan placement is unsupported for operator " + operation.id + " in v1; provide the baseline class");
     }
+    if (it->second.weight_residency == "persistent") {
+      if (operation.mapping_class != "npu_compute" || operation.weight_bytes == 0) {
+        throw std::runtime_error("Persistent weight residency requires an NPU operator with declared weights: " + operation.id);
+      }
+      operation.persistent_weights = true;
+      persistent_weight_bytes += operation.weight_bytes;
+      profile.persistent_weight_bytes_avoided_per_steady_frame += operation.weight_bytes;
+      ++profile.persistent_weight_operator_count;
+    }
+  }
+  if (persistent_weight_bytes > config.weight_sram_capacity_bytes) {
+    throw std::runtime_error("Mapping-plan persistent weights require " + std::to_string(persistent_weight_bytes) +
+                             " bytes of weight SRAM; configured capacity is " + std::to_string(config.weight_sram_capacity_bytes));
   }
   std::map<std::string, ProfileOperator*> operators_by_id;
   for (auto& operation : profile.operators) operators_by_id.emplace(operation.id, &operation);
@@ -508,7 +530,7 @@ class Simulator {
     frame_arrivals_us_ = load_frame_arrivals(c_);
     if (c_.workload_mode == "profiled_graph") {
       profile_ = load_workload_profile(c_.workload_profile);
-      if (!c_.mapping_plan.empty()) apply_mapping_plan(profile_, load_mapping_plan(c_.mapping_plan, profile_));
+      if (!c_.mapping_plan.empty()) apply_mapping_plan(profile_, load_mapping_plan(c_.mapping_plan, profile_), c_);
       run_profile_scheduler();
     } else {
       run_event_scheduler();
@@ -528,6 +550,10 @@ class Simulator {
   [[nodiscard]] const std::vector<ProfileTransferLedgerEntry>& profile_transfer_ledger() const { return profile_transfer_ledger_; }
   [[nodiscard]] std::uint64_t profile_fused_intermediate_bytes_avoided() const { return profile_.fused_intermediate_bytes_avoided; }
   [[nodiscard]] int profile_fusion_count() const { return profile_.fusion_count; }
+  [[nodiscard]] std::uint64_t profile_persistent_weight_bytes_avoided_per_steady_frame() const { return profile_.persistent_weight_bytes_avoided_per_steady_frame; }
+  [[nodiscard]] int profile_persistent_weight_operator_count() const { return profile_.persistent_weight_operator_count; }
+  [[nodiscard]] std::uint64_t profile_first_frame_transfer_bytes() const { return profile_first_frame_transfer_bytes_; }
+  [[nodiscard]] std::uint64_t profile_steady_state_transfer_bytes() const { return profile_steady_state_transfer_bytes_; }
   [[nodiscard]] double profile_vector_ops_per_frame() const {
     return std::accumulate(profile_.operators.cbegin(), profile_.operators.cend(), 0.0,
                            [](double total, const ProfileOperator& operation) { return total + static_cast<double>(operation.vector_elements) * operation.ops_per_element; });
@@ -729,6 +755,11 @@ class Simulator {
     const auto profile_bytes = std::accumulate(operations.cbegin(), operations.cend(), std::uint64_t{0},
                                                [](std::uint64_t total, const ProfileOperator& operation) { return total + operation.transfer_bytes; });
     if (ledger_bytes != profile_bytes) throw std::runtime_error("Profile transfer ledger does not reconcile with operator transfer totals");
+    profile_first_frame_transfer_bytes_ = profile_bytes;
+    if (profile_.persistent_weight_bytes_avoided_per_steady_frame > profile_first_frame_transfer_bytes_) {
+      throw std::runtime_error("Persistent weight accounting exceeds the profiled first-frame transfer total");
+    }
+    profile_steady_state_transfer_bytes_ = profile_first_frame_transfer_bytes_ - profile_.persistent_weight_bytes_avoided_per_steady_frame;
     std::map<std::string, int> index_for_id;
     std::vector<std::vector<int>> successors(operations.size());
     std::vector<int> base_dependencies(operations.size(), 0);
@@ -751,7 +782,10 @@ class Simulator {
     std::vector<int> remaining_terminals(static_cast<std::size_t>(c_.frames), terminals_per_frame);
     std::vector<double> terminal_end(static_cast<std::size_t>(c_.frames), 0.0);
 
-    const auto make_profile_task = [this, &operations](int frame, int profile_index, bool transfer, double release, double ready) {
+    const auto transfer_bytes_for_frame = [](const ProfileOperator& operation, int frame) {
+      return operation.transfer_bytes - (operation.persistent_weights && frame > 0 ? operation.weight_bytes : 0);
+    };
+    const auto make_profile_task = [this, &operations, &transfer_bytes_for_frame](int frame, int profile_index, bool transfer, double release, double ready) {
       const auto& operation = operations[static_cast<std::size_t>(profile_index)];
       RuntimeTask task;
       task.frame = frame;
@@ -760,9 +794,10 @@ class Simulator {
       task.ready_us = ready;
       task.profile_index = profile_index;
       if (transfer) {
+        const auto bytes = transfer_bytes_for_frame(operation, frame);
         task.resource = RuntimeResource::Dma;
-        task.duration_us = transfer_duration_us(operation.transfer_bytes);
-        task.transfer_bytes = operation.transfer_bytes;
+        task.duration_us = transfer_duration_us(bytes);
+        task.transfer_bytes = bytes;
         task.name = "profile_dma:" + operation.id;
       } else if (operation.mapping_class == "npu_compute") {
         task.resource = RuntimeResource::Npu;
@@ -777,8 +812,9 @@ class Simulator {
       }
       return task;
     };
-    const auto enqueue_operation = [&future, &make_profile_task, &operations](int frame, int operation, double release, double ready) {
-      future.push(make_profile_task(frame, operation, operations[static_cast<std::size_t>(operation)].transfer_bytes > 0, release, ready));
+    const auto enqueue_operation = [&future, &make_profile_task, &operations, &transfer_bytes_for_frame](int frame, int operation, double release, double ready) {
+      const auto& profile_operation = operations[static_cast<std::size_t>(operation)];
+      future.push(make_profile_task(frame, operation, transfer_bytes_for_frame(profile_operation, frame) > 0, release, ready));
     };
     for (int frame = 0; frame < c_.frames; ++frame) {
       const double release = frame_arrivals_us_[static_cast<std::size_t>(frame)];
@@ -954,6 +990,8 @@ class Simulator {
   Config c_;
   WorkloadProfile profile_;
   std::vector<ProfileTransferLedgerEntry> profile_transfer_ledger_;
+  std::uint64_t profile_first_frame_transfer_bytes_ = 0;
+  std::uint64_t profile_steady_state_transfer_bytes_ = 0;
   std::vector<double> frame_arrivals_us_;
   std::vector<TraceEvent> trace_;
   std::vector<double> latencies_us_;
@@ -1068,14 +1106,19 @@ void write_result_json(const std::string& path, const Simulator& simulator, cons
          << ", \"output_interval_jitter_max_us\": " << max_output_interval_jitter_us(simulator.vision_completion_times_us(), config.frame_period_us)
          << ", \"control_response_max_us\": " << control_response_max << ", \"max_pending_tasks\": " << simulator.max_pending_tasks() << "},\n"
          << "  \"traffic\": {\"dram_bytes\": " << simulator.total_dram_bytes() << "},\n"
-         << "  \"profile_transfer_ledger\": {\"per_frame_bytes\": " << profile_ledger_bytes << ", \"entries\": [";
+         << "  \"profile_transfer_ledger\": {\"per_frame_bytes\": " << profile_ledger_bytes
+         << ", \"first_frame_bytes\": " << simulator.profile_first_frame_transfer_bytes()
+         << ", \"steady_state_bytes\": " << simulator.profile_steady_state_transfer_bytes() << ", \"entries\": [";
   for (std::size_t index = 0; index < profile_ledger.size(); ++index) {
     const auto& entry = profile_ledger[index];
     if (index > 0) output << ", ";
     output << "{\"operator_id\": \"" << json_escape(entry.operator_id) << "\", \"category\": \"" << json_escape(entry.category) << "\", \"bytes\": " << entry.bytes << "}";
   }
   output << "]},\n"
-         << "  \"mapping_effects\": {\"fusion_count\": " << simulator.profile_fusion_count() << ", \"fused_intermediate_bytes_avoided_per_frame\": " << simulator.profile_fused_intermediate_bytes_avoided() << "},\n"
+         << "  \"mapping_effects\": {\"fusion_count\": " << simulator.profile_fusion_count()
+         << ", \"fused_intermediate_bytes_avoided_per_frame\": " << simulator.profile_fused_intermediate_bytes_avoided()
+         << ", \"persistent_weight_operator_count\": " << simulator.profile_persistent_weight_operator_count()
+         << ", \"persistent_weight_bytes_avoided_per_steady_frame\": " << simulator.profile_persistent_weight_bytes_avoided_per_steady_frame() << "},\n"
          << "  \"energy\": {\"per_frame_uj\": " << energy_per_frame_uj << ", \"static_per_frame_uj\": " << static_energy_pj / latency.size() / 1'000'000.0 << ", \"it_per_frame_uj\": " << it_energy_pj / latency.size() / 1'000'000.0 << ", \"facility_per_frame_uj\": " << config.pue * it_energy_pj / latency.size() / 1'000'000.0 << ", \"vector_pj\": " << simulator.vector_energy_pj()
          << ", \"npu_arithmetic_pj\": " << simulator.npu_arithmetic_energy_pj() << ", \"dram_pj\": " << simulator.dram_energy_pj()
          << ", \"dma_pj\": " << simulator.dma_energy_pj() << "},\n"
