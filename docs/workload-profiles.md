@@ -34,3 +34,10 @@ cross-engine placement or fusion. Result JSON includes a per-frame transfer
 ledger that separates activation reads, activation writes, and weight reads.
 That ledger is an accounting basis for later, explicitly declared fusion or
 residency policies—not a measured runtime memory trace.
+
+The first supported transformation is a named, direct, single-consumer fusion.
+It may remove only the declared intermediate tensor's modeled activation write
+and matching consumer read. It does not change operation count, infer a generic
+percentage saving, or permit branched/multi-consumer fusion. The checked-in
+MNIST `Plus30 → ReLU32` study is an example mapping assumption, not evidence of
+a production compiler transformation.

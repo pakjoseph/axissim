@@ -89,6 +89,10 @@ if(BUILD_TESTING)
   add_test(NAME profile_transfer_ledger_reconciles
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/check_profile_transfer_ledger.sh $<TARGET_FILE:axissim>
                    ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_profiled.conf)
+  add_test(NAME named_profile_fusion_reduces_only_declared_traffic
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/check_profile_fusion.sh $<TARGET_FILE:axissim>
+                   ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_profiled.conf
+                   ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_plus_relu_fused.conf)
   add_test(NAME mnist12_profiled_burst_qos_smoke
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/qos/mnist12_burst.conf)
   set_tests_properties(mnist12_profiled_burst_qos_smoke PROPERTIES

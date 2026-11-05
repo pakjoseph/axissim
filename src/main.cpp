@@ -245,6 +245,8 @@ struct WorkloadProfile {
   std::string sha256;
   std::string mapping_plan_id = "implicit-profile-mapping";
   std::string mapping_rule_version = "implicit";
+  std::uint64_t fused_intermediate_bytes_avoided = 0;
+  int fusion_count = 0;
   std::vector<ProfileOperator> operators;
 };
 
@@ -253,11 +255,18 @@ struct MappingPlanEntry {
   std::string mapping_class;
 };
 
+struct MappingFusion {
+  std::string producer_id;
+  std::string consumer_id;
+  std::string tensor;
+};
+
 struct MappingPlan {
   std::string id;
   std::string source_model_sha256;
   std::string mapping_rule_version;
   std::vector<MappingPlanEntry> entries;
+  std::vector<MappingFusion> fusions;
 };
 
 [[nodiscard]] std::optional<std::string> json_string_field(const std::string& object, const std::string& key) {
@@ -421,6 +430,41 @@ struct MappingPlan {
   if (plan.entries.size() != profile.operators.size()) {
     throw std::runtime_error("Mapping plan must account for every workload-profile operator exactly once");
   }
+  if (json.find("\"fusions\"") != std::string::npos) {
+    std::set<std::string> participating_operators;
+    const auto fusion_objects = json_array_objects(json, "fusions");
+    std::map<std::string, const ProfileOperator*> operators_by_id;
+    for (const auto& operation : profile.operators) operators_by_id.emplace(operation.id, &operation);
+    for (const auto& object : fusion_objects) {
+      MappingFusion fusion;
+      fusion.producer_id = json_string_field(object, "producer_id").value_or("");
+      fusion.consumer_id = json_string_field(object, "consumer_id").value_or("");
+      fusion.tensor = json_string_field(object, "tensor").value_or("");
+      const auto producer = operators_by_id.find(fusion.producer_id);
+      const auto consumer = operators_by_id.find(fusion.consumer_id);
+      if (fusion.producer_id.empty() || fusion.consumer_id.empty() || fusion.tensor.empty() || producer == operators_by_id.end() || consumer == operators_by_id.end()) {
+        throw std::runtime_error("Fusion must name existing producer, consumer, and tensor IDs");
+      }
+      if (!participating_operators.insert(fusion.producer_id).second || !participating_operators.insert(fusion.consumer_id).second) {
+        throw std::runtime_error("V1 fusion plans cannot overlap operators");
+      }
+      const auto& producer_op = *producer->second;
+      const auto& consumer_op = *consumer->second;
+      if (producer_op.outputs.size() != 1 || producer_op.outputs.front() != fusion.tensor ||
+          std::find(consumer_op.inputs.cbegin(), consumer_op.inputs.cend(), fusion.tensor) == consumer_op.inputs.cend() ||
+          std::find(consumer_op.dependencies.cbegin(), consumer_op.dependencies.cend(), fusion.producer_id) == consumer_op.dependencies.cend()) {
+        throw std::runtime_error("Fusion must be a direct declared producer-consumer tensor edge");
+      }
+      const int consumers = static_cast<int>(std::count_if(profile.operators.cbegin(), profile.operators.cend(), [&fusion](const ProfileOperator& operation) {
+        return std::find(operation.inputs.cbegin(), operation.inputs.cend(), fusion.tensor) != operation.inputs.cend();
+      }));
+      if (consumers != 1) throw std::runtime_error("V1 fusion requires a single-consumer intermediate tensor");
+      if (producer_op.activation_write_bytes == 0 || producer_op.activation_write_bytes > consumer_op.activation_read_bytes) {
+        throw std::runtime_error("Fusion tensor bytes cannot be reconciled with declared activation traffic");
+      }
+      plan.fusions.push_back(std::move(fusion));
+    }
+  }
   return plan;
 }
 
@@ -436,6 +480,19 @@ void apply_mapping_plan(WorkloadProfile& profile, const MappingPlan& plan) {
     if (it->second != operation.mapping_class) {
       throw std::runtime_error("Mapping-plan placement is unsupported for operator " + operation.id + " in v1; provide the baseline class");
     }
+  }
+  std::map<std::string, ProfileOperator*> operators_by_id;
+  for (auto& operation : profile.operators) operators_by_id.emplace(operation.id, &operation);
+  for (const auto& fusion : plan.fusions) {
+    auto& producer = *operators_by_id.at(fusion.producer_id);
+    auto& consumer = *operators_by_id.at(fusion.consumer_id);
+    const auto bytes = producer.activation_write_bytes;
+    producer.activation_write_bytes -= bytes;
+    consumer.activation_read_bytes -= bytes;
+    producer.transfer_bytes = producer.activation_read_bytes + producer.activation_write_bytes + producer.weight_bytes;
+    consumer.transfer_bytes = consumer.activation_read_bytes + consumer.activation_write_bytes + consumer.weight_bytes;
+    profile.fused_intermediate_bytes_avoided += 2 * bytes;
+    ++profile.fusion_count;
   }
   profile.mapping_plan_id = plan.id;
   profile.mapping_rule_version = plan.mapping_rule_version;
@@ -469,6 +526,8 @@ class Simulator {
   [[nodiscard]] const std::vector<double>& control_response_times_us() const { return control_response_times_us_; }
   [[nodiscard]] int max_pending_tasks() const { return max_pending_tasks_; }
   [[nodiscard]] const std::vector<ProfileTransferLedgerEntry>& profile_transfer_ledger() const { return profile_transfer_ledger_; }
+  [[nodiscard]] std::uint64_t profile_fused_intermediate_bytes_avoided() const { return profile_.fused_intermediate_bytes_avoided; }
+  [[nodiscard]] int profile_fusion_count() const { return profile_.fusion_count; }
   [[nodiscard]] double profile_vector_ops_per_frame() const {
     return std::accumulate(profile_.operators.cbegin(), profile_.operators.cend(), 0.0,
                            [](double total, const ProfileOperator& operation) { return total + static_cast<double>(operation.vector_elements) * operation.ops_per_element; });
@@ -1016,6 +1075,7 @@ void write_result_json(const std::string& path, const Simulator& simulator, cons
     output << "{\"operator_id\": \"" << json_escape(entry.operator_id) << "\", \"category\": \"" << json_escape(entry.category) << "\", \"bytes\": " << entry.bytes << "}";
   }
   output << "]},\n"
+         << "  \"mapping_effects\": {\"fusion_count\": " << simulator.profile_fusion_count() << ", \"fused_intermediate_bytes_avoided_per_frame\": " << simulator.profile_fused_intermediate_bytes_avoided() << "},\n"
          << "  \"energy\": {\"per_frame_uj\": " << energy_per_frame_uj << ", \"static_per_frame_uj\": " << static_energy_pj / latency.size() / 1'000'000.0 << ", \"it_per_frame_uj\": " << it_energy_pj / latency.size() / 1'000'000.0 << ", \"facility_per_frame_uj\": " << config.pue * it_energy_pj / latency.size() / 1'000'000.0 << ", \"vector_pj\": " << simulator.vector_energy_pj()
          << ", \"npu_arithmetic_pj\": " << simulator.npu_arithmetic_energy_pj() << ", \"dram_pj\": " << simulator.dram_energy_pj()
          << ", \"dma_pj\": " << simulator.dma_energy_pj() << "},\n"
@@ -1078,6 +1138,9 @@ void print_results(const Simulator& simulator, const Config& config) {
   } else {
     std::cout << "\n  mapping plan:         " << (config.mapping_plan.empty() ? "implicit-profile-mapping" : std::filesystem::path(config.mapping_plan).filename().string())
               << "\n  profile scope:        Static operation/traffic characterization; mapping-policy assumptions, not measured runtime or compiler validation\n";
+    if (simulator.profile_fusion_count() > 0) {
+      std::cout << "  fused intermediate traffic avoided: " << simulator.profile_fused_intermediate_bytes_avoided() << " bytes / frame\n";
+    }
   }
   std::cout << "  latency mean / P99:  " << mean << " / " << percentile(latency, 0.99) << " us\n"
             << "  latency min / max:   " << *std::min_element(latency.begin(), latency.end()) << " / " << *std::max_element(latency.begin(), latency.end()) << " us\n"
