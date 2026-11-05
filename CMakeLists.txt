@@ -105,6 +105,10 @@ if(BUILD_TESTING)
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_fused_persistent_weights.conf)
   set_tests_properties(combined_profile_mapping_policy_smoke PROPERTIES
                        PASS_REGULAR_EXPRESSION "fused intermediate traffic avoided: 50176 bytes / frame")
+  add_test(NAME profile_precision_policy_scales_only_declared_storage_and_npu_energy
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/check_profile_precision_policy.sh $<TARGET_FILE:axissim>
+                   ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_profiled.conf
+                   ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_fp16_storage.conf)
   add_test(NAME mnist12_profiled_burst_qos_smoke
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/qos/mnist12_burst.conf)
   set_tests_properties(mnist12_profiled_burst_qos_smoke PROPERTIES

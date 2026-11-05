@@ -53,3 +53,14 @@ from later frames. `per_frame_bytes` remains the backward-compatible static
 avoided. It does not
 claim cache behavior, compiler-managed residency, accuracy preservation, or
 measured silicon performance.
+
+The same artifact can declare a graph-wide storage-precision mapping policy.
+The profile must first carry an extractor-derived `tensor_storage_precision`
+in its source metadata; the plan must name that exact source precision and a
+target of `fp32`, `fp16`, or `int8`. AxisSim then exactly scales the profile's
+declared activation and weight bytes and may apply a separately named
+`npu_arithmetic_energy_scale` to NPU arithmetic energy. It does **not** model
+quantization conversion work, kernel throughput, numerical accuracy, or an
+unverified compiler lowering. The checked-in FP16 case is therefore an
+explicit storage/energy sensitivity policy, not an accuracy or performance
+claim for MNIST-12.

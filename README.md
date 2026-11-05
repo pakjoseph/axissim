@@ -276,7 +276,8 @@ metadata before interpreting the result.
 The same profiled graph can be evaluated under explicit, reviewable mapping
 policies—not inferred generic “optimization” percentages. The checked-in study
 compares the baseline with a legal direct `Plus30 → ReLU32` fusion, capacity-
-checked persistence for two named NPU weight tensors, and their combination:
+checked persistence for two named NPU weight tensors, their combination, and
+an FP32-to-FP16 storage/energy sensitivity policy:
 
 ```sh
 bash experiments/run_mnist12_mapping_policy_study.sh ./build/axissim \
@@ -291,6 +292,12 @@ two named NPU tensors avoid 13,600 B only after frame 0, subject to a declared
 16 KiB weight-SRAM capacity. These are reproducible **model outputs under this
 profile and configuration**, not a measured compiler transformation, ML
 accuracy result, or silicon-power claim.
+
+The FP16 policy is intentionally separate: it requires extractor-derived FP32
+storage provenance, exactly halves the declared tensor/weight bytes, and uses
+an explicit 0.5 NPU arithmetic-energy multiplier. Its 49.17 µs and 2.48
+µJ/frame output is a sensitivity result—not a claim that MNIST-12 was
+quantized, retained accuracy, or would run at that speed on a real NPU.
 
 `calibrate` compares a traceable reference CSV with the selected model. For `rvv_stream` references that preserve raw RTL cycles, cycles are primary; normalized latency is secondary. It reports predicted/reference values and absolute/relative error for every point:
 

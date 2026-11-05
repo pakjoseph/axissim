@@ -27,10 +27,11 @@ bash experiments/run_mnist12_mapping_policy_study.sh ./build/axissim \
 
 This four-point study holds the static public MNIST-12 operation profile fixed
 and compares only named mapping policies: baseline, one legal single-consumer
-fusion, two capacity-checked persistent NPU weight tensors, and both together.
-Its CSV records traffic, latency, energy, first-frame/steady-state transfer
-totals, and the declared bytes avoided by each policy. It is not a compiler
-benchmark or a silicon measurement.
+fusion, two capacity-checked persistent NPU weight tensors, both together, and
+an FP32-to-FP16 storage/energy sensitivity policy. Its CSV records traffic,
+latency, energy, first-frame/steady-state transfer totals, source/target
+precision, and the declared bytes avoided by each policy. It is not a compiler
+benchmark, quantization-accuracy result, or silicon measurement.
 
 ## Plot a sweep
 

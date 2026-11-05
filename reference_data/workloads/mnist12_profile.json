@@ -274,6 +274,7 @@
         28,
         28
       ]
-    }
+    },
+    "tensor_storage_precision": "fp32"
   }
 }

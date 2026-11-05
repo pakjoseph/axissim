@@ -232,6 +232,7 @@ struct ProfileOperator {
   std::uint64_t weight_bytes = 0;
   std::uint64_t transfer_bytes = 0;
   bool persistent_weights = false;
+  double npu_arithmetic_energy_scale = 1.0;
 };
 
 struct ProfileTransferLedgerEntry {
@@ -244,12 +245,17 @@ struct WorkloadProfile {
   std::string source_url;
   std::string license;
   std::string sha256;
+  std::string declared_storage_precision;
   std::string mapping_plan_id = "implicit-profile-mapping";
   std::string mapping_rule_version = "implicit";
   std::uint64_t fused_intermediate_bytes_avoided = 0;
   std::uint64_t persistent_weight_bytes_avoided_per_steady_frame = 0;
+  std::uint64_t precision_traffic_bytes_avoided_per_frame = 0;
   int fusion_count = 0;
   int persistent_weight_operator_count = 0;
+  std::string source_storage_precision = "profile-native";
+  std::string target_storage_precision = "profile-native";
+  double mapped_npu_arithmetic_energy_scale = 1.0;
   std::vector<ProfileOperator> operators;
 };
 
@@ -271,6 +277,9 @@ struct MappingPlan {
   std::string mapping_rule_version;
   std::vector<MappingPlanEntry> entries;
   std::vector<MappingFusion> fusions;
+  std::string source_storage_precision;
+  std::string target_storage_precision;
+  double npu_arithmetic_energy_scale = 1.0;
 };
 
 [[nodiscard]] std::optional<std::string> json_string_field(const std::string& object, const std::string& key) {
@@ -288,6 +297,19 @@ struct MappingPlan {
     return static_cast<std::uint64_t>(std::stoull(match[1].str()));
   } catch (const std::exception&) {
     throw std::runtime_error("Invalid unsigned JSON field: " + key);
+  }
+}
+
+[[nodiscard]] std::optional<double> json_double_field(const std::string& object, const std::string& key) {
+  const std::regex expression("\\\"" + key + "\\\"\\s*:\\s*([-+]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][-+]?[0-9]+)?)");
+  std::smatch match;
+  if (!std::regex_search(object, match, expression)) return std::nullopt;
+  try {
+    const double value = std::stod(match[1].str());
+    if (!std::isfinite(value)) throw std::runtime_error("invalid");
+    return value;
+  } catch (const std::exception&) {
+    throw std::runtime_error("Invalid numeric JSON field: " + key);
   }
 }
 
@@ -344,6 +366,7 @@ struct MappingPlan {
   profile.source_url = json_string_field(json, "source_url").value_or("");
   profile.license = json_string_field(json, "license").value_or("");
   profile.sha256 = json_string_field(json, "model_sha256").value_or("");
+  profile.declared_storage_precision = json_string_field(json, "tensor_storage_precision").value_or("");
   if (profile.source_url.empty() || profile.license.empty() || profile.sha256.size() != 64) {
     throw std::runtime_error("Workload profile source URL, license, and 64-character SHA-256 are required");
   }
@@ -417,6 +440,26 @@ struct MappingPlan {
   if (plan.id.empty() || plan.mapping_rule_version.empty() || plan.source_model_sha256 != profile.sha256) {
     throw std::runtime_error("Mapping plan requires id/rule version and an exact workload source-model SHA-256 match");
   }
+  const bool has_source_precision = json.find("\"source_storage_precision\"") != std::string::npos;
+  const bool has_target_precision = json.find("\"target_storage_precision\"") != std::string::npos;
+  if (has_source_precision != has_target_precision) {
+    throw std::runtime_error("Mapping-plan precision policy must name both source_storage_precision and target_storage_precision");
+  }
+  if (has_source_precision) {
+    plan.source_storage_precision = json_string_field(json, "source_storage_precision").value_or("");
+    plan.target_storage_precision = json_string_field(json, "target_storage_precision").value_or("");
+    const auto valid_precision = [](const std::string& value) { return value == "fp32" || value == "fp16" || value == "int8"; };
+    if (!valid_precision(plan.source_storage_precision) || !valid_precision(plan.target_storage_precision)) {
+      throw std::runtime_error("Mapping-plan storage precision must be fp32, fp16, or int8");
+    }
+    if (profile.declared_storage_precision != plan.source_storage_precision) {
+      throw std::runtime_error("Mapping-plan source storage precision must match the workload profile's declared tensor_storage_precision");
+    }
+  }
+  plan.npu_arithmetic_energy_scale = json_double_field(json, "npu_arithmetic_energy_scale").value_or(1.0);
+  if (plan.npu_arithmetic_energy_scale <= 0.0) {
+    throw std::runtime_error("Mapping-plan npu_arithmetic_energy_scale must be positive");
+  }
   const auto objects = json_array_objects(json, "entries");
   std::set<std::string> mapped_ids;
   for (const auto& object : objects) {
@@ -479,6 +522,23 @@ struct MappingPlan {
 void apply_mapping_plan(WorkloadProfile& profile, const MappingPlan& plan, const Config& config) {
   std::map<std::string, MappingPlanEntry> mapping_by_id;
   for (const auto& entry : plan.entries) mapping_by_id.emplace(entry.operator_id, entry);
+  const auto precision_bits = [](const std::string& value) -> std::uint64_t {
+    if (value == "fp32") return 32;
+    if (value == "fp16") return 16;
+    if (value == "int8") return 8;
+    throw std::runtime_error("Unsupported storage precision");
+  };
+  const bool precision_changed = !plan.source_storage_precision.empty() && plan.source_storage_precision != plan.target_storage_precision;
+  const auto source_bits = precision_changed ? precision_bits(plan.source_storage_precision) : std::uint64_t{0};
+  const auto target_bits = precision_changed ? precision_bits(plan.target_storage_precision) : std::uint64_t{0};
+  const auto scale_bytes = [source_bits, target_bits](std::uint64_t bytes, const std::string& operator_id) {
+    if (bytes == 0) return bytes;
+    if (source_bits < target_bits || bytes > std::numeric_limits<std::uint64_t>::max() / target_bits ||
+        (bytes * target_bits) % source_bits != 0) {
+      throw std::runtime_error("Mapping-plan precision cannot exactly scale profiled bytes for operator " + operator_id);
+    }
+    return bytes * target_bits / source_bits;
+  };
   std::uint64_t persistent_weight_bytes = 0;
   for (auto& operation : profile.operators) {
     const auto it = mapping_by_id.find(operation.id);
@@ -489,6 +549,15 @@ void apply_mapping_plan(WorkloadProfile& profile, const MappingPlan& plan, const
     if (it->second.mapping_class != operation.mapping_class) {
       throw std::runtime_error("Mapping-plan placement is unsupported for operator " + operation.id + " in v1; provide the baseline class");
     }
+    if (precision_changed) {
+      const auto before = operation.transfer_bytes;
+      operation.activation_read_bytes = scale_bytes(operation.activation_read_bytes, operation.id);
+      operation.activation_write_bytes = scale_bytes(operation.activation_write_bytes, operation.id);
+      operation.weight_bytes = scale_bytes(operation.weight_bytes, operation.id);
+      operation.transfer_bytes = operation.activation_read_bytes + operation.activation_write_bytes + operation.weight_bytes;
+      profile.precision_traffic_bytes_avoided_per_frame += before - operation.transfer_bytes;
+    }
+    if (operation.mapping_class == "npu_compute") operation.npu_arithmetic_energy_scale = plan.npu_arithmetic_energy_scale;
     if (it->second.weight_residency == "persistent") {
       if (operation.mapping_class != "npu_compute" || operation.weight_bytes == 0) {
         throw std::runtime_error("Persistent weight residency requires an NPU operator with declared weights: " + operation.id);
@@ -518,6 +587,11 @@ void apply_mapping_plan(WorkloadProfile& profile, const MappingPlan& plan, const
   }
   profile.mapping_plan_id = plan.id;
   profile.mapping_rule_version = plan.mapping_rule_version;
+  if (!plan.source_storage_precision.empty()) {
+    profile.source_storage_precision = plan.source_storage_precision;
+    profile.target_storage_precision = plan.target_storage_precision;
+  }
+  profile.mapped_npu_arithmetic_energy_scale = plan.npu_arithmetic_energy_scale;
 }
 
 struct TraceEvent { int frame; std::string task; std::string resource; double start_us; double end_us; };
@@ -552,6 +626,10 @@ class Simulator {
   [[nodiscard]] int profile_fusion_count() const { return profile_.fusion_count; }
   [[nodiscard]] std::uint64_t profile_persistent_weight_bytes_avoided_per_steady_frame() const { return profile_.persistent_weight_bytes_avoided_per_steady_frame; }
   [[nodiscard]] int profile_persistent_weight_operator_count() const { return profile_.persistent_weight_operator_count; }
+  [[nodiscard]] std::uint64_t profile_precision_traffic_bytes_avoided_per_frame() const { return profile_.precision_traffic_bytes_avoided_per_frame; }
+  [[nodiscard]] const std::string& profile_source_storage_precision() const { return profile_.source_storage_precision; }
+  [[nodiscard]] const std::string& profile_target_storage_precision() const { return profile_.target_storage_precision; }
+  [[nodiscard]] double profile_mapped_npu_arithmetic_energy_scale() const { return profile_.mapped_npu_arithmetic_energy_scale; }
   [[nodiscard]] std::uint64_t profile_first_frame_transfer_bytes() const { return profile_first_frame_transfer_bytes_; }
   [[nodiscard]] std::uint64_t profile_steady_state_transfer_bytes() const { return profile_steady_state_transfer_bytes_; }
   [[nodiscard]] double profile_vector_ops_per_frame() const {
@@ -802,7 +880,7 @@ class Simulator {
       } else if (operation.mapping_class == "npu_compute") {
         task.resource = RuntimeResource::Npu;
         task.duration_us = std::ceil(static_cast<double>(operation.macs) / c_.npu_macs) / (c_.npu_frequency_ghz * 1000.0);
-        task.npu_energy_pj = static_cast<double>(operation.macs) * c_.npu_mac_pj * c_.npu_arithmetic_energy_scale * c_.arithmetic_voltage_ratio * c_.arithmetic_voltage_ratio;
+        task.npu_energy_pj = static_cast<double>(operation.macs) * c_.npu_mac_pj * c_.npu_arithmetic_energy_scale * operation.npu_arithmetic_energy_scale * c_.arithmetic_voltage_ratio * c_.arithmetic_voltage_ratio;
         task.name = "profile_npu:" + operation.id;
       } else {
         task.resource = RuntimeResource::Rvv;
@@ -1118,7 +1196,11 @@ void write_result_json(const std::string& path, const Simulator& simulator, cons
          << "  \"mapping_effects\": {\"fusion_count\": " << simulator.profile_fusion_count()
          << ", \"fused_intermediate_bytes_avoided_per_frame\": " << simulator.profile_fused_intermediate_bytes_avoided()
          << ", \"persistent_weight_operator_count\": " << simulator.profile_persistent_weight_operator_count()
-         << ", \"persistent_weight_bytes_avoided_per_steady_frame\": " << simulator.profile_persistent_weight_bytes_avoided_per_steady_frame() << "},\n"
+         << ", \"persistent_weight_bytes_avoided_per_steady_frame\": " << simulator.profile_persistent_weight_bytes_avoided_per_steady_frame()
+         << ", \"source_storage_precision\": \"" << json_escape(simulator.profile_source_storage_precision()) << "\""
+         << ", \"target_storage_precision\": \"" << json_escape(simulator.profile_target_storage_precision()) << "\""
+         << ", \"precision_traffic_bytes_avoided_per_frame\": " << simulator.profile_precision_traffic_bytes_avoided_per_frame()
+         << ", \"mapped_npu_arithmetic_energy_scale\": " << simulator.profile_mapped_npu_arithmetic_energy_scale() << "},\n"
          << "  \"energy\": {\"per_frame_uj\": " << energy_per_frame_uj << ", \"static_per_frame_uj\": " << static_energy_pj / latency.size() / 1'000'000.0 << ", \"it_per_frame_uj\": " << it_energy_pj / latency.size() / 1'000'000.0 << ", \"facility_per_frame_uj\": " << config.pue * it_energy_pj / latency.size() / 1'000'000.0 << ", \"vector_pj\": " << simulator.vector_energy_pj()
          << ", \"npu_arithmetic_pj\": " << simulator.npu_arithmetic_energy_pj() << ", \"dram_pj\": " << simulator.dram_energy_pj()
          << ", \"dma_pj\": " << simulator.dma_energy_pj() << "},\n"
@@ -1189,6 +1271,12 @@ void print_results(const Simulator& simulator, const Config& config) {
                 << " (first / steady transfer: " << simulator.profile_first_frame_transfer_bytes() << " / "
                 << simulator.profile_steady_state_transfer_bytes() << " bytes; "
                 << simulator.profile_persistent_weight_bytes_avoided_per_steady_frame() << " bytes avoided after frame 0)\n";
+    }
+    if (simulator.profile_source_storage_precision() != simulator.profile_target_storage_precision()) {
+      std::cout << "  profiled storage precision: " << simulator.profile_source_storage_precision() << " -> "
+                << simulator.profile_target_storage_precision() << " (" << simulator.profile_precision_traffic_bytes_avoided_per_frame()
+                << " bytes/frame traffic avoided; NPU arithmetic energy scale " << simulator.profile_mapped_npu_arithmetic_energy_scale()
+                << ", mapping assumption only)\n";
     }
   }
   std::cout << "  latency mean / P99:  " << mean << " / " << percentile(latency, 0.99) << " us\n"

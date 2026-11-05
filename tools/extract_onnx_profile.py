@@ -20,6 +20,7 @@ from collections.abc import Iterable
 SUPPORTED_NPU = {"Conv", "Gemm", "MatMul"}
 SUPPORTED_RVV = {"Add", "Mul", "Sub", "Div", "Relu", "Clip", "Resize", "Sigmoid", "Tanh", "MaxPool", "AveragePool", "GlobalAveragePool", "BatchNormalization", "Flatten", "Reshape", "Softmax", "Identity"}
 ELEMENT_BYTES = {1: 4, 2: 1, 3: 1, 4: 2, 5: 2, 6: 4, 7: 8, 9: 1, 10: 2, 11: 8, 12: 4, 13: 8, 14: 8, 15: 16, 16: 2}
+STORAGE_PRECISION = {1: "fp32", 10: "fp16", 2: "int8", 3: "int8"}
 
 
 def fail(message: str) -> None:
@@ -60,6 +61,14 @@ def tensor_bytes(shapes: dict[str, tuple[list[int], int]], name: str) -> int:
     for dimension in dimensions:
         count *= dimension
     return count * ELEMENT_BYTES[element_type]
+
+
+def uniform_storage_precision(shapes: dict[str, tuple[list[int], int]]) -> str | None:
+    """Return a declared storage label only when every inferred tensor agrees."""
+    labels = {STORAGE_PRECISION.get(element_type) for _, element_type in shapes.values()}
+    if None in labels or len(labels) != 1:
+        return None
+    return labels.pop()
 
 
 def product(values: Iterable[int]) -> int:
@@ -198,6 +207,9 @@ def main() -> int:
             "operators": operators,
             "scope": "Static ONNX operation and tensor-traffic characterization; not a measured runtime, compiler mapping, or silicon-power validation.",
         }
+        precision = uniform_storage_precision(shapes)
+        if precision is not None:
+            artifact["source"]["tensor_storage_precision"] = precision
         arguments.output.parent.mkdir(parents=True, exist_ok=True)
         arguments.output.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     except (ValueError, onnx.checker.ValidationError, onnx.shape_inference.InferenceError) as error:
