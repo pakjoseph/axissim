@@ -76,6 +76,12 @@ python3 tools/evaluate_onnx_classifier.py baseline.onnx candidate.onnx eval.npz 
   --output accuracy-evidence.json
 ```
 
+For canonical MNIST IDX gzip files, `tools/prepare_mnist_idx_dataset.py`
+creates the local NPZ after explicitly converting grayscale pixels to FP32
+`[0,1]` `N×1×28×28` inputs. Do not check downloaded datasets or an evidence
+artifact into the repository until the candidate model's preprocessing and
+accuracy result have been independently reviewed.
+
 The same artifact can declare a graph-wide storage-precision mapping policy.
 The profile must first carry an extractor-derived `tensor_storage_precision`
 in its source metadata; the plan must name that exact source precision and a

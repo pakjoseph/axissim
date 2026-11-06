@@ -35,7 +35,8 @@ def main() -> int:
     parser.add_argument("--dataset-source-url", required=True)
     parser.add_argument("--input-key", default="inputs")
     parser.add_argument("--labels-key", default="labels")
-    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--batch-size", type=int, default=1,
+                        help="inference batch size; use 1 for static single-image models such as public MNIST-12")
     parser.add_argument("--output", type=pathlib.Path, required=True)
     args = parser.parse_args()
     if len(args.source_model_sha256) != 64 or args.batch_size < 1:
