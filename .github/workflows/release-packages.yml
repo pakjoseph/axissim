@@ -1,0 +1,43 @@
+name: Release packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag recorded in package provenance
+        required: true
+        type: string
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          arch: win64_msvc2022_64
+      - name: Build portable Windows application
+        shell: pwsh
+        run: ./scripts/package_windows.ps1 -BuildDir build-release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AxisSim-windows-x64
+          path: build-release/AxisSim-windows-x64.zip
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Qt and Debian packaging tools
+        run: sudo apt-get update && sudo apt-get install --yes qt6-base-dev dpkg-dev
+      - name: Build Linux application packages
+        run: ./scripts/package_linux.sh build-release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AxisSim-linux-x64
+          path: |
+            build-release/*.deb
+            build-release/AxisSim-linux-*.tar.gz
+          if-no-files-found: error

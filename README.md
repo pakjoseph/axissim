@@ -159,7 +159,9 @@ script emits both a native-architecture tarball and a Debian/Ubuntu `.deb`
 with Qt runtime dependencies and an application-menu launcher. An AppImage is
 intentionally left for a later, separately verified distribution pipeline.
 Release artifacts are platform-specific and must be built/tested on their
-target OS.
+target OS. The repository's **Release packages** workflow builds those native
+artifacts on Windows and Ubuntu runners before they are attached to a GitHub
+Release.
 
 ## Desktop explorer
 
