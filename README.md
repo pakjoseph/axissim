@@ -293,6 +293,13 @@ two named NPU tensors avoid 13,600 B only after frame 0, subject to a declared
 profile and configuration**, not a measured compiler transformation, ML
 accuracy result, or silicon-power claim.
 
+AxisSim also checks that a proposed mapping is feasible before it is treated
+as an optimization. The checked-in `mnist12_persistent_weights_insufficient_sram.conf`
+uses the same named persistent-weight plan with only 8 KiB of dedicated weight
+SRAM; it is intentionally rejected because the plan requires 13,600 B. This
+negative case is covered by CI and is not included in the six-policy result
+chart.
+
 The FP16 policy is intentionally separate: it requires extractor-derived FP32
 storage provenance, exactly halves the declared tensor/weight bytes, and uses
 an explicit 0.5 NPU arithmetic-energy multiplier. Its 49.17 µs and 2.48

@@ -54,6 +54,12 @@ avoided. It does not
 claim cache behavior, compiler-managed residency, accuracy preservation, or
 measured silicon performance.
 
+The checked-in `mnist12_persistent_weights_insufficient_sram.conf` is a
+deliberately invalid companion scenario: its 8 KiB dedicated weight store
+cannot hold the plan's 13,600 B of named persistent tensors. AxisSim rejects
+it before scheduling work and reports both required and configured capacity.
+It is a validation guardrail, not a policy-comparison result.
+
 An optional `accuracy_evidence` path in a mapping plan may point to an
 `axissim.accuracy-evidence.v1` artifact. It must bind the exact mapping-plan
 ID and source-model SHA-256 and record an externally evaluated metric, dataset,

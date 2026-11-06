@@ -101,6 +101,9 @@ if(BUILD_TESTING)
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_persistent_weights.conf
                    --set weight_sram_capacity_bytes=1)
   set_tests_properties(rejects_profile_weight_residency_that_exceeds_declared_sram PROPERTIES WILL_FAIL TRUE)
+  add_test(NAME rejects_named_profile_weight_residency_with_actionable_capacity_error
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/check_rejected_profile_residency.sh $<TARGET_FILE:axissim>
+                   ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_persistent_weights_insufficient_sram.conf)
   add_test(NAME combined_profile_mapping_policy_smoke
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_fused_persistent_weights.conf)
   set_tests_properties(combined_profile_mapping_policy_smoke PROPERTIES

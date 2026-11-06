@@ -877,7 +877,7 @@ class AxisSimWindow final : public QMainWindow {
     auto* mapping_titles = new QVBoxLayout();
     auto* mapping_title = new QLabel("Public-model Mapping Lab", mapping_page);
     mapping_title->setObjectName("sectionTitle");
-    auto* mapping_note = mutedLabel("Evaluate six checked-in mapping policies over the same MNIST-12 profile. Every value is emitted by the CLI; only the controlled INT8 policy carries external accuracy evidence.", mapping_page);
+    auto* mapping_note = mutedLabel("Evaluate six checked-in mapping policies over the same MNIST-12 profile. Every value is emitted by the CLI; only the controlled INT8 policy carries external accuracy evidence. A separate 8 KiB persistent-weight scenario is deliberately rejected because its named tensors require 13,600 B.", mapping_page);
     mapping_note->setWordWrap(true);
     mapping_titles->addWidget(mapping_title);
     mapping_titles->addWidget(mapping_note);
@@ -1916,7 +1916,7 @@ class AxisSimWindow final : public QMainWindow {
           .arg(source.value("license").toString("recorded upstream"))
           .arg(source.value("model_sha256").toString("unavailable"))
           .arg(source.value("source_url").toString("source unavailable"))
-          .arg(accuracy_text));
+          .arg(accuracy_text) + "\nCapacity guardrail · The checked-in 8 KiB persistent-weight scenario is rejected before scheduling because its named tensors require 13,600 B; it is not a performance result.");
     } else {
       profile_evidence_->setText("No public workload profile is selected. Profile evidence appears here when a profiled-graph scenario runs.");
     }
