@@ -322,6 +322,7 @@ class AxisSimWindow final : public QMainWindow {
     scenario_->addItem("MNIST-12 · fused mapping", project_root_.filePath("configs/workloads/mnist12_plus_relu_fused.conf"));
     scenario_->addItem("MNIST-12 · persistent weights", project_root_.filePath("configs/workloads/mnist12_persistent_weights.conf"));
     scenario_->addItem("MNIST-12 · FP16 sensitivity", project_root_.filePath("configs/workloads/mnist12_fp16_storage.conf"));
+    scenario_->addItem("MNIST-12 · controlled INT8", project_root_.filePath("configs/workloads/mnist12_controlled_int8.conf"));
     scenario_->addItem("MNIST-12 · fused + persistent", project_root_.filePath("configs/workloads/mnist12_fused_persistent_weights.conf"));
     scenario_->insertSeparator(scenario_->count());
     scenario_->addItem("Fixed power-budget study", project_root_.filePath("configs/power_budget/manifest.conf"));
@@ -876,7 +877,7 @@ class AxisSimWindow final : public QMainWindow {
     auto* mapping_titles = new QVBoxLayout();
     auto* mapping_title = new QLabel("Public-model Mapping Lab", mapping_page);
     mapping_title->setObjectName("sectionTitle");
-    auto* mapping_note = mutedLabel("Evaluate five checked-in mapping policies over the same MNIST-12 profile. Every value is emitted by the CLI; policies are assumptions, not compiler or silicon measurements.", mapping_page);
+    auto* mapping_note = mutedLabel("Evaluate six checked-in mapping policies over the same MNIST-12 profile. Every value is emitted by the CLI; only the controlled INT8 policy carries external accuracy evidence.", mapping_page);
     mapping_note->setWordWrap(true);
     mapping_titles->addWidget(mapping_title);
     mapping_titles->addWidget(mapping_note);
@@ -1602,6 +1603,7 @@ class AxisSimWindow final : public QMainWindow {
         {"Persistent weights", project_root_.filePath("configs/workloads/mnist12_persistent_weights.conf")},
         {"Fusion + residency", project_root_.filePath("configs/workloads/mnist12_fused_persistent_weights.conf")},
         {"FP16 sensitivity", project_root_.filePath("configs/workloads/mnist12_fp16_storage.conf")},
+        {"Controlled INT8", project_root_.filePath("configs/workloads/mnist12_controlled_int8.conf")},
     };
   }
 
