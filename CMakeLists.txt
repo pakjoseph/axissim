@@ -89,6 +89,19 @@ if(TARGET axissim-gui AND NOT APPLE)
 endif()
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/configs ${CMAKE_SOURCE_DIR}/reference_data
         DESTINATION ${CMAKE_INSTALL_DATADIR}/axissim/axissim-data)
+if(TARGET axissim-gui AND UNIX AND NOT APPLE)
+  configure_file(${CMAKE_SOURCE_DIR}/resources/axissim.desktop.in
+                 ${CMAKE_BINARY_DIR}/axissim.desktop @ONLY)
+  install(FILES ${CMAKE_BINARY_DIR}/axissim.desktop
+          DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+  set(CPACK_GENERATOR "TGZ;DEB")
+  set(CPACK_PACKAGE_NAME "axissim")
+  set(CPACK_PACKAGE_VENDOR "AxisSim")
+  set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "AI architecture performance and energy exploration workbench")
+  set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt6widgets6, libqt6gui6, libqt6core6")
+  set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+  include(CPack)
+endif()
 
 include(CTest)
 if(BUILD_TESTING)

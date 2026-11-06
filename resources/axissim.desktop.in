@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=AxisSim
+Comment=AI architecture performance and energy exploration workbench
+Exec=axissim-gui
+Categories=Development;Science;
+Terminal=false

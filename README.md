@@ -155,9 +155,11 @@ Create a native downloadable archive with:
 ```
 
 The Windows script runs `windeployqt` and emits a portable ZIP. The Linux
-script emits a native-architecture tarball; an AppImage is intentionally left
-for a later, separately verified distribution pipeline. Release artifacts are
-platform-specific and must be built/tested on their target OS.
+script emits both a native-architecture tarball and a Debian/Ubuntu `.deb`
+with Qt runtime dependencies and an application-menu launcher. An AppImage is
+intentionally left for a later, separately verified distribution pipeline.
+Release artifacts are platform-specific and must be built/tested on their
+target OS.
 
 ## Desktop explorer
 
