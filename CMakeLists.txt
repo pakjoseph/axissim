@@ -6,7 +6,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_executable(axissim src/main.cpp)
-target_compile_options(axissim PRIVATE -Wall -Wextra -Wpedantic -Werror)
+function(axissim_enable_strict_warnings target)
+  if(MSVC)
+    target_compile_options(${target} PRIVATE /W4 /WX)
+  else()
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+endfunction()
+axissim_enable_strict_warnings(axissim)
 
 option(AXISSIM_BUILD_GUI "Build the Qt 6 desktop explorer when Qt Widgets is available" ON)
 if(AXISSIM_BUILD_GUI)
@@ -47,13 +54,41 @@ if(AXISSIM_BUILD_GUI)
                          COMMENT "Bundling AxisSim CLI, scenarios, and reference data")
     else()
       add_executable(axissim-gui ${AXISSIM_GUI_SOURCES})
+      # A portable Windows/Linux layout keeps the GUI, authoritative CLI, and
+      # checked-in scenarios together. The GUI resolves `axissim-data` beside
+      # its executable before falling back to a developer source tree.
+      add_dependencies(axissim-gui axissim)
+      set(AXISSIM_PORTABLE_DIR "${CMAKE_BINARY_DIR}/portable")
+      add_custom_command(TARGET axissim-gui POST_BUILD
+                         COMMAND ${CMAKE_COMMAND} -E make_directory ${AXISSIM_PORTABLE_DIR}/axissim-data
+                         COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                                 $<TARGET_FILE:axissim>
+                                 ${AXISSIM_PORTABLE_DIR}/axissim-cli${CMAKE_EXECUTABLE_SUFFIX}
+                         COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                                 $<TARGET_FILE:axissim-gui>
+                                 ${AXISSIM_PORTABLE_DIR}/AxisSim${CMAKE_EXECUTABLE_SUFFIX}
+                         COMMAND ${CMAKE_COMMAND} -E copy_directory
+                                 ${CMAKE_SOURCE_DIR}/configs
+                                 ${AXISSIM_PORTABLE_DIR}/axissim-data/configs
+                         COMMAND ${CMAKE_COMMAND} -E copy_directory
+                                 ${CMAKE_SOURCE_DIR}/reference_data
+                                 ${AXISSIM_PORTABLE_DIR}/axissim-data/reference_data
+                         COMMENT "Bundling portable AxisSim CLI, scenarios, and reference data")
     endif()
     target_link_libraries(axissim-gui PRIVATE Qt6::Widgets)
-    target_compile_options(axissim-gui PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    axissim_enable_strict_warnings(axissim-gui)
   else()
     message(STATUS "Qt 6 Widgets not found; axissim-gui will not be built")
   endif()
 endif()
+
+include(GNUInstallDirs)
+install(TARGETS axissim RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+if(TARGET axissim-gui AND NOT APPLE)
+  install(TARGETS axissim-gui RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/configs ${CMAKE_SOURCE_DIR}/reference_data
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/axissim/axissim-data)
 
 include(CTest)
 if(BUILD_TESTING)

@@ -6,12 +6,24 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    name: ${{ matrix.os }} ${{ matrix.test == 'true' && 'test' || 'build' }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            test: 'true'
+          - os: windows-latest
+            test: 'false'
+          - os: macos-latest
+            test: 'false'
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DAXISSIM_BUILD_GUI=OFF
       - name: Build
         run: cmake --build build --parallel
       - name: Test
+        if: matrix.test == 'true'
         run: ctest --test-dir build --output-on-failure

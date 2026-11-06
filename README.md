@@ -136,6 +136,29 @@ ctest --test-dir build --output-on-failure
 
 GitHub Actions runs the same configure, build, and CTest workflow on every push and pull request; see [CI workflow](.github/workflows/ci.yml).
 
+### Windows and Linux downloads
+
+AxisSim's C++ CLI is built in CI on Windows x64, Linux x64, and macOS ARM64.
+When Qt 6 Widgets is available, Windows and Linux builds also create a
+`portable/` layout containing the desktop workbench, authoritative CLI, and
+the required `axissim-data/` scenarios and reference data. This means the GUI
+does not depend on a checked-out source tree after packaging.
+
+Create a native downloadable archive with:
+
+```sh
+# Linux (native Qt 6 build host; GUI uses the system Qt runtime)
+./scripts/package_linux.sh
+
+# Windows (Developer PowerShell with Qt's windeployqt on PATH)
+.\scripts\package_windows.ps1
+```
+
+The Windows script runs `windeployqt` and emits a portable ZIP. The Linux
+script emits a native-architecture tarball; an AppImage is intentionally left
+for a later, separately verified distribution pipeline. Release artifacts are
+platform-specific and must be built/tested on their target OS.
+
 ## Desktop explorer
 
 When Qt 6 Widgets is available, CMake also builds `axissim-gui`, a native desktop architecture workbench. It launches the same CLI model used by the command line and visualizes the resulting JSON and trace artifacts; it does not contain a second performance model.

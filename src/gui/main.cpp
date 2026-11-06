@@ -1139,6 +1139,8 @@ class AxisSimWindow final : public QMainWindow {
     const QDir application_dir(QCoreApplication::applicationDirPath());
     const QStringList candidates = {
         application_dir.absoluteFilePath("../Resources/axissim-data"),
+        application_dir.absoluteFilePath("axissim-data"),
+        application_dir.absoluteFilePath("../share/axissim/axissim-data"),
         application_dir.absoluteFilePath("../../../.."),
         application_dir.absoluteFilePath(".."),
         QDir::currentPath(),
@@ -1155,6 +1157,9 @@ class AxisSimWindow final : public QMainWindow {
     const QString application_path = QFileInfo(QCoreApplication::applicationFilePath()).canonicalFilePath();
     const QStringList candidates = {
         application_dir.filePath("axissim-cli"),
+#ifdef Q_OS_WIN
+        application_dir.filePath("axissim-cli.exe"),
+#endif
         application_dir.absoluteFilePath("../../../axissim"),
         project_root_.filePath("build/axissim"),
         application_dir.filePath("axissim"),
