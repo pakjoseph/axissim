@@ -16,6 +16,6 @@ test -x "$stage/axissim-cli"
 tar -C "$stage" -czf "$archive" .
 cpak_config="$build_dir/CPackConfig.cmake"
 test -f "$cpak_config"
-cpack --config "$cpak_config" --package-directory "$build_dir" -G DEB
+(cd "$build_dir" && cpack --config "$cpak_config" -G DEB)
 echo "Portable Linux archive: $archive"
 echo "Debian/Ubuntu package: $build_dir"/*.deb
