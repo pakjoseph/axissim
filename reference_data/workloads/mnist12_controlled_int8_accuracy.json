@@ -1,0 +1,26 @@
+{
+  "baseline_model_sha256": "5c688690f8bacf667d4c2074af5ad0646ca328d7ab03eccf944a65b320171bdd",
+  "baseline_value": 0.989,
+  "candidate_minus_baseline": 9.999999999998899e-05,
+  "candidate_model_sha256": "9cbaed9ad33e39350198c4692e63a7f50be8e3ddf13198efa3d9783d969d0b1c",
+  "dataset": "MNIST test set (10,000 IDX examples; grayscale /255)",
+  "dataset_sha256": "27b39ef885cb913b58ce0164856d774fd1e4601ae6416b059c5f4cf2ac5cb68e",
+  "evaluation_status": "external_evaluated",
+  "evaluator": "tools/evaluate_onnx_classifier.py; onnxruntime 1.31.0; CPUExecutionProvider; batch_size=1",
+  "mapping_plan_id": "mnist12_controlled_int8_candidate",
+  "metric": "top1_accuracy_fraction",
+  "quantization": {
+    "activation_type": "QInt8",
+    "calibration_count": 256,
+    "format": "QDQ",
+    "input_key": "inputs",
+    "input_name": "Input3",
+    "method": "onnxruntime.quantize_static",
+    "weight_type": "QInt8"
+  },
+  "schema_version": "axissim.accuracy-evidence.v1",
+  "scope": "Externally evaluated supplied models only; no claim about AxisSim timing, energy, compiler lowering, or target-silicon accuracy.",
+  "source_model_sha256": "5c688690f8bacf667d4c2074af5ad0646ca328d7ab03eccf944a65b320171bdd",
+  "source_url": "https://storage.googleapis.com/cvdf-datasets/mnist/",
+  "value": 0.9891
+}
