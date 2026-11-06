@@ -10,15 +10,16 @@ temporary=$(mktemp)
 trap 'rm -f "$temporary"' EXIT
 
 mkdir -p "$(dirname "$output")"
-echo 'policy,mapping_plan,mean_latency_us,it_energy_per_frame_uj,dram_bytes,first_frame_bytes,steady_state_bytes,source_storage_precision,target_storage_precision,precision_traffic_bytes_avoided_per_frame,mapped_npu_arithmetic_energy_scale,fusion_count,fused_intermediate_bytes_avoided_per_frame,persistent_weight_operator_count,persistent_weight_bytes_avoided_per_steady_frame' > "$output"
+echo 'policy,mapping_plan,mean_latency_us,it_energy_per_frame_uj,dram_bytes,first_frame_bytes,steady_state_bytes,source_storage_precision,target_storage_precision,precision_traffic_bytes_avoided_per_frame,mapped_npu_arithmetic_energy_scale,fusion_count,fused_intermediate_bytes_avoided_per_frame,persistent_weight_operator_count,persistent_weight_bytes_avoided_per_steady_frame,accuracy_evidence_status,accuracy_value' > "$output"
 
-for policy in baseline fused persistent fused_persistent fp16_storage; do
+for policy in baseline fused persistent fused_persistent fp16_storage controlled_int8; do
   case "$policy" in
     baseline) config="$root/configs/workloads/mnist12_profiled.conf" ;;
     fused) config="$root/configs/workloads/mnist12_plus_relu_fused.conf" ;;
     persistent) config="$root/configs/workloads/mnist12_persistent_weights.conf" ;;
     fused_persistent) config="$root/configs/workloads/mnist12_fused_persistent_weights.conf" ;;
     fp16_storage) config="$root/configs/workloads/mnist12_fp16_storage.conf" ;;
+    controlled_int8) config="$root/configs/workloads/mnist12_controlled_int8.conf" ;;
   esac
   "$binary" run "$config" --json "$temporary" >/dev/null
   jq -r --arg policy "$policy" '[
@@ -36,8 +37,10 @@ for policy in baseline fused persistent fused_persistent fp16_storage; do
     .mapping_effects.fusion_count,
     .mapping_effects.fused_intermediate_bytes_avoided_per_frame,
     .mapping_effects.persistent_weight_operator_count,
-    .mapping_effects.persistent_weight_bytes_avoided_per_steady_frame
+    .mapping_effects.persistent_weight_bytes_avoided_per_steady_frame,
+    .accuracy_evidence.status,
+    .accuracy_evidence.value
   ] | @csv' "$temporary" >> "$output"
 done
 
-echo "Wrote five named mapping-policy points to $output"
+echo "Wrote six named mapping-policy points to $output"

@@ -277,7 +277,7 @@ The same profiled graph can be evaluated under explicit, reviewable mapping
 policies—not inferred generic “optimization” percentages. The checked-in study
 compares the baseline with a legal direct `Plus30 → ReLU32` fusion, capacity-
 checked persistence for two named NPU weight tensors, their combination, and
-an FP32-to-FP16 storage/energy sensitivity policy:
+FP32-to-FP16 and controlled FP32-to-INT8 storage/energy policies:
 
 ```sh
 bash experiments/run_mnist12_mapping_policy_study.sh ./build/axissim \
@@ -299,9 +299,29 @@ an explicit 0.5 NPU arithmetic-energy multiplier. Its 49.17 µs and 2.48
 µJ/frame output is a sensitivity result—not a claim that MNIST-12 was
 quantized, retained accuracy, or would run at that speed on a real NPU.
 
+### Verified ML mapping study
+
+The controlled INT8 policy is the one checked-in policy with external accuracy
+evidence. A QDQ INT8 candidate was generated from the pinned public FP32 model
+using 256 declared calibration images, then evaluated with ONNX Runtime CPU on
+all 10,000 MNIST test images under the documented grayscale `/255` input
+contract. Top-1 accuracy was 98.90% for the baseline and 98.91% for that
+candidate. The linked result artifact records both model hashes, the dataset
+hash, quantization settings, evaluator version, and the measured delta.
+
+![MNIST-12 mapping policy study](experiments/figures/mnist12_mapping_policy.png)
+
+For the same static profile and AxisSim configuration, the controlled INT8
+mapping produces **modeled** 45.54 µs mean latency, 1.25 µJ IT energy/frame,
+and 2.18 MB DRAM traffic over 30 frames, versus 56.42 µs, 4.95 µJ/frame, and
+8.71 MB for the FP32 baseline. The accuracy comparison is externally evaluated;
+the latency, energy, and traffic deltas remain analytical model outputs. The
+INT8 plan's 4× storage scaling and 0.25 NPU arithmetic-energy multiplier are
+explicit mapping assumptions, not measurements of a target accelerator.
+
 The desktop app exposes these same scenarios in **Mapping Lab**. Select a
 single named policy from the scenario picker, or choose **Run policy study**
-to run all five through the CLI and inspect the emitted latency, energy, DRAM,
+to run all six through the CLI and inspect the emitted latency, energy, DRAM,
 first/steady transfer ledger, and declared effect side by side.
 
 `calibrate` compares a traceable reference CSV with the selected model. For `rvv_stream` references that preserve raw RTL cycles, cycles are primary; normalized latency is secondary. It reports predicted/reference values and absolute/relative error for every point:

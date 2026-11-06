@@ -1,0 +1,7 @@
+policy,mapping_plan,mean_latency_us,it_energy_per_frame_uj,dram_bytes,first_frame_bytes,steady_state_bytes,source_storage_precision,target_storage_precision,precision_traffic_bytes_avoided_per_frame,mapped_npu_arithmetic_energy_scale,fusion_count,fused_intermediate_bytes_avoided_per_frame,persistent_weight_operator_count,persistent_weight_bytes_avoided_per_steady_frame,accuracy_evidence_status,accuracy_value
+"baseline","mnist12_baseline.json",56.419533,4.954602,8705280,290176,290176,"profile-native","profile-native",0,1.000000,0,0,0,0,"not_supplied",0.000000
+"fused","mnist12_plus_relu_fused.json",53.910733,4.126698,7200000,240000,240000,"profile-native","profile-native",0,1.000000,1,50176,0,0,"not_supplied",0.000000
+"persistent","mnist12_persistent_weights.json",55.762200,4.737682,8310880,290176,276576,"profile-native","profile-native",0,1.000000,0,0,2,13600,"not_supplied",0.000000
+"fused_persistent","mnist12_fused_persistent_weights.json",53.253400,3.909778,6805600,240000,226400,"profile-native","profile-native",0,1.000000,1,50176,2,13600,"not_supplied",0.000000
+"fp16_storage","mnist12_fp16_storage.json",49.165133,2.481994,4352640,145088,145088,"fp32","fp16",145088,0.500000,0,0,0,0,"not_supplied",0.000000
+"controlled_int8","mnist12_controlled_int8.json",45.537933,1.245690,2176320,72544,72544,"fp32","int8",217632,0.250000,0,0,0,0,"external_evaluated",0.989100
