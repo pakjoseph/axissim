@@ -109,6 +109,9 @@ if(BUILD_TESTING)
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/check_profile_precision_policy.sh $<TARGET_FILE:axissim>
                    ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_profiled.conf
                    ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_fp16_storage.conf)
+  add_test(NAME controlled_int8_mapping_binds_external_accuracy_evidence
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/check_controlled_int8_evidence.sh $<TARGET_FILE:axissim>
+                   ${CMAKE_SOURCE_DIR}/configs/workloads/mnist12_controlled_int8.conf)
   add_test(NAME mnist12_profiled_burst_qos_smoke
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/configs/qos/mnist12_burst.conf)
   set_tests_properties(mnist12_profiled_burst_qos_smoke PROPERTIES

@@ -892,8 +892,8 @@ class AxisSimWindow final : public QMainWindow {
     mapping_summary_->setWordWrap(true);
     mapping_layout->addWidget(mapping_summary_);
     mapping_table_ = new QTableWidget(mapping_page);
-    mapping_table_->setColumnCount(8);
-    mapping_table_->setHorizontalHeaderLabels({"Policy", "Mean (µs)", "Δ latency", "IT energy/frame (µJ)", "Δ energy", "DRAM (MB / run)", "Transfer first → steady (B)", "Declared effect"});
+    mapping_table_->setColumnCount(9);
+    mapping_table_->setHorizontalHeaderLabels({"Policy", "Mean (µs)", "Δ latency", "IT energy/frame (µJ)", "Δ energy", "DRAM (MB / run)", "Transfer first → steady (B)", "Accuracy evidence", "Declared effect"});
     mapping_table_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     mapping_table_->horizontalHeader()->setStretchLastSection(true);
     mapping_table_->setMaximumHeight(320);
@@ -1690,6 +1690,7 @@ class AxisSimWindow final : public QMainWindow {
       const QJsonObject traffic = result.value("traffic").toObject();
       const QJsonObject ledger = result.value("profile_transfer_ledger").toObject();
       const QJsonObject effects = result.value("mapping_effects").toObject();
+      const QJsonObject accuracy = result.value("accuracy_evidence").toObject();
       const double mean = latency.value("mean_us").toDouble();
       const double it_energy = energy.value("it_per_frame_uj").toDouble();
       if (it_energy < lowest_energy) { lowest_energy = it_energy; lowest_label = label; }
@@ -1710,6 +1711,7 @@ class AxisSimWindow final : public QMainWindow {
           label == "Baseline" ? "baseline" : QString("%1%").arg(100.0 * (it_energy / baseline_energy - 1.0), 0, 'f', 1),
           QString::number(traffic.value("dram_bytes").toDouble() / 1'000'000.0, 'f', 3),
           QString("%1 → %2").arg(ledger.value("first_frame_bytes").toDouble(), 0, 'f', 0).arg(ledger.value("steady_state_bytes").toDouble(), 0, 'f', 0),
+          accuracy.value("status").toString() == "external_evaluated" ? QString("%1% evaluated").arg(100.0 * accuracy.value("value").toDouble(), 0, 'f', 2) : "not supplied",
           effects_text.join(" · "),
       };
       for (int column = 0; column < values.size(); ++column) {

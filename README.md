@@ -319,6 +319,11 @@ the latency, energy, and traffic deltas remain analytical model outputs. The
 INT8 plan's 4× storage scaling and 0.25 NPU arithmetic-energy multiplier are
 explicit mapping assumptions, not measurements of a target accelerator.
 
+The derived candidate model binary is intentionally not committed. The
+checked-in quantization tool/settings, candidate hash, calibration count,
+dataset hash, and accuracy artifact make the result reviewable without
+redistributing transformed model weights.
+
 The desktop app exposes these same scenarios in **Mapping Lab**. Select a
 single named policy from the scenario picker, or choose **Run policy study**
 to run all six through the CLI and inspect the emitted latency, energy, DRAM,
