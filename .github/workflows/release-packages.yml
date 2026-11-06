@@ -31,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Qt and Debian packaging tools
-        run: sudo apt-get update && sudo apt-get install --yes qt6-base-dev dpkg-dev
+        run: sudo env DEBIAN_FRONTEND=noninteractive apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends qt6-base-dev dpkg-dev
       - name: Build Linux application packages
         run: ./scripts/package_linux.sh build-release
       - uses: actions/upload-artifact@v4
