@@ -6,6 +6,9 @@ set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 build_dir=${1:-"$root/build-linux-release"}
+if [[ "$build_dir" != /* ]]; then
+  build_dir="$root/$build_dir"
+fi
 stage="$build_dir/portable"
 archive="$build_dir/AxisSim-linux-$(uname -m).tar.gz"
 
