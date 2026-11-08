@@ -99,8 +99,9 @@ class KpiCard final : public QFrame {
 class AxisSimWindow final : public QMainWindow {
  public:
   explicit AxisSimWindow(bool exit_after_run = false, QString snapshot_path = {}, QSize snapshot_size = {},
-                         bool tutorial_smoke_run = false, bool tutorial_preview = false, bool mapping_lab_smoke_run = false)
-      : snapshot_path_(std::move(snapshot_path)), exit_after_run_(exit_after_run), tutorial_smoke_run_(tutorial_smoke_run), tutorial_preview_(tutorial_preview), mapping_lab_smoke_run_(mapping_lab_smoke_run) {
+                         bool tutorial_smoke_run = false, bool tutorial_preview = false, bool mapping_lab_smoke_run = false,
+                         bool power_study_smoke_run = false)
+      : snapshot_path_(std::move(snapshot_path)), exit_after_run_(exit_after_run), tutorial_smoke_run_(tutorial_smoke_run), tutorial_preview_(tutorial_preview), mapping_lab_smoke_run_(mapping_lab_smoke_run), power_study_smoke_run_(power_study_smoke_run) {
     project_root_ = findProjectRoot();
     setWindowTitle("AxisSim — AI Architecture Explorer");
     setWindowIcon(QIcon(":/icons/axissim.png"));
@@ -127,6 +128,8 @@ class AxisSimWindow final : public QMainWindow {
       });
     } else if (mapping_lab_smoke_run_) {
       QTimer::singleShot(0, this, [this] { runMappingPolicyStudy(); });
+    } else if (power_study_smoke_run_) {
+      QTimer::singleShot(0, this, [this] { runPowerOpportunityStudy(); });
     } else if (exit_after_run_) {
       QTimer::singleShot(0, this, [this] { runScenario(); });
     }
@@ -205,6 +208,15 @@ class AxisSimWindow final : public QMainWindow {
     double arithmetic_energy_per_frame_uj = 0.0;
     QString dominant_component;
     double dominant_share_percent = 0.0;
+  };
+
+  struct PowerStudyInput {
+    QString label;
+    double arithmetic_scale;
+    double voltage_ratio;
+    int npu_macs;
+    double dram_bandwidth_gbps;
+    QString interpretation;
   };
 
   static QLabel* mutedLabel(const QString& text, QWidget* parent) {
@@ -924,6 +936,44 @@ class AxisSimWindow final : public QMainWindow {
     sweep_->setAccessibleName("RVV lane sweep results");
     lane_layout->addWidget(sweep_, 1);
     compare_tabs->addTab(lane_page, "RVV lane sweep");
+
+    auto* power_page = new QWidget(compare_tabs);
+    auto* power_layout = new QVBoxLayout(power_page);
+    power_layout->setContentsMargins(16, 16, 16, 16);
+    power_layout->setSpacing(10);
+    auto* power_header = new QHBoxLayout();
+    auto* power_titles = new QVBoxLayout();
+    auto* power_title = new QLabel("Power opportunity study", power_page);
+    power_title->setObjectName("sectionTitle");
+    auto* power_note = mutedLabel("Run five checked-in arithmetic-efficiency and capacity scenarios under one explicit 0.23 W IT-power budget. This is a modeled sensitivity study—not a silicon or Titan Core claim.", power_page);
+    power_note->setWordWrap(true);
+    power_titles->addWidget(power_title);
+    power_titles->addWidget(power_note);
+    power_header->addLayout(power_titles, 1);
+    power_run_button_ = new QPushButton("Run power study", power_page);
+    power_run_button_->setObjectName("primaryButton");
+    power_run_button_->setAccessibleName("Run arithmetic efficiency power opportunity study");
+    power_run_button_->setToolTip("Run the checked-in fixed-power sensitivity scenarios with the deterministic CLI");
+    power_header->addWidget(power_run_button_);
+    power_layout->addLayout(power_header);
+    power_summary_ = mutedLabel("No power-study results yet. Run the study to test iso-performance energy sensitivity, compute reinvestment, and a memory-bound counterexample.", power_page);
+    power_summary_->setWordWrap(true);
+    power_layout->addWidget(power_summary_);
+    power_table_ = new QTableWidget(power_page);
+    power_table_->setColumnCount(10);
+    power_table_->setHorizontalHeaderLabels({"Candidate", "Arithmetic scale", "Voltage ratio", "NPU MACs", "DRAM (GB/s)", "Mean (µs)", "Δ latency", "IT energy/frame (µJ)", "IT power / budget (W)", "Interpretation"});
+    power_table_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    power_table_->horizontalHeader()->setStretchLastSection(true);
+    power_table_->setMaximumHeight(320);
+    power_table_->setWordWrap(true);
+    configureTable(power_table_);
+    power_table_->setAccessibleName("Arithmetic efficiency power opportunity study results");
+    power_layout->addWidget(power_table_);
+    power_evidence_ = mutedLabel("Boundary · Arithmetic scale and voltage ratio are explicit energy sensitivities. MAC count and DRAM bandwidth are modeled architecture inputs. Feasibility is limited to the configured IT-power budget; it is not timing closure, thermal signoff, yield, or reliability validation.", power_page);
+    power_evidence_->setObjectName("profileEvidence");
+    power_evidence_->setWordWrap(true);
+    power_layout->addWidget(power_evidence_);
+    compare_tabs->addTab(power_page, "Power opportunity");
     sweep_layout->addWidget(compare_tabs);
     result_views_->addTab(sweep_page, "Candidate comparison");
 
@@ -975,6 +1025,7 @@ class AxisSimWindow final : public QMainWindow {
     connect(tutorial_skip_button_, &QPushButton::clicked, this, [this] { dismissTutorial(); });
     connect(sweep_button_, &QPushButton::clicked, this, [this] { runLaneSweep(); });
     connect(mapping_run_button_, &QPushButton::clicked, this, [this] { runMappingPolicyStudy(); });
+    connect(power_run_button_, &QPushButton::clicked, this, [this] { runPowerOpportunityStudy(); });
     connect(ara_button_, &QPushButton::clicked, this, [this] { runAra2Check(); });
     connect(run_experiment, &QPushButton::clicked, this, [this] { runScenario(); });
     connect(run_npu, &QPushButton::clicked, this, [this] { runScenario(); });
@@ -1734,6 +1785,115 @@ class AxisSimWindow final : public QMainWindow {
     mapping_table_->resizeRowsToContents();
   }
 
+  [[nodiscard]] QVector<PowerStudyInput> powerStudyInputs() const {
+    return {
+        {"Baseline", 1.0, 1.0, 1024, 20.0, "Reference configuration under the configured IT-power budget."},
+        {"Iso-performance arithmetic sensitivity", 0.333333, 1.0, 1024, 20.0, "Same modeled throughput; isolates a 3× NPU arithmetic-energy sensitivity."},
+        {"Voltage sensitivity", 1.0, 0.666667, 1024, 20.0, "Same modeled throughput; applies the explicit V² dynamic-energy sensitivity."},
+        {"Compute reinvestment", 0.333333, 1.0, 4096, 20.0, "Uses lower arithmetic energy to model more MAC capacity under a fixed budget."},
+        {"Memory-constrained reinvestment", 0.333333, 1.0, 4096, 0.5, "Counterexample: more compute is constrained by declared DRAM bandwidth."},
+    };
+  }
+
+  void runPowerOpportunityStudy() {
+    const QString executable = cliExecutable();
+    const QString config = project_root_.filePath("configs/power_budget/manifest.conf");
+    if (executable.isEmpty() || !QFileInfo::exists(config)) {
+      showError("Power study unavailable", "Build the AxisSim CLI with the checked-in power-budget scenario.");
+      return;
+    }
+    power_temporary_ = std::make_unique<QTemporaryDir>();
+    if (!power_temporary_->isValid()) {
+      showError("Unable to create power-study workspace", "AxisSim could not create temporary result artifacts for the power study.");
+      return;
+    }
+    power_study_index_ = 0;
+    power_study_results_.clear();
+    runNextPowerStudyInput();
+  }
+
+  void runNextPowerStudyInput() {
+    const auto inputs = powerStudyInputs();
+    if (power_study_index_ >= static_cast<int>(inputs.size())) {
+      populatePowerOpportunityStudy();
+      finishProcess(true, "Power opportunity study complete");
+      if (power_study_smoke_run_) {
+        QCoreApplication::exit(power_table_->rowCount() == static_cast<int>(inputs.size()) ? 0 : 1);
+      }
+      return;
+    }
+    const auto input = inputs[power_study_index_];
+    const QString config = project_root_.filePath("configs/power_budget/manifest.conf");
+    const QString json_path = power_temporary_->filePath(QString("power_%1.json").arg(power_study_index_));
+    beginProcess(QString("Evaluating %1…").arg(input.label));
+    connect(process_.get(), qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
+            [this, input, json_path](int exit_code, QProcess::ExitStatus exit_status) {
+              const QString output = QString::fromUtf8(process_->readAllStandardOutput() + process_->readAllStandardError());
+              if (exit_status != QProcess::NormalExit || exit_code != 0) {
+                finishProcess(false, "Power opportunity study failed");
+                showError("AxisSim power study failed", output);
+                return;
+              }
+              QFile result_file(json_path);
+              QJsonParseError parse_error;
+              const QJsonDocument document = result_file.open(QIODevice::ReadOnly)
+                  ? QJsonDocument::fromJson(result_file.readAll(), &parse_error) : QJsonDocument();
+              if (parse_error.error != QJsonParseError::NoError || !document.isObject()) {
+                finishProcess(false, "Power-study result invalid");
+                showError("AxisSim power-study result unavailable", "The CLI did not emit valid result JSON for " + input.label + ".");
+                return;
+              }
+              power_study_results_.push_back({input, document.object()});
+              ++power_study_index_;
+              QTimer::singleShot(0, this, [this] { runNextPowerStudyInput(); });
+            });
+    process_->setWorkingDirectory(QFileInfo(config).absolutePath());
+    process_->start(cliExecutable(), {"run", config, "--set", "npu_arithmetic_energy_scale=" + QString::number(input.arithmetic_scale, 'g', 8),
+                                      "--set", "arithmetic_voltage_ratio=" + QString::number(input.voltage_ratio, 'g', 8),
+                                      "--set", "npu_macs=" + QString::number(input.npu_macs),
+                                      "--set", "dram_bandwidth_gbps=" + QString::number(input.dram_bandwidth_gbps, 'g', 8), "--json", json_path});
+  }
+
+  void populatePowerOpportunityStudy() {
+    power_table_->setRowCount(0);
+    if (power_study_results_.isEmpty()) return;
+    const QJsonObject baseline = power_study_results_.front().second;
+    const double baseline_latency = baseline.value("latency").toObject().value("mean_us").toDouble();
+    const double baseline_energy = baseline.value("energy").toObject().value("it_per_frame_uj").toDouble();
+    const QJsonObject iso = power_study_results_.at(1).second;
+    const double iso_latency = iso.value("latency").toObject().value("mean_us").toDouble();
+    const double iso_energy = iso.value("energy").toObject().value("it_per_frame_uj").toDouble();
+    for (const auto& [input, result] : power_study_results_) {
+      const QJsonObject latency = result.value("latency").toObject();
+      const QJsonObject energy = result.value("energy").toObject();
+      const QJsonObject power = result.value("power").toObject();
+      const double mean = latency.value("mean_us").toDouble();
+      const double it_energy = energy.value("it_per_frame_uj").toDouble();
+      const int row = power_table_->rowCount();
+      power_table_->insertRow(row);
+      const QStringList values = {
+          input.label,
+          QString::number(input.arithmetic_scale, 'f', 3) + "×",
+          QString::number(input.voltage_ratio, 'f', 3) + "×",
+          QString::number(input.npu_macs),
+          QString::number(input.dram_bandwidth_gbps, 'f', 1),
+          QString::number(mean, 'f', 2),
+          row == 0 ? "baseline" : QString("%1%").arg(100.0 * (mean / baseline_latency - 1.0), 0, 'f', 1),
+          QString::number(it_energy, 'f', 3),
+          QString("%1 / %2 %3").arg(power.value("average_it_w").toDouble(), 0, 'f', 3)
+              .arg(power.value("budget_w").toDouble(), 0, 'f', 3)
+              .arg(power.value("feasible").toBool() ? "feasible" : "infeasible"),
+          input.interpretation,
+      };
+      for (int column = 0; column < values.size(); ++column) power_table_->setItem(row, column, new QTableWidgetItem(values[column]));
+    }
+    const double energy_change = 100.0 * (iso_energy / baseline_energy - 1.0);
+    const double latency_change = 100.0 * (iso_latency / baseline_latency - 1.0);
+    power_summary_->setText(QString("Iso-performance arithmetic sensitivity: %1% energy/frame at %2% latency change. The compute-reinvestment and memory-constrained rows test whether saved modeled arithmetic energy becomes useful system-level capacity under the declared bandwidth and 0.23 W budget.")
+                                .arg(energy_change, 0, 'f', 2).arg(latency_change, 0, 'f', 2));
+    power_table_->resizeRowsToContents();
+  }
+
   void runLaneSweep() {
     if (!ensureSaved()) return;
     const QString executable = cliExecutable();
@@ -1823,6 +1983,7 @@ class AxisSimWindow final : public QMainWindow {
     tutorial_skip_button_->setEnabled(!busy);
     sweep_button_->setEnabled(!busy);
     if (mapping_run_button_) mapping_run_button_->setEnabled(!busy);
+    if (power_run_button_) power_run_button_->setEnabled(!busy);
     ara_button_->setEnabled(!busy);
     rvv_lanes_->setEnabled(!busy);
     npu_macs_->setEnabled(!busy);
@@ -1840,7 +2001,7 @@ class AxisSimWindow final : public QMainWindow {
   }
 
   void showError(const QString& title, const QString& detail) {
-    const bool non_interactive = exit_after_run_ || tutorial_smoke_run_ || mapping_lab_smoke_run_ || !snapshot_path_.isEmpty();
+    const bool non_interactive = exit_after_run_ || tutorial_smoke_run_ || mapping_lab_smoke_run_ || power_study_smoke_run_ || !snapshot_path_.isEmpty();
     if (non_interactive) {
       qCritical().noquote() << title << ":" << detail;
       QCoreApplication::exit(1);
@@ -2167,6 +2328,7 @@ class AxisSimWindow final : public QMainWindow {
   QPushButton* tutorial_skip_button_ = nullptr;
   QPushButton* sweep_button_ = nullptr;
   QPushButton* mapping_run_button_ = nullptr;
+  QPushButton* power_run_button_ = nullptr;
   QPushButton* ara_button_ = nullptr;
   QAction* export_action_ = nullptr;
   QAction* open_action_ = nullptr;
@@ -2183,6 +2345,8 @@ class AxisSimWindow final : public QMainWindow {
   QLabel* comparison_summary_ = nullptr;
   QLabel* mapping_summary_ = nullptr;
   QLabel* mapping_evidence_ = nullptr;
+  QLabel* power_summary_ = nullptr;
+  QLabel* power_evidence_ = nullptr;
   QLabel* experiment_kicker_ = nullptr;
   QLabel* experiment_state_ = nullptr;
   QLabel* experiment_delta_ = nullptr;
@@ -2207,6 +2371,7 @@ class AxisSimWindow final : public QMainWindow {
   ResourceTimelineWidget* timeline_chart_ = nullptr;
   QTableWidget* sweep_ = nullptr;
   QTableWidget* mapping_table_ = nullptr;
+  QTableWidget* power_table_ = nullptr;
   QTableWidget* metrics_ = nullptr;
   QTableWidget* proxies_ = nullptr;
   EnergyBreakdownWidget* energy_chart_ = nullptr;
@@ -2224,8 +2389,11 @@ class AxisSimWindow final : public QMainWindow {
   std::unique_ptr<QProcess> process_;
   std::unique_ptr<QTemporaryDir> temporary_;
   std::unique_ptr<QTemporaryDir> mapping_temporary_;
+  std::unique_ptr<QTemporaryDir> power_temporary_;
   QVector<QPair<QString, QJsonObject>> mapping_policy_results_;
+  QVector<QPair<PowerStudyInput, QJsonObject>> power_study_results_;
   int mapping_policy_index_ = 0;
+  int power_study_index_ = 0;
   QString snapshot_path_;
   TutorialStep tutorial_step_ = TutorialStep::Inactive;
   TutorialSnapshot tutorial_baseline_;
@@ -2234,6 +2402,7 @@ class AxisSimWindow final : public QMainWindow {
   bool tutorial_smoke_run_ = false;
   bool tutorial_preview_ = false;
   bool mapping_lab_smoke_run_ = false;
+  bool power_study_smoke_run_ = false;
 };
 
 }  // namespace
@@ -2243,6 +2412,7 @@ int main(int argc, char** argv) {
   const bool smoke_test_run = argc == 2 && QString::fromLocal8Bit(argv[1]) == "--smoke-test-run";
   const bool tutorial_smoke_run = argc == 2 && QString::fromLocal8Bit(argv[1]) == "--tutorial-smoke-test-run";
   const bool mapping_lab_smoke_run = argc == 2 && QString::fromLocal8Bit(argv[1]) == "--mapping-lab-smoke-test-run";
+  const bool power_study_smoke_run = argc == 2 && QString::fromLocal8Bit(argv[1]) == "--power-study-smoke-test-run";
   const bool audit_ui = argc == 2 && QString::fromLocal8Bit(argv[1]) == "--audit-ui";
   const bool snapshot_run = argc == 5 && QString::fromLocal8Bit(argv[1]) == "--snapshot-run";
   const bool tutorial_preview = argc == 5 && QString::fromLocal8Bit(argv[1]) == "--tutorial-preview";
@@ -2272,7 +2442,7 @@ int main(int argc, char** argv) {
                    });
 #endif
   AxisSimWindow window(smoke_test_run || snapshot_run, snapshot_path,
-                       (snapshot_run || tutorial_preview || mapping_lab_preview) ? QSize(snapshot_width, snapshot_height) : QSize(), tutorial_smoke_run, tutorial_preview, mapping_lab_smoke_run || mapping_lab_preview);
+                       (snapshot_run || tutorial_preview || mapping_lab_preview) ? QSize(snapshot_width, snapshot_height) : QSize(), tutorial_smoke_run, tutorial_preview, mapping_lab_smoke_run || mapping_lab_preview, power_study_smoke_run);
   window.show();
   if (smoke_test) QTimer::singleShot(0, &application, &QCoreApplication::quit);
   if (audit_ui) {
