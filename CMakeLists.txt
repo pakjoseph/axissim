@@ -288,5 +288,11 @@ if(BUILD_TESTING)
     add_test(NAME desktop_gui_dark_theme COMMAND axissim-gui --smoke-test)
     set_tests_properties(desktop_gui_dark_theme PROPERTIES
                          ENVIRONMENT "QT_QPA_PLATFORM=offscreen;AXISSIM_APPEARANCE_OVERRIDE=dark")
+    if(NOT APPLE)
+      add_test(NAME desktop_gui_portable_layout_runs_model
+               COMMAND ${AXISSIM_PORTABLE_DIR}/AxisSim${CMAKE_EXECUTABLE_SUFFIX} --smoke-test-run)
+      set_tests_properties(desktop_gui_portable_layout_runs_model PROPERTIES
+                           ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 15)
+    endif()
   endif()
 endif()
