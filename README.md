@@ -98,7 +98,7 @@ AxisSim also evaluates an explicitly hypothetical iso-performance arithmetic-ene
 ./experiments/run_gemm_heavy_power_study.sh
 ```
 
-The default illustrative study assumes 0.1 W static IT power, a 1 W IT budget, and PUE 1.5. It finds that lower arithmetic energy plus more NPU MACs is the lowest-latency feasible point at 20 GB/s DRAM, but the same compute reinvestment becomes severely memory-bound at 0.5 GB/s DRAM (12,633.58 microseconds). The GEMM-heavy companion study shows the complementary case: arithmetic-energy reductions have a larger modeled effect when arithmetic is a greater share of workload energy.
+The default illustrative study assumes 0.05 W base static IT power, a 0.23 W IT budget, and PUE 1.5. It compares a baseline with an iso-performance arithmetic-energy sensitivity, a voltage sensitivity, compute reinvestment, and a memory-constrained counterexample. At 20 GB/s DRAM, reinvested compute improves modeled latency; at 0.5 GB/s DRAM, the same reinvestment becomes severely memory-bound (12,633.58 microseconds). The GEMM-heavy companion study shows the complementary case: arithmetic-energy reductions have a larger modeled effect when arithmetic is a greater share of workload energy.
 
 AxisSim models the system-level consequences of an assumed arithmetic-efficiency improvement. It does not model low-voltage cells, frequency recovery, timing closure, soft-error mechanisms, yield, Titan Core IP, or Velaura silicon. Its optional area, first-order thermal, and FIT calculations are transparent sensitivity proxies—not physical-design, thermal, or reliability signoff.
 
@@ -181,7 +181,7 @@ The workbench is organized around four engineering questions:
 
 - **Overview:** Read the measured-in-model latency, deadline margin, energy ledger, resource timeline, dominant bottleneck, and evidence boundary for one completed run.
 - **Experiment Lab:** Make explicit run-only changes without rewriting the source manifest. The parameter groups are functional: workload selection; RVV lanes/VLEN/SEW/frequency/chunking; NPU MACs and DRAM bandwidth; FCFS/fixed-priority/EDF scheduling; and NPU arithmetic-energy scale. Each group has a direct run action and the delta ledger records active overrides.
-- **Compare:** Inspect the checked-in RVV lane sweep and candidate deltas using the emitted result data.
+- **Compare:** Inspect the checked-in RVV lane sweep, public-model mapping policies, and a five-point **Power opportunity** study. The latter runs baseline, iso-performance arithmetic and voltage sensitivities, compute reinvestment, and a DRAM-constrained counterexample through the same CLI JSON interface under an explicit 0.23 W IT-power budget.
 - **Evidence:** Inspect scenario provenance, public/Ara reference status, assumptions, implementation-proxy scope, and the full CLI run log.
 
 The desktop interface also provides guided first-run help, scenario copy/export actions, progress and validation feedback, keyboard accessibility, light/dark appearance modes, and responsive desktop layouts. The macOS bundle includes the CLI, scenario manifests, and public reference data. Save edited manifests before running; included config paths remain relative to the manifest's saved directory. The Qt target is optional (`-DAXISSIM_BUILD_GUI=OFF`) for headless CI and minimal CLI builds.
@@ -209,9 +209,10 @@ QT_QPA_PLATFORM=offscreen ./build/AxisSim.app/Contents/MacOS/AxisSim --tutorial-
 # Linux build-tree executable
 QT_QPA_PLATFORM=offscreen ./build/axissim-gui --smoke-test-run
 QT_QPA_PLATFORM=offscreen ./build/axissim-gui --tutorial-smoke-test-run
+QT_QPA_PLATFORM=offscreen ./build/axissim-gui --power-study-smoke-test-run
 ```
 
-The model and tutorial checks exercise the complete GUI-to-CLI-to-JSON/trace result path; the tutorial check executes both its public baseline and arithmetic-energy sensitivity stages.
+The model, tutorial, mapping, and power-study checks exercise the complete GUI-to-CLI-to-JSON/trace result path. The power-study check evaluates all five named scenarios rather than rendering precomputed values.
 
 ### Continuous integration
 
