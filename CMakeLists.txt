@@ -76,6 +76,10 @@ if(AXISSIM_BUILD_GUI)
                          COMMENT "Bundling portable AxisSim CLI, scenarios, and reference data")
     endif()
     target_link_libraries(axissim-gui PRIVATE Qt6::Widgets)
+    # Developer builds may run the GUI from a CTest working directory that is
+    # neither the source tree nor the portable application layout. Keep that
+    # layout explicit while preserving the runtime search used by packages.
+    target_compile_definitions(axissim-gui PRIVATE AXISSIM_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
     axissim_enable_strict_warnings(axissim-gui)
   else()
     message(STATUS "Qt 6 Widgets not found; axissim-gui will not be built")

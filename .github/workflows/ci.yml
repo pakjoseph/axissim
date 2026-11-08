@@ -35,10 +35,10 @@ jobs:
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DAXISSIM_BUILD_GUI=${{ matrix.gui == 'true' && 'ON' || 'OFF' }}
       - name: Build
-        run: cmake --build build --parallel
+        run: cmake --build build --config Release --parallel
       - name: Run full regression suite
         if: matrix.full_test == 'true'
         run: ctest --test-dir build --output-on-failure
       - name: Run desktop smoke suite
         if: matrix.gui == 'true'
-        run: ctest --test-dir build --output-on-failure -R "desktop_gui_(initializes|runs_model|portable_layout_runs_model)"
+        run: ctest --test-dir build -C Release --output-on-failure -R "desktop_gui_(initializes|runs_model|portable_layout_runs_model)"

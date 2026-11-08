@@ -10,6 +10,7 @@
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QDir>
+#include <QDebug>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -1141,6 +1142,9 @@ class AxisSimWindow final : public QMainWindow {
         application_dir.absoluteFilePath("../Resources/axissim-data"),
         application_dir.absoluteFilePath("axissim-data"),
         application_dir.absoluteFilePath("../share/axissim/axissim-data"),
+#ifdef AXISSIM_SOURCE_DIR
+        QString::fromUtf8(AXISSIM_SOURCE_DIR),
+#endif
         application_dir.absoluteFilePath("../../../.."),
         application_dir.absoluteFilePath(".."),
         QDir::currentPath(),
@@ -1159,10 +1163,11 @@ class AxisSimWindow final : public QMainWindow {
         application_dir.filePath("axissim-cli"),
 #ifdef Q_OS_WIN
         application_dir.filePath("axissim-cli.exe"),
+        application_dir.filePath("axissim.exe"),
 #endif
+        application_dir.filePath("axissim"),
         application_dir.absoluteFilePath("../../../axissim"),
         project_root_.filePath("build/axissim"),
-        application_dir.filePath("axissim"),
     };
     for (const auto& candidate : candidates) {
       const QFileInfo info(candidate);
@@ -1835,7 +1840,9 @@ class AxisSimWindow final : public QMainWindow {
   }
 
   void showError(const QString& title, const QString& detail) {
-    if (exit_after_run_) {
+    const bool non_interactive = exit_after_run_ || tutorial_smoke_run_ || mapping_lab_smoke_run_ || !snapshot_path_.isEmpty();
+    if (non_interactive) {
+      qCritical().noquote() << title << ":" << detail;
       QCoreApplication::exit(1);
       return;
     }
