@@ -5,8 +5,6 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-add_executable(axissim src/cli/main.cpp src/config.cpp src/profile.cpp)
-target_include_directories(axissim PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 function(axissim_enable_strict_warnings target)
   if(MSVC)
     target_compile_options(${target} PRIVATE /W4 /WX)
@@ -14,6 +12,18 @@ function(axissim_enable_strict_warnings target)
     target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
 endfunction()
+
+# Keep configuration/profile behavior in a reusable library. The command-line
+# tool and direct model tests consume the same parsing and validation path.
+add_library(axissim-core STATIC
+  src/config.cpp
+  src/profile.cpp)
+target_include_directories(axissim-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+axissim_enable_strict_warnings(axissim-core)
+
+add_executable(axissim src/cli/main.cpp)
+target_link_libraries(axissim PRIVATE axissim-core)
+target_include_directories(axissim PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 axissim_enable_strict_warnings(axissim)
 
 option(AXISSIM_BUILD_GUI "Build the Qt 6 desktop explorer when Qt Widgets is available" ON)
