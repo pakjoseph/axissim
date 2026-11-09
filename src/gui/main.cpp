@@ -1995,11 +1995,14 @@ class AxisSimWindow final : public QMainWindow {
     add_row("Model", model.value("name").toString());
     add_row("Model SHA-256", model.value("sha256").toString());
     add_row("Model source", model.value("source_url").toString());
+    add_row("Recorded at", measurement.value("recorded_at_utc").toString("not recorded"));
     add_row("Timed iterations", QString::number(measurement.value("timed_iterations").toInt()));
     add_row("Latency mean / P50 / P99", QString("%1 / %2 / %3 µs")
         .arg(latency.value("mean").toDouble(), 0, 'f', 2)
         .arg(latency.value("p50").toDouble(), 0, 'f', 2)
         .arg(latency.value("p99").toDouble(), 0, 'f', 2));
+    add_row("Raw samples", QString::number(measurement.value("raw_samples_us").toArray().size()));
+    add_row("Run notes", measurement.value("notes").toString("not recorded"));
     const QJsonObject external_energy = evidence.value("external_energy").toObject();
     if (!external_energy.isEmpty()) {
       add_row("External energy / inference", QString::number(external_energy.value("energy_per_inference_uj").toDouble(), 'f', 3) + " µJ");
