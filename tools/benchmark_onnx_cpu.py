@@ -10,6 +10,7 @@ chip power, infer a target architecture, or calibrate AxisSim automatically.
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import json
 import os
@@ -78,12 +79,14 @@ def main() -> int:
                         help="optional externally measured whole-system energy for all timed iterations")
     parser.add_argument("--energy-method", default="",
                         help="required provenance label when --energy-joules is supplied")
+    parser.add_argument("--notes", default="No OS affinity, scheduling priority, thermal control, or power lock was applied.",
+                        help="plain-language run conditions retained with the evidence")
     arguments = parser.parse_args()
     if not arguments.model.is_file():
         parser.error(f"model does not exist: {arguments.model}")
     if arguments.warmup < 0 or arguments.iterations < 2 or arguments.dynamic_dimension < 1 or arguments.intra_op_threads < 0:
         parser.error("warmup must be non-negative; iterations must be at least two; dimensions and threads must be positive when set")
-    if (arguments.energy_joules is None) != (not not arguments.energy_method):
+    if (arguments.energy_joules is None) != (arguments.energy_method == ""):
         parser.error("--energy-joules and --energy-method must be supplied together")
     if arguments.energy_joules is not None and arguments.energy_joules <= 0.0:
         parser.error("--energy-joules must be positive")
@@ -145,6 +148,7 @@ def main() -> int:
             "inputs": input_evidence,
         },
         "measurement": {
+            "recorded_at_utc": datetime.datetime.now(datetime.UTC).isoformat(),
             "warmup_iterations": arguments.warmup,
             "timed_iterations": arguments.iterations,
             "latency_us": {
@@ -154,6 +158,8 @@ def main() -> int:
                 "min": min(samples_us),
                 "max": max(samples_us),
             },
+            "raw_samples_us": samples_us,
+            "notes": arguments.notes,
         },
     }
     if arguments.energy_joules is not None:

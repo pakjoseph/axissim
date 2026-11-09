@@ -34,8 +34,8 @@ comparable.
    ```
 
 The JSON captures model SHA-256, model inputs, CPU architecture, OS, Python and
-ONNX Runtime versions, provider, thread setting, and mean/P50/P99 latency. It
-never invents a wattage. If an external meter reports whole-system energy, pass
+ONNX Runtime versions, provider, thread setting, raw timed samples, timestamp,
+run notes, and mean/P50/P99 latency. It never invents a wattage. If an external meter reports whole-system energy, pass
 both `--energy-joules` and a precise `--energy-method`; the output labels its
 scope accordingly.
 
@@ -43,6 +43,9 @@ scope accordingly.
 
 - Compare records only when the model hash, shapes, provider, warm-up policy,
   timed iterations, and thread policy are understood.
+- Inspect raw samples and document desktop load, thermal state, affinity, and
+  power policy in `measurement.notes`; a noisy host run is evidence of its
+  environment, not a stable hardware characterization.
 - Treat host CPU latency as an empirical software-stack result, not a CPU
   microarchitecture ranking or an NPU result.
 - Treat externally supplied energy as meter-scoped evidence, not chip power.
