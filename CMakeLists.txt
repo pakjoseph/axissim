@@ -121,6 +121,12 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+  add_executable(axissim-core-model-tests tests/core_model_tests.cpp)
+  target_link_libraries(axissim-core-model-tests PRIVATE axissim-core)
+  target_include_directories(axissim-core-model-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  axissim_enable_strict_warnings(axissim-core-model-tests)
+  add_test(NAME core_model_api_contract COMMAND axissim-core-model-tests)
+
   add_test(NAME baseline_smoke
            COMMAND axissim validate ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf)
   add_test(NAME rejects_invalid_rvv_configuration
