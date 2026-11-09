@@ -4,6 +4,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace axissim {
 
@@ -92,5 +93,6 @@ struct Config {
 Config load_config(const std::string& path, const std::map<std::string, std::string>& overrides = {});
 const std::set<std::string>& supported_keys();
 void validate(const Config& config);
+std::vector<double> load_frame_arrivals(const Config& config);
 
 }  // namespace axissim
