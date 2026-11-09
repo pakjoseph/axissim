@@ -1015,6 +1015,11 @@ class AxisSimWindow final : public QMainWindow {
     host_reference_open_button_->setAccessibleName("Open host reference JSON");
     host_reference_open_button_->setToolTip("Open a record created on a real host by benchmark_onnx_cpu.py");
     host_reference_header->addWidget(host_reference_open_button_);
+    host_reference_compare_button_ = new QPushButton("Compare references", host_reference_page);
+    host_reference_compare_button_->setObjectName("primaryButton");
+    host_reference_compare_button_->setAccessibleName("Compare host reference JSON files");
+    host_reference_compare_button_->setToolTip("Compare x86-64 and Arm64 records only after checking their measurement contracts");
+    host_reference_header->addWidget(host_reference_compare_button_);
     host_reference_layout->addLayout(host_reference_header);
     host_reference_summary_ = mutedLabel("No host reference loaded. Capture one with the documented ONNX Runtime CPU harness, then inspect its model, host, runtime, and latency provenance here.", host_reference_page);
     host_reference_summary_->setObjectName("profileEvidence");
@@ -1061,6 +1066,7 @@ class AxisSimWindow final : public QMainWindow {
     connect(power_run_button_, &QPushButton::clicked, this, [this] { runPowerOpportunityStudy(); });
     connect(ara_button_, &QPushButton::clicked, this, [this] { runAra2Check(); });
     connect(host_reference_open_button_, &QPushButton::clicked, this, [this] { openHostReference(); });
+    connect(host_reference_compare_button_, &QPushButton::clicked, this, [this] { compareHostReferences(); });
     connect(run_experiment, &QPushButton::clicked, this, [this] { runScenario(); });
     connect(run_npu, &QPushButton::clicked, this, [this] { runScenario(); });
     connect(run_schedule, &QPushButton::clicked, this, [this] { runScenario(); });
@@ -1928,20 +1934,18 @@ class AxisSimWindow final : public QMainWindow {
     power_table_->resizeRowsToContents();
   }
 
-  void openHostReference() {
-    const QString path = QFileDialog::getOpenFileName(this, "Open host reference evidence", project_root_.filePath("reference_data/hosts"), "AxisSim host reference (*.json)");
-    if (path.isEmpty()) return;
+  std::optional<QJsonObject> readHostReference(const QString& path, QString* error) const {
     QFile input(path);
     QJsonParseError parse_error;
     const QJsonDocument document = input.open(QIODevice::ReadOnly) ? QJsonDocument::fromJson(input.readAll(), &parse_error) : QJsonDocument();
     if (parse_error.error != QJsonParseError::NoError || !document.isObject()) {
-      showError("Host reference unreadable", "Select a JSON record written by tools/benchmark_onnx_cpu.py.");
-      return;
+      *error = "Select a JSON record written by tools/benchmark_onnx_cpu.py.";
+      return std::nullopt;
     }
     const QJsonObject evidence = document.object();
     if (evidence.value("schema_version").toString() != "axissim.host-reference.v1" || evidence.value("status").toString() != "reproduced") {
-      showError("Unsupported host reference", "AxisSim accepts only reproduced axissim.host-reference.v1 evidence records.");
-      return;
+      *error = "AxisSim accepts only reproduced axissim.host-reference.v1 evidence records.";
+      return std::nullopt;
     }
     const QJsonObject host = evidence.value("host").toObject();
     const QJsonObject runtime = evidence.value("runtime").toObject();
@@ -1949,9 +1953,29 @@ class AxisSimWindow final : public QMainWindow {
     const QJsonObject measurement = evidence.value("measurement").toObject();
     const QJsonObject latency = measurement.value("latency_us").toObject();
     if (host.isEmpty() || runtime.isEmpty() || model.isEmpty() || measurement.isEmpty() || latency.isEmpty()) {
-      showError("Incomplete host reference", "The record is missing host, runtime, model, or latency provenance.");
+      *error = "The record is missing host, runtime, model, or latency provenance.";
+      return std::nullopt;
+    }
+    return evidence;
+  }
+
+  void openHostReference() {
+    const QString path = QFileDialog::getOpenFileName(this, "Open host reference evidence", project_root_.filePath("reference_data/hosts"), "AxisSim host reference (*.json)");
+    if (path.isEmpty()) return;
+    QString error;
+    const std::optional<QJsonObject> loaded = readHostReference(path, &error);
+    if (!loaded.has_value()) {
+      showError("Host reference unreadable", error);
       return;
     }
+    const QJsonObject evidence = *loaded;
+    const QJsonObject host = evidence.value("host").toObject();
+    const QJsonObject runtime = evidence.value("runtime").toObject();
+    const QJsonObject model = evidence.value("model").toObject();
+    const QJsonObject measurement = evidence.value("measurement").toObject();
+    const QJsonObject latency = measurement.value("latency_us").toObject();
+    host_reference_table_->setColumnCount(2);
+    host_reference_table_->setHorizontalHeaderLabels({"Evidence field", "Recorded value"});
     host_reference_table_->setRowCount(0);
     const auto add_row = [this](const QString& field, const QString& value) {
       const int row = host_reference_table_->rowCount();
@@ -1987,6 +2011,81 @@ class AxisSimWindow final : public QMainWindow {
         .arg(host.value("architecture").toString(), model.value("name").toString(), QFileInfo(path).fileName()));
     result_views_->setCurrentIndex(4);
     statusBar()->showMessage("Host reference loaded", 6'000);
+  }
+
+  void compareHostReferences() {
+    const QStringList paths = QFileDialog::getOpenFileNames(this, "Compare host reference evidence", project_root_.filePath("reference_data/hosts"), "AxisSim host reference (*.json)");
+    if (paths.isEmpty()) return;
+    if (paths.size() < 2) {
+      showError("Select two or more references", "Choose at least two records captured by tools/benchmark_onnx_cpu.py.");
+      return;
+    }
+    QVector<QJsonObject> records;
+    records.reserve(paths.size());
+    for (const QString& path : paths) {
+      QString error;
+      const std::optional<QJsonObject> loaded = readHostReference(path, &error);
+      if (!loaded.has_value()) {
+        showError("Host reference unreadable", QFileInfo(path).fileName() + ": " + error);
+        return;
+      }
+      records.push_back(*loaded);
+    }
+    const QJsonObject baseline = records.front();
+    const QJsonObject baseline_model = baseline.value("model").toObject();
+    const QJsonObject baseline_runtime = baseline.value("runtime").toObject();
+    const QJsonObject baseline_measurement = baseline.value("measurement").toObject();
+    const QString baseline_inputs = QString::fromUtf8(QJsonDocument(baseline_model.value("inputs").toArray()).toJson(QJsonDocument::Compact));
+    QStringList differences;
+    bool energy_comparable = true;
+    const QJsonObject baseline_energy = baseline.value("external_energy").toObject();
+    if (baseline_energy.isEmpty()) energy_comparable = false;
+    for (qsizetype index = 1; index < records.size(); ++index) {
+      const QJsonObject record = records[index];
+      const QJsonObject model = record.value("model").toObject();
+      const QJsonObject runtime = record.value("runtime").toObject();
+      const QJsonObject measurement = record.value("measurement").toObject();
+      const QString inputs = QString::fromUtf8(QJsonDocument(model.value("inputs").toArray()).toJson(QJsonDocument::Compact));
+      const QString label = QFileInfo(paths[index]).fileName();
+      if (model.value("sha256").toString() != baseline_model.value("sha256").toString()) differences << label + " model hash";
+      if (inputs != baseline_inputs) differences << label + " input shapes/types";
+      if (runtime.value("name").toString() != baseline_runtime.value("name").toString() || runtime.value("version").toString() != baseline_runtime.value("version").toString()) differences << label + " runtime version";
+      if (runtime.value("execution_provider").toString() != baseline_runtime.value("execution_provider").toString()) differences << label + " execution provider";
+      if (runtime.value("intra_op_threads") != baseline_runtime.value("intra_op_threads")) differences << label + " thread policy";
+      if (measurement.value("warmup_iterations").toInt() != baseline_measurement.value("warmup_iterations").toInt() || measurement.value("timed_iterations").toInt() != baseline_measurement.value("timed_iterations").toInt()) differences << label + " iteration policy";
+      const QJsonObject energy = record.value("external_energy").toObject();
+      if (energy.isEmpty() || baseline_energy.isEmpty() || energy.value("method").toString() != baseline_energy.value("method").toString()) energy_comparable = false;
+    }
+    host_reference_table_->setColumnCount(10);
+    host_reference_table_->setHorizontalHeaderLabels({"Record", "Architecture", "Processor", "Model", "Runtime / provider", "Threads", "Mean (µs)", "P50 / P99 (µs)", "Energy / inference", "Contract"});
+    host_reference_table_->setRowCount(0);
+    for (qsizetype index = 0; index < records.size(); ++index) {
+      const QJsonObject record = records[index];
+      const QJsonObject host = record.value("host").toObject();
+      const QJsonObject runtime = record.value("runtime").toObject();
+      const QJsonObject model = record.value("model").toObject();
+      const QJsonObject measurement = record.value("measurement").toObject();
+      const QJsonObject latency = measurement.value("latency_us").toObject();
+      const QJsonObject energy = record.value("external_energy").toObject();
+      const QString threads = runtime.value("intra_op_threads").isDouble() ? QString::number(runtime.value("intra_op_threads").toInt()) : runtime.value("intra_op_threads").toString();
+      const QString energy_value = energy.isEmpty() ? "not supplied" : QString::number(energy.value("energy_per_inference_uj").toDouble(), 'f', 3) + " µJ";
+      const int row = host_reference_table_->rowCount();
+      host_reference_table_->insertRow(row);
+      const QStringList values = {
+          QFileInfo(paths[index]).fileName(), host.value("architecture").toString(), host.value("processor").toString(), model.value("name").toString(),
+          runtime.value("name").toString() + " " + runtime.value("version").toString() + " / " + runtime.value("execution_provider").toString(), threads,
+          QString::number(latency.value("mean").toDouble(), 'f', 2),
+          QString::number(latency.value("p50").toDouble(), 'f', 2) + " / " + QString::number(latency.value("p99").toDouble(), 'f', 2),
+          energy_value, differences.isEmpty() ? "latency comparable" : "contract differs",
+      };
+      for (int column = 0; column < values.size(); ++column) host_reference_table_->setItem(row, column, new QTableWidgetItem(values[column]));
+    }
+    host_reference_table_->resizeRowsToContents();
+    const QString latency_contract = differences.isEmpty() ? "Latency comparison permitted: all recorded model and runtime conditions match." : "Latency comparison withheld: " + differences.join(", ") + ".";
+    const QString energy_contract = energy_comparable ? "External energy comparison permitted: every record uses the same declared method." : "Energy comparison withheld: all records must provide the same declared external measurement method.";
+    host_reference_summary_->setText(latency_contract + " " + energy_contract + " Host measurements are not AxisSim calibration without an explicit comparable mapping.");
+    result_views_->setCurrentIndex(4);
+    statusBar()->showMessage("Host references compared", 6'000);
   }
 
   void runLaneSweep() {
@@ -2426,6 +2525,7 @@ class AxisSimWindow final : public QMainWindow {
   QPushButton* power_run_button_ = nullptr;
   QPushButton* ara_button_ = nullptr;
   QPushButton* host_reference_open_button_ = nullptr;
+  QPushButton* host_reference_compare_button_ = nullptr;
   QAction* export_action_ = nullptr;
   QAction* open_action_ = nullptr;
   QAction* save_action_ = nullptr;
