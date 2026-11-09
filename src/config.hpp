@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <map>
+#include <set>
 #include <string>
 
 namespace axissim {
@@ -89,6 +90,7 @@ struct Config {
 };
 
 Config load_config(const std::string& path, const std::map<std::string, std::string>& overrides = {});
+const std::set<std::string>& supported_keys();
 void validate(const Config& config);
 
 }  // namespace axissim
