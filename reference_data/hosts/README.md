@@ -54,3 +54,20 @@ scope accordingly.
 - Treat externally supplied energy as meter-scoped evidence, not chip power.
 - Keep raw, local host evidence out of a pull request unless it is reproducible
   and its source machine/configuration is safe to publish.
+
+## Included records
+
+Both checked-in records run the same public MobileNetV2 opset-7 model (batch 1,
+SHA-256 `c1c513…cd042f`) with ONNX Runtime 1.31.0 and the CPU provider, after
+20 warm-up and 100 timed iterations.
+
+- `apple-silicon-arm64-mobilenetv2-7.json` is an interactive macOS Arm64 host
+  capture. It reports 7,894.58 µs P50 and 18,552.56 µs P99.
+- `github-actions-ubuntu-x86_64-mobilenetv2-7.json` is a GitHub-hosted shared
+  Ubuntu x86-64 runner capture. It reports 2,134.24 µs P50 and 5,702.36 µs
+  P99. The workflow at `.github/workflows/capture-host-reference.yml` can
+  reproduce the artifact, but a shared CI VM is not a stable CPU benchmark.
+
+They satisfy this repository's **latency-contract** checks for an illustrative
+same-model/runtime comparison. They do not support a cross-vendor CPU ranking,
+an energy comparison, or an AxisSim calibration claim.
