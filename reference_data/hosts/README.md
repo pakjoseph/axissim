@@ -22,6 +22,9 @@ comparable.
    python3 -m pip install -r tools/requirements-onnx-benchmark.txt
    ```
 
+   The checked-in reference contract pins ONNX Runtime 1.31.0. Upgrade it only
+   when recapturing every record intended for a strict comparison.
+
 3. Run the same command on each target host. Example for a static MobileNet
    model:
 
