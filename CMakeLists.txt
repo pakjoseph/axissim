@@ -127,6 +127,11 @@ if(BUILD_TESTING)
   target_include_directories(axissim-core-model-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
   axissim_enable_strict_warnings(axissim-core-model-tests)
   add_test(NAME core_model_api_contract COMMAND axissim-core-model-tests)
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME host_reference_harness_help
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/benchmark_onnx_cpu.py --help)
+  endif()
 
   add_test(NAME baseline_smoke
            COMMAND axissim validate ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf)
