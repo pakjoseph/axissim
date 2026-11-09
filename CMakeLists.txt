@@ -131,6 +131,10 @@ if(BUILD_TESTING)
   if(Python3_Interpreter_FOUND)
     add_test(NAME host_reference_harness_help
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/benchmark_onnx_cpu.py --help)
+    add_test(NAME host_reference_records_reconcile
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/check_host_reference_records.py
+                     ${CMAKE_SOURCE_DIR}/reference_data/hosts/apple-silicon-arm64-mobilenetv2-7.json
+                     ${CMAKE_SOURCE_DIR}/reference_data/hosts/github-actions-ubuntu-x86_64-mobilenetv2-7.json)
   endif()
 
   add_test(NAME baseline_smoke
