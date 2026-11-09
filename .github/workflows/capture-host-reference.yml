@@ -1,0 +1,37 @@
+name: Capture x86-64 host reference
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    name: Ubuntu x86-64 ONNX Runtime CPU
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install benchmark dependencies
+        run: python -m pip install -r tools/requirements-onnx-benchmark.txt
+      - name: Download public MobileNetV2 artifact
+        run: >-
+          curl --fail --location --retry 3
+          --output /tmp/mobilenetv2-7.onnx
+          https://github.com/onnx/models/raw/refs/heads/main/validated/vision/classification/mobilenet/model/mobilenetv2-7.onnx
+      - name: Capture host CPU evidence
+        run: >-
+          python tools/benchmark_onnx_cpu.py /tmp/mobilenetv2-7.onnx
+          --model-name "MobileNetV2 opset-7 batch-1"
+          --model-source-url "https://github.com/onnx/models/blob/main/validated/vision/classification/mobilenet/model/mobilenetv2-7.onnx"
+          --warmup 20 --iterations 100
+          --notes "GitHub-hosted shared Ubuntu x86-64 runner; no affinity, power, or thermal control. This is reproducible CI-host evidence, not a stable hardware characterization or AxisSim calibration."
+          --output reference_data/hosts/github-actions-ubuntu-x86_64-mobilenetv2-7.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: github-actions-ubuntu-x86_64-mobilenetv2-7
+          path: reference_data/hosts/github-actions-ubuntu-x86_64-mobilenetv2-7.json
+          if-no-files-found: error
