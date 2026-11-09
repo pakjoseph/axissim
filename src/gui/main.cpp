@@ -997,6 +997,39 @@ class AxisSimWindow final : public QMainWindow {
     proxies_layout->addWidget(proxies_);
     result_views_->addTab(proxies_page, "Implementation proxies");
 
+    auto* host_reference_page = new QWidget(result_views_);
+    auto* host_reference_layout = new QVBoxLayout(host_reference_page);
+    host_reference_layout->setContentsMargins(16, 16, 16, 16);
+    host_reference_layout->setSpacing(10);
+    auto* host_reference_header = new QHBoxLayout();
+    auto* host_reference_titles = new QVBoxLayout();
+    auto* host_reference_title = new QLabel("Cross-architecture host references", host_reference_page);
+    host_reference_title->setObjectName("sectionTitle");
+    auto* host_reference_note = mutedLabel("Inspect a provenance-rich JSON record captured by tools/benchmark_onnx_cpu.py on a real x86-64 or Arm64 host. It remains empirical host-runtime evidence, not an AxisSim calibration or a silicon-power result.", host_reference_page);
+    host_reference_note->setWordWrap(true);
+    host_reference_titles->addWidget(host_reference_title);
+    host_reference_titles->addWidget(host_reference_note);
+    host_reference_header->addLayout(host_reference_titles, 1);
+    host_reference_open_button_ = new QPushButton("Open reference JSON", host_reference_page);
+    host_reference_open_button_->setObjectName("secondaryButton");
+    host_reference_open_button_->setAccessibleName("Open host reference JSON");
+    host_reference_open_button_->setToolTip("Open a record created on a real host by benchmark_onnx_cpu.py");
+    host_reference_header->addWidget(host_reference_open_button_);
+    host_reference_layout->addLayout(host_reference_header);
+    host_reference_summary_ = mutedLabel("No host reference loaded. Capture one with the documented ONNX Runtime CPU harness, then inspect its model, host, runtime, and latency provenance here.", host_reference_page);
+    host_reference_summary_->setObjectName("profileEvidence");
+    host_reference_summary_->setWordWrap(true);
+    host_reference_layout->addWidget(host_reference_summary_);
+    host_reference_table_ = new QTableWidget(host_reference_page);
+    host_reference_table_->setColumnCount(2);
+    host_reference_table_->setHorizontalHeaderLabels({"Evidence field", "Recorded value"});
+    host_reference_table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    host_reference_table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    configureTable(host_reference_table_);
+    host_reference_table_->setAccessibleName("Host reference provenance record");
+    host_reference_layout->addWidget(host_reference_table_, 1);
+    result_views_->addTab(host_reference_page, "Host references");
+
     log_ = new QPlainTextEdit(result_views_);
     log_->setReadOnly(true);
     log_->setAccessibleName("Complete simulator run log");
@@ -1027,6 +1060,7 @@ class AxisSimWindow final : public QMainWindow {
     connect(mapping_run_button_, &QPushButton::clicked, this, [this] { runMappingPolicyStudy(); });
     connect(power_run_button_, &QPushButton::clicked, this, [this] { runPowerOpportunityStudy(); });
     connect(ara_button_, &QPushButton::clicked, this, [this] { runAra2Check(); });
+    connect(host_reference_open_button_, &QPushButton::clicked, this, [this] { openHostReference(); });
     connect(run_experiment, &QPushButton::clicked, this, [this] { runScenario(); });
     connect(run_npu, &QPushButton::clicked, this, [this] { runScenario(); });
     connect(run_schedule, &QPushButton::clicked, this, [this] { runScenario(); });
@@ -1091,7 +1125,7 @@ class AxisSimWindow final : public QMainWindow {
       }
     });
     connect(result_views_, &QTabWidget::currentChanged, this, [this](int index) {
-      const std::array<int, 5> nav_for_tab = {0, 0, 2, 3, 3};
+      const std::array<int, 6> nav_for_tab = {0, 0, 2, 3, 3, 3};
       const int nav_index = index >= 0 && index < static_cast<int>(nav_for_tab.size())
                                 ? nav_for_tab[static_cast<std::size_t>(index)]
                                 : 0;
@@ -1894,6 +1928,67 @@ class AxisSimWindow final : public QMainWindow {
     power_table_->resizeRowsToContents();
   }
 
+  void openHostReference() {
+    const QString path = QFileDialog::getOpenFileName(this, "Open host reference evidence", project_root_.filePath("reference_data/hosts"), "AxisSim host reference (*.json)");
+    if (path.isEmpty()) return;
+    QFile input(path);
+    QJsonParseError parse_error;
+    const QJsonDocument document = input.open(QIODevice::ReadOnly) ? QJsonDocument::fromJson(input.readAll(), &parse_error) : QJsonDocument();
+    if (parse_error.error != QJsonParseError::NoError || !document.isObject()) {
+      showError("Host reference unreadable", "Select a JSON record written by tools/benchmark_onnx_cpu.py.");
+      return;
+    }
+    const QJsonObject evidence = document.object();
+    if (evidence.value("schema_version").toString() != "axissim.host-reference.v1" || evidence.value("status").toString() != "reproduced") {
+      showError("Unsupported host reference", "AxisSim accepts only reproduced axissim.host-reference.v1 evidence records.");
+      return;
+    }
+    const QJsonObject host = evidence.value("host").toObject();
+    const QJsonObject runtime = evidence.value("runtime").toObject();
+    const QJsonObject model = evidence.value("model").toObject();
+    const QJsonObject measurement = evidence.value("measurement").toObject();
+    const QJsonObject latency = measurement.value("latency_us").toObject();
+    if (host.isEmpty() || runtime.isEmpty() || model.isEmpty() || measurement.isEmpty() || latency.isEmpty()) {
+      showError("Incomplete host reference", "The record is missing host, runtime, model, or latency provenance.");
+      return;
+    }
+    host_reference_table_->setRowCount(0);
+    const auto add_row = [this](const QString& field, const QString& value) {
+      const int row = host_reference_table_->rowCount();
+      host_reference_table_->insertRow(row);
+      host_reference_table_->setItem(row, 0, new QTableWidgetItem(field));
+      host_reference_table_->setItem(row, 1, new QTableWidgetItem(value));
+    };
+    add_row("Evidence status", evidence.value("status").toString());
+    add_row("Architecture", host.value("architecture").toString());
+    add_row("Processor", host.value("processor").toString());
+    add_row("Host platform", host.value("platform").toString());
+    add_row("Logical CPUs", QString::number(host.value("logical_cpu_count").toInt()));
+    add_row("Runtime", runtime.value("name").toString() + " " + runtime.value("version").toString());
+    add_row("Execution provider", runtime.value("execution_provider").toString());
+    add_row("Intra-op threads", runtime.value("intra_op_threads").isDouble()
+        ? QString::number(runtime.value("intra_op_threads").toInt()) : runtime.value("intra_op_threads").toString());
+    add_row("Model", model.value("name").toString());
+    add_row("Model SHA-256", model.value("sha256").toString());
+    add_row("Model source", model.value("source_url").toString());
+    add_row("Timed iterations", QString::number(measurement.value("timed_iterations").toInt()));
+    add_row("Latency mean / P50 / P99", QString("%1 / %2 / %3 µs")
+        .arg(latency.value("mean").toDouble(), 0, 'f', 2)
+        .arg(latency.value("p50").toDouble(), 0, 'f', 2)
+        .arg(latency.value("p99").toDouble(), 0, 'f', 2));
+    const QJsonObject external_energy = evidence.value("external_energy").toObject();
+    if (!external_energy.isEmpty()) {
+      add_row("External energy / inference", QString::number(external_energy.value("energy_per_inference_uj").toDouble(), 'f', 3) + " µJ");
+      add_row("External energy method", external_energy.value("method").toString());
+    }
+    add_row("Evidence boundary", evidence.value("measurement_scope").toString());
+    host_reference_table_->resizeRowsToContents();
+    host_reference_summary_->setText(QString("Loaded %1 reference for %2 on %3. Mean latency is an observed host-CPU/runtime result; it is intentionally not compared numerically with AxisSim unless an explicit, comparable mapping is added.")
+        .arg(host.value("architecture").toString(), model.value("name").toString(), QFileInfo(path).fileName()));
+    result_views_->setCurrentIndex(4);
+    statusBar()->showMessage("Host reference loaded", 6'000);
+  }
+
   void runLaneSweep() {
     if (!ensureSaved()) return;
     const QString executable = cliExecutable();
@@ -2330,6 +2425,7 @@ class AxisSimWindow final : public QMainWindow {
   QPushButton* mapping_run_button_ = nullptr;
   QPushButton* power_run_button_ = nullptr;
   QPushButton* ara_button_ = nullptr;
+  QPushButton* host_reference_open_button_ = nullptr;
   QAction* export_action_ = nullptr;
   QAction* open_action_ = nullptr;
   QAction* save_action_ = nullptr;
@@ -2353,6 +2449,7 @@ class AxisSimWindow final : public QMainWindow {
   QLabel* experiment_interpretation_ = nullptr;
   QLabel* capacity_value_ = nullptr;
   QLabel* profile_evidence_ = nullptr;
+  QLabel* host_reference_summary_ = nullptr;
   QLabel* latency_finding_ = nullptr;
   QLabel* energy_finding_ = nullptr;
   QLabel* tutorial_title_ = nullptr;
@@ -2374,6 +2471,7 @@ class AxisSimWindow final : public QMainWindow {
   QTableWidget* power_table_ = nullptr;
   QTableWidget* metrics_ = nullptr;
   QTableWidget* proxies_ = nullptr;
+  QTableWidget* host_reference_table_ = nullptr;
   EnergyBreakdownWidget* energy_chart_ = nullptr;
   SweepChartWidget* sweep_chart_ = nullptr;
   QGridLayout* metric_layout_ = nullptr;
