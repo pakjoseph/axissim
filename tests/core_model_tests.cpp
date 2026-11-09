@@ -5,6 +5,7 @@
 #include <string>
 
 #include "config.hpp"
+#include "metrics.hpp"
 #include "simulation.hpp"
 
 namespace {
@@ -82,6 +83,31 @@ void test_scheduler_trace_contract() {
           "run makespan must not precede the final observed frame latency");
 }
 
+void test_accounting_proxy_contract() {
+  axissim::Config config;
+  config.static_power_w = 1.0;
+  config.pue = 1.5;
+  config.deployment_xpu_count = 1'000;
+  config.deployment_hours = 1.0;
+  config.electricity_cost_per_kwh = 0.1;
+  config.base_area_mm2 = 1.0;
+  config.max_area_mm2 = 2.0;
+  config.thermal_resistance_c_per_w = 10.0;
+  config.thermal_capacitance_j_per_c = 1.0;
+  config.max_junction_temp_c = 100.0;
+  config.reliability_fit_rate = 100.0;
+  axissim::validate(config);
+
+  const axissim::ModelAccounting accounting = axissim::model_accounting(config, 0.0, 1'000'000.0);
+  require_close(accounting.modeled_static_power_w, 1.0, 1e-12, "static power accounting must preserve explicit base power");
+  require_close(accounting.average_facility_power_w, 1.5, 1e-12, "PUE must scale facility, not IT, power");
+  require_close(accounting.deployment_facility_energy_kwh, 1.5, 1e-12, "deployment energy must be power times fleet and duration");
+  require_close(accounting.deployment_electricity_cost, 0.15, 1e-12, "deployment cost must use explicit electricity price");
+  require_close(accounting.reliability_expected_failures, 0.0001, 1e-12, "FIT extrapolation must remain scenario-derived");
+  require(accounting.power_feasible && accounting.area_feasible && accounting.thermal_feasible,
+          "an unconstrained one-watt scenario must remain feasible under its declared limits");
+}
+
 }  // namespace
 
 int main() {
@@ -90,6 +116,7 @@ int main() {
     test_npu_tiling_contract();
     test_iso_performance_energy_contract();
     test_scheduler_trace_contract();
+    test_accounting_proxy_contract();
     std::cout << "AxisSim core model API contract passed\n";
     return 0;
   } catch (const std::exception& error) {

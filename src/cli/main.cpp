@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "config.hpp"
+#include "metrics.hpp"
 #include "profile.hpp"
 #include "simulation.hpp"
 
@@ -72,21 +73,6 @@ void write_trace_csv(const std::string& path, const std::vector<TraceEvent>& tra
     escaped.push_back(character);
   }
   return escaped;
-}
-
-[[nodiscard]] double modeled_static_power_w(const Config& config) {
-  return config.static_power_w
-       + static_cast<double>(config.npu_macs) * config.npu_static_power_per_mac_w
-       + static_cast<double>(config.rvv_lanes) * config.rvv_static_power_per_lane_w
-       + (static_cast<double>(config.sram_capacity_bytes) / 1024.0) * config.sram_static_power_per_kib_w
-       + config.dram_interface_static_power_w;
-}
-
-[[nodiscard]] double modeled_area_mm2(const Config& config) {
-  return config.base_area_mm2
-       + static_cast<double>(config.npu_macs) * config.npu_area_per_mac_mm2
-       + static_cast<double>(config.rvv_lanes) * config.rvv_area_per_lane_mm2
-       + (static_cast<double>(config.sram_capacity_bytes) / 1024.0) * config.sram_area_per_kib_mm2;
 }
 
 void write_result_json(const std::string& path, const Simulator& simulator, const Config& config) {

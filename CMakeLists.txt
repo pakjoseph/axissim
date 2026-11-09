@@ -17,6 +17,7 @@ endfunction()
 # tool and direct model tests consume the same parsing and validation path.
 add_library(axissim-core STATIC
   src/config.cpp
+  src/metrics.cpp
   src/profile.cpp)
 target_include_directories(axissim-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 axissim_enable_strict_warnings(axissim-core)
