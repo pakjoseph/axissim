@@ -16,6 +16,7 @@
 
 #include "config.hpp"
 #include "profile.hpp"
+#include "study_measurements.hpp"
 
 namespace axissim {
 
@@ -30,10 +31,47 @@ class Simulator {
     if (c_.workload_mode == "profiled_graph") {
       profile_ = load_workload_profile(c_.workload_profile);
       if (!c_.mapping_plan.empty()) apply_mapping_plan(profile_, load_mapping_plan(c_.mapping_plan, profile_), c_);
-      run_profile_scheduler();
+      run_profile_scheduler(nullptr);
     } else {
-      run_event_scheduler();
+      run_event_scheduler(nullptr);
     }
+  }
+
+  [[nodiscard]] StudyMeasurementResult run_study(const StudyMeasurementRequest& request) {
+    frame_arrivals_us_ = load_frame_arrivals(c_);
+    if (c_.workload_mode == "profiled_graph") {
+      profile_ = load_workload_profile(c_.workload_profile);
+      if (!c_.mapping_plan.empty()) apply_mapping_plan(profile_, load_mapping_plan(c_.mapping_plan, profile_), c_);
+    }
+
+    std::vector<StudyWorkUnitSpec> schedule;
+    schedule.reserve(frame_arrivals_us_.size());
+    for (std::size_t frame = 0; frame < frame_arrivals_us_.size(); ++frame) {
+      const double release = c_.workload_mode != "profiled_graph" && c_.dma_double_buffering == 0 && frame == 0
+          ? 0.0 : frame_arrivals_us_[frame];
+      schedule.push_back({"frame:" + std::to_string(frame), StudyWorkUnitKind::Frame, frame,
+                          release, c_.deadline_us});
+    }
+    if (c_.control_period_us > 0.0) {
+      const double horizon_us = frame_arrivals_us_.back() + c_.frame_period_us;
+      std::uint64_t sequence = 0;
+      for (double release = 0.0; release < horizon_us; release += c_.control_period_us, ++sequence) {
+        schedule.push_back({"control:" + std::to_string(sequence), StudyWorkUnitKind::Control, sequence,
+                            release, c_.control_deadline_us});
+      }
+    }
+
+    std::optional<StudyMeasurementObserver> observer;
+    try {
+      observer.emplace(request, std::move(schedule));
+    } catch (const std::exception& error) {
+      return StudyMeasurementObserver::invalid_result(request.mode, std::string("invalid_measurement_request: ") + error.what());
+    }
+    if (!observer->is_running()) return observer->finish(c_, total_energy_pj_);
+    if (c_.workload_mode == "profiled_graph") run_profile_scheduler(&*observer);
+    else run_event_scheduler(&*observer);
+    observer->fail_if_unterminated("study_scheduler_terminated_before_measurement_completion");
+    return observer->finish(c_, total_energy_pj_);
   }
 
   [[nodiscard]] const std::vector<TraceEvent>& trace() const { return trace_; }
@@ -177,6 +215,7 @@ class Simulator {
     int priority = 1;
     std::string name;
     int profile_index = -1;
+    std::uint64_t control_sequence = 0;
   };
 
   struct FutureTaskOrder {
@@ -243,7 +282,69 @@ class Simulator {
     return c_.dma_setup_us + static_cast<double>(bytes) / c_.dram_bandwidth_gbps / 1000.0;
   }
 
-  void run_profile_scheduler() {
+  [[nodiscard]] std::string study_work_unit_id(const RuntimeTask& task) const {
+    return task.stage == RuntimeStage::Control
+        ? "control:" + std::to_string(task.control_sequence)
+        : "frame:" + std::to_string(task.frame);
+  }
+
+  [[nodiscard]] StudyTaskEnergyPj runtime_task_energy(const RuntimeTask& task) const {
+    StudyTaskEnergyPj energy;
+    energy.vector = task.vector_energy_pj;
+    energy.npu_arithmetic = task.npu_energy_pj;
+    energy.dram = static_cast<double>(task.transfer_bytes) * c_.dram_byte_pj;
+    energy.dma = static_cast<double>(task.transfer_bytes) * c_.dma_byte_pj;
+    // Keep this expression in the same evaluation order as legacy aggregate accounting.
+    energy.total = task.vector_energy_pj + task.npu_energy_pj
+        + static_cast<double>(task.transfer_bytes) * (c_.dram_byte_pj + c_.dma_byte_pj);
+    return energy;
+  }
+
+  [[nodiscard]] bool observe_study_dispatch(StudyMeasurementObserver* observer, const RuntimeTask& task,
+                                             double start_us, double end_us, const std::string& resource,
+                                             const StudyTaskEnergyPj& energy) {
+    return observer == nullptr || observer->record_task_dispatch(start_us, study_work_unit_id(task), task.name,
+                                                                   resource, start_us, end_us, energy);
+  }
+
+  void accumulate_runtime_energy(const RuntimeTask& task, const StudyTaskEnergyPj& energy) {
+    vector_energy_pj_ += energy.vector;
+    npu_arithmetic_energy_pj_ += energy.npu_arithmetic;
+    if (task.transfer_bytes > 0) {
+      total_dram_bytes_ += task.transfer_bytes;
+      dram_energy_pj_ += energy.dram;
+      dma_energy_pj_ += energy.dma;
+    }
+    total_energy_pj_ += energy.total;
+  }
+
+  [[nodiscard]] StudyQueueSnapshot study_queue_snapshot(double time_us,
+                                                          const std::array<std::vector<RuntimeTask>, 3>& pending,
+                                                          const std::priority_queue<Completion, std::vector<Completion>, CompletionOrder>& completions,
+                                                          std::optional<std::uint64_t> dependency_blocked = std::nullopt) const {
+    StudyQueueSnapshot snapshot;
+    snapshot.timestamp_us = time_us;
+    snapshot.dependency_blocked_tasks = dependency_blocked;
+    for (std::size_t resource = 0; resource < pending.size(); ++resource) {
+      snapshot.ready_by_resource[resource] = static_cast<std::uint64_t>(pending[resource].size());
+    }
+    auto completion_copy = completions;
+    while (!completion_copy.empty()) {
+      const auto resource = static_cast<std::size_t>(completion_copy.top().resource);
+      ++snapshot.in_flight_by_resource[resource];
+      completion_copy.pop();
+    }
+    return snapshot;
+  }
+
+  template <typename FutureQueue>
+  [[nodiscard]] static bool has_same_time_events(double time_us, const FutureQueue& future,
+                                                  const std::priority_queue<Completion, std::vector<Completion>, CompletionOrder>& completions) {
+    return (!future.empty() && future.top().ready_us <= time_us)
+        || (!completions.empty() && completions.top().end_us <= time_us);
+  }
+
+  void run_profile_scheduler(StudyMeasurementObserver* observer) {
     const auto& operations = profile_.operators;
     profile_transfer_ledger_.clear();
     for (const auto& operation : operations) {
@@ -322,23 +423,39 @@ class Simulator {
     };
     for (int frame = 0; frame < c_.frames; ++frame) {
       const double release = frame_arrivals_us_[static_cast<std::size_t>(frame)];
+      if (observer != nullptr && !observer->includes_work_unit("frame:" + std::to_string(frame))) continue;
       for (const int root : roots) enqueue_operation(frame, root, release, release);
     }
     if (c_.control_period_us > 0.0) {
       const double horizon_us = frame_arrivals_us_.back() + c_.frame_period_us;
-      for (double release = 0.0; release < horizon_us; release += c_.control_period_us) future.push(make_runtime_task(-1, RuntimeStage::Control, release, release));
+      std::uint64_t sequence = 0;
+      for (double release = 0.0; release < horizon_us; release += c_.control_period_us, ++sequence) {
+        const std::string id = "control:" + std::to_string(sequence);
+        if (observer != nullptr && !observer->includes_work_unit(id)) continue;
+        RuntimeTask task = make_runtime_task(-1, RuntimeStage::Control, release, release);
+        task.control_sequence = sequence;
+        future.push(std::move(task));
+      }
     }
     const auto resource_name = [](RuntimeResource resource) { return resource == RuntimeResource::Dma ? "DMA+DRAM" : resource == RuntimeResource::Rvv ? "RVV" : "NPU"; };
     double time = 0.0;
-    while (!future.empty() || !completions.empty()) {
+    while (observer == nullptr ? (!future.empty() || !completions.empty()) : observer->is_running()) {
       const double next_future = future.empty() ? std::numeric_limits<double>::infinity() : future.top().ready_us;
       const double next_completion = completions.empty() ? std::numeric_limits<double>::infinity() : completions.top().end_us;
       time = std::min(next_future, next_completion);
-      while (!future.empty() && future.top().ready_us <= time) { RuntimeTask task = future.top(); future.pop(); pending[static_cast<std::size_t>(task.resource)].push_back(std::move(task)); }
+      if (observer != nullptr) time = std::min(time, observer->next_observer_time_us());
+      if (!std::isfinite(time)) break;
+      if (observer != nullptr && !observer->process_releases_through(time)) break;
+      while (!future.empty() && future.top().ready_us <= time) {
+        if (observer != nullptr && !observer->record_ready_event(time)) break;
+        RuntimeTask task = future.top(); future.pop(); pending[static_cast<std::size_t>(task.resource)].push_back(std::move(task));
+      }
+      if (observer != nullptr && !observer->is_running()) break;
       int pending_count = 0;
       for (const auto& queue : pending) pending_count += static_cast<int>(queue.size());
       max_pending_tasks_ = std::max(max_pending_tasks_, pending_count);
       while (!completions.empty() && completions.top().end_us <= time) {
+        if (observer != nullptr && !observer->record_task_completion_event(time)) break;
         Completion completion = completions.top(); completions.pop();
         busy[static_cast<std::size_t>(completion.resource)] = false;
         const RuntimeTask& task = completion.task;
@@ -359,6 +476,7 @@ class Simulator {
               latencies_us_.push_back(latency);
               vision_completion_times_us_.push_back(end);
               if (latency > c_.deadline_us) ++deadline_misses_;
+              if (observer != nullptr) observer->record_work_unit_completion("frame:" + std::to_string(task.frame), end);
             }
           }
         } else if (task.stage == RuntimeStage::Control) {
@@ -366,85 +484,10 @@ class Simulator {
           const double response = completion.end_us - task.release_us;
           control_response_times_us_.push_back(response);
           if (response > c_.control_deadline_us) ++control_deadline_misses_;
+          if (observer != nullptr) observer->record_work_unit_completion("control:" + std::to_string(task.control_sequence), completion.end_us);
         }
       }
-      for (std::size_t index = 0; index < pending.size(); ++index) {
-        if (busy[index] || pending[index].empty()) continue;
-        auto& queue = pending[index];
-        const auto selected = std::min_element(queue.begin(), queue.end(), [this](const RuntimeTask& left, const RuntimeTask& right) {
-          if (c_.scheduler_policy == "fixed_priority" && left.priority != right.priority) return left.priority < right.priority;
-          if (c_.scheduler_policy == "edf") {
-            const double left_deadline = left.release_us + (left.stage == RuntimeStage::Control ? c_.control_deadline_us : c_.deadline_us);
-            const double right_deadline = right.release_us + (right.stage == RuntimeStage::Control ? c_.control_deadline_us : c_.deadline_us);
-            if (left_deadline != right_deadline) return left_deadline < right_deadline;
-          }
-          return left.ready_us < right.ready_us;
-        });
-        RuntimeTask task = *selected; queue.erase(selected); busy[index] = true;
-        if (task.frame >= 0) vision_resource_queue_delays_us_.push_back(time - task.ready_us);
-        trace_.push_back({task.frame, task.name, resource_name(task.resource), time, time + task.duration_us});
-        vector_energy_pj_ += task.vector_energy_pj;
-        npu_arithmetic_energy_pj_ += task.npu_energy_pj;
-        if (task.transfer_bytes > 0) { total_dram_bytes_ += task.transfer_bytes; dram_energy_pj_ += static_cast<double>(task.transfer_bytes) * c_.dram_byte_pj; dma_energy_pj_ += static_cast<double>(task.transfer_bytes) * c_.dma_byte_pj; }
-        total_energy_pj_ += task.vector_energy_pj + task.npu_energy_pj + static_cast<double>(task.transfer_bytes) * (c_.dram_byte_pj + c_.dma_byte_pj);
-        completions.push({time + task.duration_us, task.resource, std::move(task)});
-      }
-    }
-  }
-
-  void run_event_scheduler() {
-    std::priority_queue<RuntimeTask, std::vector<RuntimeTask>, FutureTaskOrder> future;
-    std::priority_queue<Completion, std::vector<Completion>, CompletionOrder> completions;
-    std::array<std::vector<RuntimeTask>, 3> pending;
-    std::array<bool, 3> busy = {false, false, false};
-    const auto initial_stage = c_.workload_mode == "rvv_stream" ? RuntimeStage::VectorKernel : RuntimeStage::Camera;
-    if (c_.dma_double_buffering == 1) {
-      for (int frame = 0; frame < c_.frames; ++frame) future.push(make_runtime_task(frame, initial_stage, frame_arrivals_us_[static_cast<std::size_t>(frame)], frame_arrivals_us_[static_cast<std::size_t>(frame)]));
-    } else {
-      future.push(make_runtime_task(0, initial_stage, 0.0, 0.0));
-    }
-    if (c_.control_period_us > 0.0) {
-      const double horizon_us = frame_arrivals_us_.back() + c_.frame_period_us;
-      for (double release = 0.0; release < horizon_us; release += c_.control_period_us) future.push(make_runtime_task(-1, RuntimeStage::Control, release, release));
-    }
-    auto resource_name = [](RuntimeResource resource) { return resource == RuntimeResource::Dma ? "DMA+DRAM" : resource == RuntimeResource::Rvv ? "RVV" : "NPU"; };
-    double time = 0.0;
-    while (!future.empty() || !completions.empty()) {
-      const double next_future = future.empty() ? std::numeric_limits<double>::infinity() : future.top().ready_us;
-      const double next_completion = completions.empty() ? std::numeric_limits<double>::infinity() : completions.top().end_us;
-      time = std::min(next_future, next_completion);
-      while (!future.empty() && future.top().ready_us <= time) {
-        RuntimeTask task = future.top(); future.pop();
-        pending[static_cast<std::size_t>(task.resource)].push_back(std::move(task));
-      }
-      int pending_count = 0;
-      for (const auto& queue : pending) pending_count += static_cast<int>(queue.size());
-      max_pending_tasks_ = std::max(max_pending_tasks_, pending_count);
-      while (!completions.empty() && completions.top().end_us <= time) {
-        Completion completion = completions.top(); completions.pop();
-        busy[static_cast<std::size_t>(completion.resource)] = false;
-        const RuntimeTask& task = completion.task;
-        const auto total_vector_elements = (task.stage == RuntimeStage::Preprocess || task.stage == RuntimeStage::VectorKernel) ? c_.preprocess_elements : task.stage == RuntimeStage::Postprocess ? c_.postprocess_elements : 0;
-        if (total_vector_elements > 0 && task.vector_offset + task.vector_elements < total_vector_elements) {
-          future.push(make_runtime_task(task.frame, task.stage, task.release_us, completion.end_us, task.vector_offset + task.vector_elements));
-        } else if (task.stage == RuntimeStage::Postprocess || task.stage == RuntimeStage::VectorKernel) {
-          const double latency = completion.end_us - task.release_us;
-          latencies_us_.push_back(latency);
-          vision_completion_times_us_.push_back(completion.end_us);
-          if (latency > c_.deadline_us) ++deadline_misses_;
-          if (c_.dma_double_buffering == 0 && task.frame + 1 < c_.frames) {
-            const double next_release = frame_arrivals_us_[static_cast<std::size_t>(task.frame + 1)];
-            future.push(make_runtime_task(task.frame + 1, initial_stage, next_release, std::max(next_release, completion.end_us)));
-          }
-        } else if (task.stage == RuntimeStage::Control) {
-          ++control_tasks_;
-          const double response = completion.end_us - task.release_us;
-          control_response_times_us_.push_back(response);
-          if (response > c_.control_deadline_us) ++control_deadline_misses_;
-        } else {
-          future.push(make_runtime_task(task.frame, static_cast<RuntimeStage>(static_cast<int>(task.stage) + 1), task.release_us, completion.end_us));
-        }
-      }
+      if (observer != nullptr && !observer->is_running()) break;
       for (std::size_t index = 0; index < pending.size(); ++index) {
         if (busy[index] || pending[index].empty()) continue;
         auto& queue = pending[index];
@@ -458,23 +501,136 @@ class Simulator {
           return left.ready_us < right.ready_us;
         });
         RuntimeTask task = *selected;
+        const double end = time + task.duration_us;
+        const auto task_energy = runtime_task_energy(task);
+        if (!observe_study_dispatch(observer, task, time, end, resource_name(task.resource), task_energy)) break;
+        queue.erase(selected); busy[index] = true;
+        if (task.frame >= 0) vision_resource_queue_delays_us_.push_back(time - task.ready_us);
+        trace_.push_back({task.frame, task.name, resource_name(task.resource), time, end});
+        accumulate_runtime_energy(task, task_energy);
+        completions.push({end, task.resource, std::move(task)});
+        if (observer != nullptr && !observer->is_running()) break;
+      }
+      if (observer != nullptr && !observer->is_running()) break;
+      if (observer != nullptr && !has_same_time_events(time, future, completions)) {
+        std::uint64_t dependency_blocked = 0;
+        for (int frame = 0; frame < c_.frames; ++frame) {
+          if (frame_arrivals_us_[static_cast<std::size_t>(frame)] > time
+              || !observer->includes_work_unit("frame:" + std::to_string(frame))) continue;
+          for (const auto remaining_dependencies : remaining[static_cast<std::size_t>(frame)]) {
+            if (remaining_dependencies > 0) ++dependency_blocked;
+          }
+        }
+        const auto snapshot = study_queue_snapshot(time, pending, completions, dependency_blocked);
+        if (!observer->finish_quiescent_timestamp(time, snapshot)) break;
+      }
+    }
+  }
+
+  void run_event_scheduler(StudyMeasurementObserver* observer) {
+    std::priority_queue<RuntimeTask, std::vector<RuntimeTask>, FutureTaskOrder> future;
+    std::priority_queue<Completion, std::vector<Completion>, CompletionOrder> completions;
+    std::array<std::vector<RuntimeTask>, 3> pending;
+    std::array<bool, 3> busy = {false, false, false};
+    const auto initial_stage = c_.workload_mode == "rvv_stream" ? RuntimeStage::VectorKernel : RuntimeStage::Camera;
+    if (c_.dma_double_buffering == 1) {
+      for (int frame = 0; frame < c_.frames; ++frame) {
+        if (observer != nullptr && !observer->includes_work_unit("frame:" + std::to_string(frame))) continue;
+        future.push(make_runtime_task(frame, initial_stage, frame_arrivals_us_[static_cast<std::size_t>(frame)], frame_arrivals_us_[static_cast<std::size_t>(frame)]));
+      }
+    } else {
+      future.push(make_runtime_task(0, initial_stage, 0.0, 0.0));
+    }
+    if (c_.control_period_us > 0.0) {
+      const double horizon_us = frame_arrivals_us_.back() + c_.frame_period_us;
+      std::uint64_t sequence = 0;
+      for (double release = 0.0; release < horizon_us; release += c_.control_period_us, ++sequence) {
+        const std::string id = "control:" + std::to_string(sequence);
+        if (observer != nullptr && !observer->includes_work_unit(id)) continue;
+        RuntimeTask task = make_runtime_task(-1, RuntimeStage::Control, release, release);
+        task.control_sequence = sequence;
+        future.push(std::move(task));
+      }
+    }
+    auto resource_name = [](RuntimeResource resource) { return resource == RuntimeResource::Dma ? "DMA+DRAM" : resource == RuntimeResource::Rvv ? "RVV" : "NPU"; };
+    double time = 0.0;
+    while (observer == nullptr ? (!future.empty() || !completions.empty()) : observer->is_running()) {
+      const double next_future = future.empty() ? std::numeric_limits<double>::infinity() : future.top().ready_us;
+      const double next_completion = completions.empty() ? std::numeric_limits<double>::infinity() : completions.top().end_us;
+      time = std::min(next_future, next_completion);
+      if (observer != nullptr) time = std::min(time, observer->next_observer_time_us());
+      if (!std::isfinite(time)) break;
+      if (observer != nullptr && !observer->process_releases_through(time)) break;
+      while (!future.empty() && future.top().ready_us <= time) {
+        if (observer != nullptr && !observer->record_ready_event(time)) break;
+        RuntimeTask task = future.top(); future.pop();
+        pending[static_cast<std::size_t>(task.resource)].push_back(std::move(task));
+      }
+      if (observer != nullptr && !observer->is_running()) break;
+      int pending_count = 0;
+      for (const auto& queue : pending) pending_count += static_cast<int>(queue.size());
+      max_pending_tasks_ = std::max(max_pending_tasks_, pending_count);
+      while (!completions.empty() && completions.top().end_us <= time) {
+        if (observer != nullptr && !observer->record_task_completion_event(time)) break;
+        Completion completion = completions.top(); completions.pop();
+        busy[static_cast<std::size_t>(completion.resource)] = false;
+        const RuntimeTask& task = completion.task;
+        const auto total_vector_elements = (task.stage == RuntimeStage::Preprocess || task.stage == RuntimeStage::VectorKernel) ? c_.preprocess_elements : task.stage == RuntimeStage::Postprocess ? c_.postprocess_elements : 0;
+        if (total_vector_elements > 0 && task.vector_offset + task.vector_elements < total_vector_elements) {
+          future.push(make_runtime_task(task.frame, task.stage, task.release_us, completion.end_us, task.vector_offset + task.vector_elements));
+        } else if (task.stage == RuntimeStage::Postprocess || task.stage == RuntimeStage::VectorKernel) {
+          const double latency = completion.end_us - task.release_us;
+          latencies_us_.push_back(latency);
+          vision_completion_times_us_.push_back(completion.end_us);
+          if (latency > c_.deadline_us) ++deadline_misses_;
+          if (observer != nullptr) observer->record_work_unit_completion("frame:" + std::to_string(task.frame), completion.end_us);
+          if (c_.dma_double_buffering == 0 && task.frame + 1 < c_.frames
+              && (observer == nullptr || observer->includes_work_unit("frame:" + std::to_string(task.frame + 1)))) {
+            const double next_release = frame_arrivals_us_[static_cast<std::size_t>(task.frame + 1)];
+            future.push(make_runtime_task(task.frame + 1, initial_stage, next_release, std::max(next_release, completion.end_us)));
+          }
+        } else if (task.stage == RuntimeStage::Control) {
+          ++control_tasks_;
+          const double response = completion.end_us - task.release_us;
+          control_response_times_us_.push_back(response);
+          if (response > c_.control_deadline_us) ++control_deadline_misses_;
+          if (observer != nullptr) observer->record_work_unit_completion("control:" + std::to_string(task.control_sequence), completion.end_us);
+        } else {
+          future.push(make_runtime_task(task.frame, static_cast<RuntimeStage>(static_cast<int>(task.stage) + 1), task.release_us, completion.end_us));
+        }
+      }
+      if (observer != nullptr && !observer->is_running()) break;
+      for (std::size_t index = 0; index < pending.size(); ++index) {
+        if (busy[index] || pending[index].empty()) continue;
+        auto& queue = pending[index];
+        const auto selected = std::min_element(queue.begin(), queue.end(), [this](const RuntimeTask& left, const RuntimeTask& right) {
+          if (c_.scheduler_policy == "fixed_priority" && left.priority != right.priority) return left.priority < right.priority;
+          if (c_.scheduler_policy == "edf") {
+            const double left_deadline = left.release_us + (left.stage == RuntimeStage::Control ? c_.control_deadline_us : c_.deadline_us);
+            const double right_deadline = right.release_us + (right.stage == RuntimeStage::Control ? c_.control_deadline_us : c_.deadline_us);
+            if (left_deadline != right_deadline) return left_deadline < right_deadline;
+          }
+          return left.ready_us < right.ready_us;
+        });
+        RuntimeTask task = *selected;
+        const double end = time + task.duration_us;
+        const auto task_energy = runtime_task_energy(task);
+        if (!observe_study_dispatch(observer, task, time, end, resource_name(task.resource), task_energy)) break;
         queue.erase(selected);
         busy[index] = true;
         if (task.frame >= 0) vision_resource_queue_delays_us_.push_back(time - task.ready_us);
         if ((task.stage == RuntimeStage::Camera || task.stage == RuntimeStage::VectorKernel) && task.vector_offset == 0) {
           vision_start_delays_us_.push_back(time - task.release_us);
         }
-        const double end = time + task.duration_us;
         trace_.push_back({task.frame, task.name, resource_name(task.resource), time, end});
-        vector_energy_pj_ += task.vector_energy_pj;
-        npu_arithmetic_energy_pj_ += task.npu_energy_pj;
-        if (task.transfer_bytes > 0) {
-          total_dram_bytes_ += task.transfer_bytes;
-          dram_energy_pj_ += static_cast<double>(task.transfer_bytes) * c_.dram_byte_pj;
-          dma_energy_pj_ += static_cast<double>(task.transfer_bytes) * c_.dma_byte_pj;
-        }
-        total_energy_pj_ += task.vector_energy_pj + task.npu_energy_pj + static_cast<double>(task.transfer_bytes) * (c_.dram_byte_pj + c_.dma_byte_pj);
+        accumulate_runtime_energy(task, task_energy);
         completions.push({end, task.resource, std::move(task)});
+        if (observer != nullptr && !observer->is_running()) break;
+      }
+      if (observer != nullptr && !observer->is_running()) break;
+      if (observer != nullptr && !has_same_time_events(time, future, completions)) {
+        const auto snapshot = study_queue_snapshot(time, pending, completions);
+        if (!observer->finish_quiescent_timestamp(time, snapshot)) break;
       }
     }
   }
