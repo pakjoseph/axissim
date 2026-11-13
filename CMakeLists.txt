@@ -135,6 +135,16 @@ if(BUILD_TESTING)
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/check_host_reference_records.py
                      ${CMAKE_SOURCE_DIR}/reference_data/hosts/apple-silicon-arm64-mobilenetv2-7.json
                      ${CMAKE_SOURCE_DIR}/reference_data/hosts/github-actions-ubuntu-x86_64-mobilenetv2-7.json)
+    if(Python3_VERSION VERSION_GREATER_EQUAL "3.10")
+      add_test(NAME legacy_study_baselines_reproduce
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/check_legacy_study_parity.py
+                       --source-root ${CMAKE_SOURCE_DIR}
+                       --binary $<TARGET_FILE:axissim>
+                       --fixture ${CMAKE_SOURCE_DIR}/tests/reference/legacy_study_baselines.json)
+      add_test(NAME mnist12_study_power_overlay_preserves_legacy_config
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/check_mnist12_power_overlay.py
+                       ${CMAKE_SOURCE_DIR} $<TARGET_FILE:axissim>)
+    endif()
   endif()
 
   add_test(NAME baseline_smoke

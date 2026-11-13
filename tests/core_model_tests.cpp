@@ -108,6 +108,51 @@ void test_accounting_proxy_contract() {
           "an unconstrained one-watt scenario must remain feasible under its declared limits");
 }
 
+void test_accounting_energy_and_power_budget_boundaries() {
+  axissim::Config config;
+  config.static_power_w = 0.05;
+  config.npu_macs = 1024;
+  config.npu_static_power_per_mac_w = 0.00003;
+  config.rvv_lanes = 8;
+  config.rvv_static_power_per_lane_w = 0.002;
+  config.sram_capacity_bytes = 131'072;
+  config.sram_static_power_per_kib_w = 0.0001;
+  config.dram_interface_static_power_w = 0.02;
+  config.pue = 1.5;
+  config.it_power_budget_w = 0.23;
+  axissim::validate(config);
+
+  const axissim::ModelAccounting accounting = axissim::model_accounting(config, 8'000'000.0, 2'000'000.0);
+  require_close(accounting.modeled_static_power_w, 0.12952, 1e-12,
+                "capacity and base static terms must retain the configured power equation");
+  require_close(accounting.static_energy_pj, 259'040'000'000.0, 1e-3,
+                "configured static power must be integrated over the full run makespan");
+  require_close(accounting.it_energy_pj, 259'048'000'000.0, 1e-3,
+                "IT energy must add simulator dynamic energy exactly once");
+  require_close(accounting.facility_energy_pj, 388'572'000'000.0, 1e-3,
+                "facility energy must apply PUE once to aggregate IT energy");
+  require(accounting.power_feasible,
+          "the 0.23 W reference must remain feasible under its existing modeled terms");
+
+  axissim::Config boundary;
+  boundary.static_power_w = 1.0;
+  boundary.it_power_budget_w = 1.0;
+  axissim::validate(boundary);
+  const auto at_limit = axissim::model_accounting(boundary, 0.0, 1'000'000.0);
+  require(at_limit.average_it_power_w == 1.0 && at_limit.power_feasible,
+          "average IT power exactly equal to the budget must be feasible");
+
+  boundary.it_power_budget_w = std::nextafter(1.0, 0.0);
+  const auto above_limit = axissim::model_accounting(boundary, 0.0, 1'000'000.0);
+  require(!above_limit.power_feasible,
+          "a budget immediately below modeled average IT power must be infeasible");
+
+  boundary.it_power_budget_w = 0.0;
+  const auto no_budget = axissim::model_accounting(boundary, 0.0, 1'000'000.0);
+  require(no_budget.power_feasible,
+          "a zero power budget must continue to mean no configured constraint");
+}
+
 }  // namespace
 
 int main() {
@@ -117,6 +162,7 @@ int main() {
     test_iso_performance_energy_contract();
     test_scheduler_trace_contract();
     test_accounting_proxy_contract();
+    test_accounting_energy_and_power_budget_boundaries();
     std::cout << "AxisSim core model API contract passed\n";
     return 0;
   } catch (const std::exception& error) {

@@ -1,0 +1,1453 @@
+{
+  "build": {
+    "binary_file": "Mach-O 64-bit executable arm64",
+    "binary_path": "build/axissim",
+    "binary_sha256": "383491a42f4f3daaf0214bf6f7f6b28163066bff5baec7bf208daa395f0ede85",
+    "build_status": "passed",
+    "build_type": "Release",
+    "cmake_cache_selected": {
+      "AXISSIM_BUILD_GUI": "ON",
+      "CMAKE_BUILD_TYPE": "Release",
+      "CMAKE_CXX_COMPILER": "/usr/bin/c++",
+      "CMAKE_GENERATOR": "Unix Makefiles",
+      "CMAKE_OSX_ARCHITECTURES": "",
+      "CMAKE_OSX_DEPLOYMENT_TARGET": ""
+    },
+    "cmake_version": "4.4.5",
+    "compiler_id": "AppleClang",
+    "compiler_path": "/usr/bin/c++",
+    "compiler_version": "21.0.0.21000101",
+    "cxx_flags": "",
+    "cxx_release_flags": "-O3 -DNDEBUG",
+    "generator": "Unix Makefiles",
+    "gui_enabled": "ON",
+    "rebuild_command": "cmake --build build --parallel 4",
+    "targets": [
+      "axissim-core",
+      "axissim-core-model-tests",
+      "axissim",
+      "axissim-gui"
+    ]
+  },
+  "cli_baselines": {
+    "gemm_heavy_baseline": {
+      "command_argv": [
+        "./build/axissim",
+        "run",
+        "configs/power_budget/manifest.conf",
+        "--set",
+        "npu_arithmetic_energy_scale=1",
+        "--set",
+        "npu_macs=1024",
+        "--set",
+        "gemm_m=512",
+        "--set",
+        "gemm_n=512",
+        "--set",
+        "gemm_k=512",
+        "--set",
+        "npu_tile_m=128",
+        "--set",
+        "npu_tile_n=128",
+        "--set",
+        "npu_tile_k=128",
+        "--set",
+        "sram_capacity_bytes=131072",
+        "--set",
+        "npu_weights_resident=1",
+        "--set",
+        "weight_sram_capacity_bytes=524288",
+        "--set",
+        "npu_mac_pj=2.0",
+        "--set",
+        "dram_byte_pj=5.0",
+        "--json",
+        "<RESULT_JSON>",
+        "--trace",
+        "<TRACE_CSV>"
+      ],
+      "exit_status": 0,
+      "repeatability": "two executions produced byte-identical normalized stdout, JSON, and trace CSV",
+      "result_json": {
+        "accuracy_evidence": {
+          "dataset": "",
+          "evaluator": "",
+          "metric": "",
+          "source_url": "",
+          "status": "not_supplied",
+          "value": 0.0
+        },
+        "area_proxy": {
+          "base_mm2": 0.0,
+          "feasible": true,
+          "limit_mm2": 0.0,
+          "modeled_mm2": 0.0,
+          "npu_per_mac_mm2": 0.0,
+          "rvv_per_lane_mm2": 0.0,
+          "sram_per_kib_mm2": 0.0
+        },
+        "arrival_mode": "periodic",
+        "assumptions": {
+          "arithmetic_voltage_ratio": 1.0,
+          "base_static_power_w": 0.05,
+          "dram_interface_static_power_w": 0.02,
+          "it_power_budget_w": 0.23,
+          "npu_arithmetic_energy_scale": 1.0,
+          "npu_static_power_per_mac_w": 3e-05,
+          "pue": 1.5,
+          "rvv_static_power_per_lane_w": 0.002,
+          "sram_static_power_per_kib_w": 0.0001
+        },
+        "deadline_us": 33333.0,
+        "deadlines": {
+          "control_jobs": 0,
+          "control_misses": 0,
+          "vision_jobs": 30,
+          "vision_misses": 0
+        },
+        "deployment": {
+          "electricity_cost": 0.0,
+          "electricity_cost_per_kwh": 0.0,
+          "facility_energy_kwh": 0.0,
+          "hours": 0.0,
+          "xpu_count": 1
+        },
+        "energy": {
+          "dma_pj": 308416512.0,
+          "dram_pj": 1028055040.0,
+          "facility_per_frame_uj": 6737.853861,
+          "it_per_frame_uj": 4491.902574,
+          "npu_arithmetic_pj": 8053063680.0,
+          "per_frame_uj": 314.210429,
+          "static_per_frame_uj": 4177.692145,
+          "vector_pj": 36777636.0
+        },
+        "latency": {
+          "mean_us": 999.559013,
+          "p99_us": 1017.297424
+        },
+        "mapping_effects": {
+          "fused_intermediate_bytes_avoided_per_frame": 0,
+          "fusion_count": 0,
+          "mapped_npu_arithmetic_energy_scale": 1.0,
+          "persistent_weight_bytes_avoided_per_steady_frame": 0,
+          "persistent_weight_operator_count": 0,
+          "precision_traffic_bytes_avoided_per_frame": 0,
+          "source_storage_precision": "profile-native",
+          "target_storage_precision": "profile-native"
+        },
+        "mapping_plan": "implicit-profile-mapping",
+        "model_version": "0.1",
+        "power": {
+          "average_facility_w": 0.208892,
+          "average_it_w": 0.139261,
+          "base_static_w": 0.05,
+          "budget_w": 0.23,
+          "feasible": true,
+          "modeled_static_w": 0.12952,
+          "pue": 1.5
+        },
+        "profile_transfer_ledger": {
+          "entries": [],
+          "first_frame_bytes": 0,
+          "per_frame_bytes": 0,
+          "steady_state_bytes": 0
+        },
+        "qos": {
+          "control_response_max_us": 0.0,
+          "max_pending_tasks": 1,
+          "output_interval_jitter_max_us": 26.2144,
+          "vision_queue_delay_max_us": 0.0,
+          "vision_queue_delay_mean_us": 0.0
+        },
+        "reliability_proxy": {
+          "expected_failures": 0.0,
+          "fit_rate": 0.0,
+          "voltage_multiplier": 1.0
+        },
+        "scenario_name": "arithmetic_efficiency_capacity_study",
+        "scheduler_policy": "fixed_priority",
+        "schema_version": "1.2",
+        "thermal_proxy": {
+          "ambient_c": 25.0,
+          "capacitance_j_per_c": 0.0,
+          "end_c": 25.0,
+          "feasible": true,
+          "limit_c": 0.0,
+          "resistance_c_per_w": 0.0,
+          "steady_state_c": 25.0
+        },
+        "timing": {
+          "makespan_us": 967655.6852
+        },
+        "traffic": {
+          "dram_bytes": 205611008
+        },
+        "workload_mode": "physical_ai"
+      },
+      "result_json_bytes": 2818,
+      "result_json_sha256": "fd69de9d917bbb3ad20041a68bcd40d56e6849df767431ded9d045e0c1335ba0",
+      "result_schema_version": "1.2",
+      "stdout_normalized": "AxisSim results\n  scenario / model:    arithmetic_efficiency_capacity_study / 0.1\n  workload mode:        physical_ai\n  frame arrivals:       periodic\n  RVV timing model:     compute_envelope\n  RVV memory accounting:pipeline_dma\n  arithmetic voltage ratio: 1.00 (energy sensitivity only)\n  scheduler policy:    fixed_priority\n  frames:              30\n  RVV VLMAX:           8 elements\n  workload vector ops / NPU MACs per frame: 3064803.00 / 134217728.00\n  RVV tail utilization: 100.00% / 99.99%\n  NPU tile / SRAM:     131072 / 131072 bytes\n  NPU DRAM first/steady frame: 3.67 / 3.15 MB\n  persistent weights / double buffer: on / on\n  latency mean / P99:  999.56 / 1017.30 us\n  latency min / max:   998.69 / 1024.90 us\n  vision queue delay mean / max: 0.00 / 0.00 us\n  output interval jitter max: 26.21 us\n  max concurrent tasks:1\n  max pending tasks:    1\n  utilization DMA/RVV/NPU: 1.11% / 1.58% / 0.41%\n  deadline misses:     0 / 30 (deadline 33333.00 us)\n  DRAM traffic:        205.61 MB\n  energy per frame:    314.21 uJ (modeled estimate)\n  energy vector/NPU/DRAM/DMA: 1.23 / 268.44 / 34.27 / 10.28 uJ\n  modeled static power: 0.13 W\n  energy static/IT/facility: 4177.69 / 4491.90 / 6737.85 uJ\n  average IT/facility power: 0.14 / 0.21 W\n  IT power budget:      0.23 W (feasible)\n  trace:               <TRACE_CSV>\n  result JSON:         <RESULT_JSON>\n",
+      "trace_bytes": 13022,
+      "trace_header": "frame,task,resource,start_us,end_us,duration_us",
+      "trace_record_count": 240,
+      "trace_sha256": "83940826269103717ec57ab099d1638f183991ccfb4372c974dcc989e69a3b0b"
+    },
+    "mnist12_legacy_baseline": {
+      "command_argv": [
+        "./build/axissim",
+        "run",
+        "configs/workloads/mnist12_profiled.conf",
+        "--json",
+        "<RESULT_JSON>",
+        "--trace",
+        "<TRACE_CSV>"
+      ],
+      "exit_status": 0,
+      "repeatability": "two executions produced byte-identical normalized stdout, JSON, and trace CSV",
+      "result_json": {
+        "accuracy_evidence": {
+          "dataset": "",
+          "evaluator": "",
+          "metric": "",
+          "source_url": "",
+          "status": "not_supplied",
+          "value": 0.0
+        },
+        "area_proxy": {
+          "base_mm2": 0.0,
+          "feasible": true,
+          "limit_mm2": 0.0,
+          "modeled_mm2": 0.0,
+          "npu_per_mac_mm2": 0.0,
+          "rvv_per_lane_mm2": 0.0,
+          "sram_per_kib_mm2": 0.0
+        },
+        "arrival_mode": "periodic",
+        "assumptions": {
+          "arithmetic_voltage_ratio": 1.0,
+          "base_static_power_w": 0.0,
+          "dram_interface_static_power_w": 0.0,
+          "it_power_budget_w": 0.0,
+          "npu_arithmetic_energy_scale": 1.0,
+          "npu_static_power_per_mac_w": 0.0,
+          "pue": 1.0,
+          "rvv_static_power_per_lane_w": 0.0,
+          "sram_static_power_per_kib_w": 0.0
+        },
+        "deadline_us": 33333.0,
+        "deadlines": {
+          "control_jobs": 0,
+          "control_misses": 0,
+          "vision_jobs": 30,
+          "vision_misses": 0
+        },
+        "deployment": {
+          "electricity_cost": 0.0,
+          "electricity_cost_per_kwh": 0.0,
+          "facility_energy_kwh": 0.0,
+          "hours": 0.0,
+          "xpu_count": 1
+        },
+        "energy": {
+          "dma_pj": 13057920.0,
+          "dram_pj": 130579200.0,
+          "facility_per_frame_uj": 4.954602,
+          "it_per_frame_uj": 4.954602,
+          "npu_arithmetic_pj": 4719360.0,
+          "per_frame_uj": 4.954602,
+          "static_per_frame_uj": 0.0,
+          "vector_pj": 281592.0
+        },
+        "latency": {
+          "mean_us": 56.419533,
+          "p99_us": 56.5068
+        },
+        "mapping_effects": {
+          "fused_intermediate_bytes_avoided_per_frame": 0,
+          "fusion_count": 0,
+          "mapped_npu_arithmetic_energy_scale": 1.0,
+          "persistent_weight_bytes_avoided_per_steady_frame": 0,
+          "persistent_weight_operator_count": 0,
+          "precision_traffic_bytes_avoided_per_frame": 0,
+          "source_storage_precision": "profile-native",
+          "target_storage_precision": "profile-native"
+        },
+        "mapping_plan": "mnist12_baseline.json",
+        "model_version": "0.3",
+        "power": {
+          "average_facility_w": 0.000154,
+          "average_it_w": 0.000154,
+          "base_static_w": 0.0,
+          "budget_w": 0.0,
+          "feasible": true,
+          "modeled_static_w": 0.0,
+          "pue": 1.0
+        },
+        "profile_transfer_ledger": {
+          "entries": [
+            {
+              "bytes": 3136,
+              "category": "activation_read",
+              "operator_id": "Convolution28"
+            },
+            {
+              "bytes": 25088,
+              "category": "activation_write",
+              "operator_id": "Convolution28"
+            },
+            {
+              "bytes": 800,
+              "category": "weight_read",
+              "operator_id": "Convolution28"
+            },
+            {
+              "bytes": 25088,
+              "category": "activation_read",
+              "operator_id": "Plus30"
+            },
+            {
+              "bytes": 25088,
+              "category": "activation_write",
+              "operator_id": "Plus30"
+            },
+            {
+              "bytes": 32,
+              "category": "weight_read",
+              "operator_id": "Plus30"
+            },
+            {
+              "bytes": 25088,
+              "category": "activation_read",
+              "operator_id": "ReLU32"
+            },
+            {
+              "bytes": 25088,
+              "category": "activation_write",
+              "operator_id": "ReLU32"
+            },
+            {
+              "bytes": 25088,
+              "category": "activation_read",
+              "operator_id": "Pooling66"
+            },
+            {
+              "bytes": 6272,
+              "category": "activation_write",
+              "operator_id": "Pooling66"
+            },
+            {
+              "bytes": 6272,
+              "category": "activation_read",
+              "operator_id": "Convolution110"
+            },
+            {
+              "bytes": 12544,
+              "category": "activation_write",
+              "operator_id": "Convolution110"
+            },
+            {
+              "bytes": 12800,
+              "category": "weight_read",
+              "operator_id": "Convolution110"
+            },
+            {
+              "bytes": 12544,
+              "category": "activation_read",
+              "operator_id": "Plus112"
+            },
+            {
+              "bytes": 12544,
+              "category": "activation_write",
+              "operator_id": "Plus112"
+            },
+            {
+              "bytes": 64,
+              "category": "weight_read",
+              "operator_id": "Plus112"
+            },
+            {
+              "bytes": 12544,
+              "category": "activation_read",
+              "operator_id": "ReLU114"
+            },
+            {
+              "bytes": 12544,
+              "category": "activation_write",
+              "operator_id": "ReLU114"
+            },
+            {
+              "bytes": 12544,
+              "category": "activation_read",
+              "operator_id": "Pooling160"
+            },
+            {
+              "bytes": 1024,
+              "category": "activation_write",
+              "operator_id": "Pooling160"
+            },
+            {
+              "bytes": 1024,
+              "category": "activation_read",
+              "operator_id": "Times212_reshape0"
+            },
+            {
+              "bytes": 1024,
+              "category": "activation_write",
+              "operator_id": "Times212_reshape0"
+            },
+            {
+              "bytes": 16,
+              "category": "weight_read",
+              "operator_id": "Times212_reshape0"
+            },
+            {
+              "bytes": 10240,
+              "category": "activation_write",
+              "operator_id": "Times212_reshape1"
+            },
+            {
+              "bytes": 10256,
+              "category": "weight_read",
+              "operator_id": "Times212_reshape1"
+            },
+            {
+              "bytes": 11264,
+              "category": "activation_read",
+              "operator_id": "Times212"
+            },
+            {
+              "bytes": 40,
+              "category": "activation_write",
+              "operator_id": "Times212"
+            },
+            {
+              "bytes": 40,
+              "category": "activation_read",
+              "operator_id": "Plus214"
+            },
+            {
+              "bytes": 40,
+              "category": "activation_write",
+              "operator_id": "Plus214"
+            },
+            {
+              "bytes": 40,
+              "category": "weight_read",
+              "operator_id": "Plus214"
+            }
+          ],
+          "first_frame_bytes": 290176,
+          "per_frame_bytes": 290176,
+          "steady_state_bytes": 290176
+        },
+        "qos": {
+          "control_response_max_us": 0.0,
+          "max_pending_tasks": 2,
+          "output_interval_jitter_max_us": 0.154,
+          "vision_queue_delay_max_us": 4.4512,
+          "vision_queue_delay_mean_us": 0.269162
+        },
+        "reliability_proxy": {
+          "expected_failures": 0.0,
+          "fit_rate": 0.0,
+          "voltage_multiplier": 1.0
+        },
+        "scenario_name": "mnist12_profiled_graph",
+        "scheduler_policy": "fixed_priority",
+        "schema_version": "1.2",
+        "thermal_proxy": {
+          "ambient_c": 25.0,
+          "capacitance_j_per_c": 0.0,
+          "end_c": 25.0,
+          "feasible": true,
+          "limit_c": 0.0,
+          "resistance_c_per_w": 0.0,
+          "steady_state_c": 25.0
+        },
+        "timing": {
+          "makespan_us": 966713.5068
+        },
+        "traffic": {
+          "dram_bytes": 8705280
+        },
+        "workload_mode": "profiled_graph"
+      },
+      "result_json_bytes": 5094,
+      "result_json_sha256": "564a597d71af73700cacb73e1bab6a59380c53d69ab0641a7211f57b07f4a277",
+      "result_schema_version": "1.2",
+      "stdout_normalized": "AxisSim results\n  scenario / model:    mnist12_profiled_graph / 0.3\n  workload mode:        profiled_graph\n  frame arrivals:       periodic\n  RVV timing model:     compute_envelope\n  RVV memory accounting:pipeline_dma\n  arithmetic voltage ratio: 1.00 (energy sensitivity only)\n  scheduler policy:    fixed_priority\n  frames:              30\n  RVV VLMAX:           8 elements\n  workload vector ops / NPU MACs per frame: 23466.00 / 786560.00\n  RVV tail utilization: 100.00%\n  mapping plan:         mnist12_baseline.json\n  profile scope:        Static operation/traffic characterization; mapping-policy assumptions, not measured runtime or compiler validation\n  latency mean / P99:  56.42 / 56.51 us\n  latency min / max:   56.35 / 56.51 us\n  vision queue delay mean / max: 0.27 / 4.45 us\n  output interval jitter max: 0.15 us\n  max concurrent tasks:2\n  max pending tasks:    2\n  utilization DMA/RVV/NPU: 0.16% / 0.02% / 0.00%\n  deadline misses:     0 / 30 (deadline 33333.00 us)\n  DRAM traffic:        8.71 MB\n  energy per frame:    4.95 uJ (modeled estimate)\n  energy vector/NPU/DRAM/DMA: 0.01 / 0.16 / 4.35 / 0.44 uJ\n  modeled static power: 0.00 W\n  energy static/IT/facility: 0.00 / 4.95 / 4.95 uJ\n  average IT/facility power: 0.00 / 0.00 W\n  trace:               <TRACE_CSV>\n  result JSON:         <RESULT_JSON>\n",
+      "trace_bytes": 43130,
+      "trace_header": "frame,task,resource,start_us,end_us,duration_us",
+      "trace_record_count": 720,
+      "trace_sha256": "1802db40fe4f8dcf8e1c6531a4e538e4f2f37d6b4d20794cca3bad6eef986291"
+    },
+    "physical_ai_baseline": {
+      "command_argv": [
+        "./build/axissim",
+        "run",
+        "configs/baseline/manifest.conf",
+        "--json",
+        "<RESULT_JSON>",
+        "--trace",
+        "<TRACE_CSV>"
+      ],
+      "exit_status": 0,
+      "repeatability": "two executions produced byte-identical normalized stdout, JSON, and trace CSV",
+      "result_json": {
+        "accuracy_evidence": {
+          "dataset": "",
+          "evaluator": "",
+          "metric": "",
+          "source_url": "",
+          "status": "not_supplied",
+          "value": 0.0
+        },
+        "area_proxy": {
+          "base_mm2": 0.0,
+          "feasible": true,
+          "limit_mm2": 0.0,
+          "modeled_mm2": 0.0,
+          "npu_per_mac_mm2": 0.0,
+          "rvv_per_lane_mm2": 0.0,
+          "sram_per_kib_mm2": 0.0
+        },
+        "arrival_mode": "periodic",
+        "assumptions": {
+          "arithmetic_voltage_ratio": 1.0,
+          "base_static_power_w": 0.0,
+          "dram_interface_static_power_w": 0.0,
+          "it_power_budget_w": 0.0,
+          "npu_arithmetic_energy_scale": 1.0,
+          "npu_static_power_per_mac_w": 0.0,
+          "pue": 1.0,
+          "rvv_static_power_per_lane_w": 0.0,
+          "sram_static_power_per_kib_w": 0.0
+        },
+        "deadline_us": 33333.0,
+        "deadlines": {
+          "control_jobs": 0,
+          "control_misses": 0,
+          "vision_jobs": 30,
+          "vision_misses": 0
+        },
+        "deployment": {
+          "electricity_cost": 0.0,
+          "electricity_cost_per_kwh": 0.0,
+          "facility_energy_kwh": 0.0,
+          "hours": 0.0,
+          "xpu_count": 1
+        },
+        "energy": {
+          "dma_pj": 272240640.0,
+          "dram_pj": 2722406400.0,
+          "facility_per_frame_uj": 107.758376,
+          "it_per_frame_uj": 107.758376,
+          "npu_arithmetic_pj": 201326592.0,
+          "per_frame_uj": 107.758376,
+          "static_per_frame_uj": 0.0,
+          "vector_pj": 36777636.0
+        },
+        "latency": {
+          "mean_us": 861.0596,
+          "p99_us": 861.0596
+        },
+        "mapping_effects": {
+          "fused_intermediate_bytes_avoided_per_frame": 0,
+          "fusion_count": 0,
+          "mapped_npu_arithmetic_energy_scale": 1.0,
+          "persistent_weight_bytes_avoided_per_steady_frame": 0,
+          "persistent_weight_operator_count": 0,
+          "precision_traffic_bytes_avoided_per_frame": 0,
+          "source_storage_precision": "profile-native",
+          "target_storage_precision": "profile-native"
+        },
+        "mapping_plan": "implicit-profile-mapping",
+        "model_version": "0.2",
+        "power": {
+          "average_facility_w": 0.003341,
+          "average_it_w": 0.003341,
+          "base_static_w": 0.0,
+          "budget_w": 0.0,
+          "feasible": true,
+          "modeled_static_w": 0.0,
+          "pue": 1.0
+        },
+        "profile_transfer_ledger": {
+          "entries": [],
+          "first_frame_bytes": 0,
+          "per_frame_bytes": 0,
+          "steady_state_bytes": 0
+        },
+        "qos": {
+          "control_response_max_us": 0.0,
+          "max_pending_tasks": 1,
+          "output_interval_jitter_max_us": 0.0,
+          "vision_queue_delay_max_us": 0.0,
+          "vision_queue_delay_mean_us": 0.0
+        },
+        "reliability_proxy": {
+          "expected_failures": 0.0,
+          "fit_rate": 0.0,
+          "voltage_multiplier": 1.0
+        },
+        "scenario_name": "baseline_physical_ai",
+        "scheduler_policy": "fixed_priority",
+        "schema_version": "1.2",
+        "thermal_proxy": {
+          "ambient_c": 25.0,
+          "capacitance_j_per_c": 0.0,
+          "end_c": 25.0,
+          "feasible": true,
+          "limit_c": 0.0,
+          "resistance_c_per_w": 0.0,
+          "steady_state_c": 25.0
+        },
+        "timing": {
+          "makespan_us": 967518.0596
+        },
+        "traffic": {
+          "dram_bytes": 181493760
+        },
+        "workload_mode": "physical_ai"
+      },
+      "result_json_bytes": 2794,
+      "result_json_sha256": "2effc59759324fbda344c4e23a5fb6260153f6072e555de88f6ea9302172dfa0",
+      "result_schema_version": "1.2",
+      "stdout_normalized": "AxisSim results\n  scenario / model:    baseline_physical_ai / 0.2\n  workload mode:        physical_ai\n  frame arrivals:       periodic\n  RVV timing model:     compute_envelope\n  RVV memory accounting:pipeline_dma\n  arithmetic voltage ratio: 1.00 (energy sensitivity only)\n  scheduler policy:    fixed_priority\n  frames:              30\n  RVV VLMAX:           8 elements\n  workload vector ops / NPU MACs per frame: 3064803.00 / 33554432.00\n  RVV tail utilization: 100.00% / 99.99%\n  NPU tile / SRAM:     49152 / 131072 bytes\n  NPU DRAM first/steady frame: 2.36 / 2.36 MB\n  persistent weights / double buffer: off / on\n  latency mean / P99:  861.06 / 861.06 us\n  latency min / max:   861.06 / 861.06 us\n  vision queue delay mean / max: 0.00 / 0.00 us\n  output interval jitter max: 0.00 us\n  max concurrent tasks:1\n  max pending tasks:    1\n  utilization DMA/RVV/NPU: 0.98% / 1.58% / 0.10%\n  deadline misses:     0 / 30 (deadline 33333.00 us)\n  DRAM traffic:        181.49 MB\n  energy per frame:    107.76 uJ (modeled estimate)\n  energy vector/NPU/DRAM/DMA: 1.23 / 6.71 / 90.75 / 9.07 uJ\n  modeled static power: 0.00 W\n  energy static/IT/facility: 0.00 / 107.76 / 107.76 uJ\n  average IT/facility power: 0.00 / 0.00 W\n  trace:               <TRACE_CSV>\n  result JSON:         <RESULT_JSON>\n",
+      "trace_bytes": 12991,
+      "trace_header": "frame,task,resource,start_us,end_us,duration_us",
+      "trace_record_count": 240,
+      "trace_sha256": "b168f857e911cde6a2760dcf3706c4875e315eaaf34e68baa42790ee7f20ef5f"
+    }
+  },
+  "determinism_policy": {
+    "compared_exactly": [
+      "schema 1.2 JSON object and bytes",
+      "CLI stdout after replacing only result/trace output paths",
+      "CSV trace bytes and header",
+      "existing study CSV bytes"
+    ],
+    "documented_nondeterministic_metadata": [
+      "host wall-clock duration is not included in simulator outputs; CTest elapsed time is environment metadata only"
+    ],
+    "large_generated_artifacts": "Full trace CSVs and full sweep outputs remain in the temporary replay workspace; this fixture retains their hashes, sizes, row counts, and trace headers."
+  },
+  "environment": {
+    "bash": "GNU bash 5.3.15",
+    "cmake": "4.4.5",
+    "compiler": "Apple clang 21.0.0",
+    "jq": "1.8.2",
+    "kernel_arch": "arm64 (Darwin 25.6.0)",
+    "os": "macOS 26.6.2 (Build 25G83)",
+    "python_for_existing_test_harness": "3.14.2",
+    "qt": "6.12.0",
+    "xcode": "27.2 (Build 27B52)"
+  },
+  "existing_ctest": {
+    "command": "ctest --test-dir build --output-on-failure",
+    "failed": 0,
+    "gui_tests_passed": [
+      "desktop_gui_initializes",
+      "desktop_gui_runs_model",
+      "desktop_gui_guided_first_run",
+      "desktop_gui_mapping_lab_runs_public_policy_set",
+      "desktop_gui_power_opportunity_study_runs",
+      "desktop_gui_accessibility_audit",
+      "desktop_gui_light_theme",
+      "desktop_gui_dark_theme"
+    ],
+    "passed": 56,
+    "registered_test_count": 56,
+    "test_names": [
+      "core_model_api_contract",
+      "host_reference_harness_help",
+      "host_reference_records_reconcile",
+      "baseline_smoke",
+      "rejects_invalid_rvv_configuration",
+      "rejects_unknown_configuration_key",
+      "validates_workload_profile_contract",
+      "validates_explicit_mnist_mapping_plan",
+      "rejects_incomplete_mapping_plan",
+      "executes_workload_profile_dag",
+      "mnist12_profiled_graph_smoke",
+      "explicit_mapping_preserves_mnist_baseline",
+      "profile_transfer_ledger_reconciles",
+      "named_profile_fusion_reduces_only_declared_traffic",
+      "named_profile_weight_residency_accounts_for_first_and_steady_frames",
+      "rejects_profile_weight_residency_that_exceeds_declared_sram",
+      "rejects_named_profile_weight_residency_with_actionable_capacity_error",
+      "combined_profile_mapping_policy_smoke",
+      "profile_precision_policy_scales_only_declared_storage_and_npu_energy",
+      "controlled_int8_mapping_binds_external_accuracy_evidence",
+      "mnist12_profiled_burst_qos_smoke",
+      "rejects_incomplete_arrival_trace_configuration",
+      "rejects_tile_that_does_not_fit_sram",
+      "rejects_weight_residency_that_does_not_fit_sram",
+      "bandwidth_sweep_smoke",
+      "fixed_priority_control_smoke",
+      "edf_control_smoke",
+      "vector_chunking_bounds_control_blocking",
+      "tiny_pipeline_matches_hand_calculation",
+      "rvv_extra_traffic_is_accounted_once",
+      "rvv_extra_traffic_covers_pre_and_postprocess",
+      "pue_scales_facility_power_only",
+      "reports_infeasible_it_power_budget",
+      "iso_performance_arithmetic_scale_preserves_latency",
+      "larger_npu_has_explicit_capacity_power",
+      "exact_power_accounting",
+      "pareto_filter_rejects_dominated_and_infeasible",
+      "deployment_economics_are_explicit",
+      "implementation_proxies_are_explicit",
+      "exact_deployment_and_proxy_accounting",
+      "deterministic_arrival_trace_qos",
+      "deterministic_sensitivity_analysis",
+      "calibration_fixture_smoke",
+      "rejects_calibration_frequency_mismatch",
+      "ara2_published_reference_smoke",
+      "ara_rtl_reproduced_reference_smoke",
+      "ara_rtl_4lane_size_controls_smoke",
+      "ara_rtl_lane_holdout_smoke",
+      "desktop_gui_initializes",
+      "desktop_gui_runs_model",
+      "desktop_gui_guided_first_run",
+      "desktop_gui_mapping_lab_runs_public_policy_set",
+      "desktop_gui_power_opportunity_study_runs",
+      "desktop_gui_accessibility_audit",
+      "desktop_gui_light_theme",
+      "desktop_gui_dark_theme"
+    ],
+    "total": 56,
+    "total_wall_time_seconds": 3.04
+  },
+  "existing_study_script_replays": {
+    "capacity_pareto_analysis": {
+      "command": [
+        "bash",
+        "experiments/analyze_capacity_sweep.sh",
+        "experiments/capacity_sweep.csv",
+        "experiments/capacity_pareto.csv"
+      ],
+      "output": {
+        "bytes": 497,
+        "data_rows": 4,
+        "header": "arithmetic_scale,npu_macs,dram_bandwidth_gbps,mapping,sram_capacity_bytes,tile_m,tile_n,tile_k,latency_us,it_energy_per_frame_uj,average_it_power_w,feasible",
+        "path": "experiments/capacity_pareto.csv",
+        "sha256": "50b0330451ec0359495714b4055a25a76e46e98676cac9496bdb560d46643ca1"
+      },
+      "repeatability": "two executions produced identical output bytes",
+      "script_sha256": "bfe628ec69e5d61ac63b578f2e6da4edebbb022ab3b9e070e25bb4b8771c7223"
+    },
+    "power_budget_analysis": {
+      "command": [
+        "bash",
+        "experiments/analyze_power_budget_study.sh",
+        "experiments/power_budget_study.csv"
+      ],
+      "repeatability": "two executions produced identical output",
+      "stdout": "Recommended feasible design (minimum modeled latency):\ncompute_reinvestment,0.333333,1,4096,20,836.483600,7252.416297,0.224883,0.337324,feasible\nGuardrail: compute reinvestment is not automatically beneficial; the memory-constrained counterexample has 12633.6 us latency.\n",
+      "stdout_sha256": "d0a5258ab9cdc9461317cd6b912fa6bb77d09302d9ae96f3cbd06a973b765ee8"
+    },
+    "run_studies": {
+      "capacity_sweep": {
+        "command": [
+          "bash",
+          "experiments/run_capacity_sweep.sh"
+        ],
+        "outputs": [
+          {
+            "bytes": 3127,
+            "data_rows": 36,
+            "header": "arithmetic_scale,npu_macs,dram_bandwidth_gbps,mapping,sram_capacity_bytes,tile_m,tile_n,tile_k,latency_us,it_energy_per_frame_uj,average_it_power_w,feasible",
+            "path": "experiments/capacity_sweep.csv",
+            "sha256": "9ce1b1a266abf88a0aac9c2f1101c0af27e234a35a0af59617fe1a6287174a38"
+          }
+        ],
+        "repeatability": "two executions produced identical output bytes",
+        "script_sha256": "49fbd18ae29e193f1aa9972dc96eff9c07ba8317042e5d43fc1511346885b769"
+      },
+      "gemm_heavy_power_study": {
+        "command": [
+          "bash",
+          "experiments/run_gemm_heavy_power_study.sh"
+        ],
+        "outputs": [
+          {
+            "bytes": 322,
+            "data_rows": 3,
+            "header": "scenario,npu_arithmetic_energy_scale,npu_macs,mean_latency_us,it_energy_per_frame_uj,average_it_power_w,budget_status",
+            "path": "experiments/gemm_heavy_power_study.csv",
+            "sha256": "646155b21786feabf3601afb3f14789ca08b393f95c55d9d4933330eefa4dc76"
+          }
+        ],
+        "repeatability": "two executions produced identical output bytes",
+        "script_sha256": "dd3b0e51b4732c43f9acb16f88804ea5917e37e29eecfc26ceed5e2b831dad5c"
+      },
+      "initial_physical_ai": {
+        "command": [
+          "bash",
+          "experiments/run_initial_study.sh"
+        ],
+        "outputs": [
+          {
+            "bytes": 749,
+            "data_rows": 5,
+            "header": "scenario_name,model_version,parameter,value,mean_latency_us,p99_latency_us,deadline_misses,dram_traffic_mb,energy_per_frame_uj,vector_energy_uj,npu_arithmetic_energy_uj,dram_energy_uj,dma_energy_uj",
+            "path": "experiments/bandwidth_sweep.csv",
+            "sha256": "4a2d7ff75561f3bdad9764c408a7f4b77dd12721c3f65f438c74446cf318a49c"
+          },
+          {
+            "bytes": 686,
+            "data_rows": 5,
+            "header": "scenario_name,model_version,parameter,value,mean_latency_us,p99_latency_us,deadline_misses,dram_traffic_mb,energy_per_frame_uj,vector_energy_uj,npu_arithmetic_energy_uj,dram_energy_uj,dma_energy_uj",
+            "path": "experiments/npu_macs_sweep.csv",
+            "sha256": "09386196e0aa43d7766bb9bae59d082dd254ec61aab62452ec92421e1d6a3904"
+          },
+          {
+            "bytes": 684,
+            "data_rows": 5,
+            "header": "scenario_name,model_version,parameter,value,mean_latency_us,p99_latency_us,deadline_misses,dram_traffic_mb,energy_per_frame_uj,vector_energy_uj,npu_arithmetic_energy_uj,dram_energy_uj,dma_energy_uj",
+            "path": "experiments/rvv_lanes_sweep.csv",
+            "sha256": "97e30dace2e642c2ecbcdfad082023128957ada14a655b60f66e16565f176f1c"
+          },
+          {
+            "bytes": 607,
+            "data_rows": 4,
+            "header": "scenario_name,model_version,parameter,value,mean_latency_us,p99_latency_us,deadline_misses,dram_traffic_mb,energy_per_frame_uj,vector_energy_uj,npu_arithmetic_energy_uj,dram_energy_uj,dma_energy_uj",
+            "path": "experiments/rvv_vlen_sweep.csv",
+            "sha256": "7e8a4aa6062f150cccacd41c8eee09668ac0f0c631187067ccb7abcfbf77cf97"
+          },
+          {
+            "bytes": 666,
+            "data_rows": 4,
+            "header": "scenario_name,model_version,parameter,value,mean_latency_us,p99_latency_us,deadline_misses,dram_traffic_mb,energy_per_frame_uj,vector_energy_uj,npu_arithmetic_energy_uj,dram_energy_uj,dma_energy_uj",
+            "path": "experiments/arithmetic_energy_sweep.csv",
+            "sha256": "22f13ceb0b0e66023d38633d9e85cf6dd93ddad5eb98075c8d185f00c7b43190"
+          }
+        ],
+        "repeatability": "two executions produced identical output bytes",
+        "script_sha256": "99db00e7ccdf5b4d9cf7fe35f717b47bea45f929fba95620cc1f6b80d471f5bf"
+      },
+      "mnist12_mapping_policy": {
+        "command": [
+          "bash",
+          "experiments/run_mnist12_mapping_policy_study.sh"
+        ],
+        "outputs": [
+          {
+            "bytes": 1382,
+            "data_rows": 6,
+            "header": "policy,mapping_plan,mean_latency_us,it_energy_per_frame_uj,dram_bytes,first_frame_bytes,steady_state_bytes,source_storage_precision,target_storage_precision,precision_traffic_bytes_avoided_per_frame,mapped_npu_arithmetic_energy_scale,fusion_count,fused_intermediate_bytes_avoided_per_frame,persistent_weight_operator_count,persistent_weight_bytes_avoided_per_steady_frame,accuracy_evidence_status,accuracy_value",
+            "path": "experiments/mnist12_mapping_policy_study.csv",
+            "sha256": "024dae2ba40842b2a24fff419f23f81e112acfa2466c57840dc8f026219ec284"
+          }
+        ],
+        "repeatability": "two executions produced identical output bytes",
+        "script_sha256": "7bafb11731c2e5b7697fa06f94470d3ffefdd1ec683f26420611a0af97737de9"
+      },
+      "mnist12_profile": {
+        "command": [
+          "bash",
+          "experiments/run_mnist12_profile_study.sh"
+        ],
+        "outputs": [
+          {
+            "bytes": 3917,
+            "data_rows": 128,
+            "header": "rvv_lanes,npu_macs,dram_bandwidth_gbps,npu_arithmetic_energy_scale,mean_latency_us,deadline_misses,energy_per_frame_uj",
+            "path": "experiments/mnist12_profile_study.csv",
+            "sha256": "700047e914475b29d7dc01dc948f6795c01ca57dc99d2750d469aedf20b526f1"
+          }
+        ],
+        "repeatability": "two executions produced identical output bytes",
+        "script_sha256": "9a19365e703ce0eaba5204fe3631c6896cfb7c8f7a877521211092de1833cb5b"
+      },
+      "physical_ai_design_space": {
+        "command": [
+          "bash",
+          "experiments/run_design_space.sh"
+        ],
+        "outputs": [
+          {
+            "bytes": 3454,
+            "data_rows": 96,
+            "header": "rvv_lanes,dram_bandwidth_gbps,sram_capacity_bytes,npu_arithmetic_energy_scale,mean_latency_us,deadline_misses,energy_per_frame_uj",
+            "path": "experiments/design_space.csv",
+            "sha256": "1c9e5049d98a11f585efbedf0bce4db2a4f34ff8fe128a80066c10a4df97511b"
+          }
+        ],
+        "repeatability": "two executions produced identical output bytes",
+        "script_sha256": "35bca6efab15f9a72493185543457b60f9754aae3501e5989e526c82ca5025c0"
+      },
+      "power_budget_study": {
+        "command": [
+          "bash",
+          "experiments/run_power_budget_study.sh"
+        ],
+        "outputs": [
+          {
+            "bytes": 619,
+            "data_rows": 5,
+            "header": "scenario,npu_arithmetic_energy_scale,arithmetic_voltage_ratio,npu_macs,dram_bandwidth_gbps,mean_latency_us,energy_per_frame_uj,average_it_power_w,average_facility_power_w,budget_status",
+            "path": "experiments/power_budget_study.csv",
+            "sha256": "25b3f1f500f384ab7ad11a0471e60fc9f0545b043f1cb057c5c44d6e81d78386"
+          }
+        ],
+        "repeatability": "two executions produced identical output bytes",
+        "script_sha256": "30d28dd4c300d73e106bed22af3d0d8d01bf078acfd07dbad431af2cfd520501"
+      }
+    }
+  },
+  "git_branch": "main",
+  "input_hashes": {
+    "checked_in_configuration_and_workload_assets": [
+      {
+        "bytes": 508,
+        "path": "configs/baseline/architecture.conf",
+        "sha256": "7e57e69527d1c12e3cbdaf689d15dbbe722c6f7e2b718a78729c069404243b31"
+      },
+      {
+        "bytes": 195,
+        "path": "configs/baseline/energy.conf",
+        "sha256": "48c94337ae9eb6e82b995c5e6c11276ad625e648ccf6e5d33de2ead715d30e3e"
+      },
+      {
+        "bytes": 313,
+        "path": "configs/baseline/implementation.conf",
+        "sha256": "422f2fb78bc6421ae84d7d4589b9cec322fdd2bcc0bb54b07859a7160d62fcda"
+      },
+      {
+        "bytes": 323,
+        "path": "configs/baseline/manifest.conf",
+        "sha256": "3ea1507802a3eb9993e2fb2be0281f504c4ccc4ed9fba75f359be7a5bc0e69f2"
+      },
+      {
+        "bytes": 427,
+        "path": "configs/baseline/workload.conf",
+        "sha256": "bc0f2fb21b467b9e53651e9851024400ce6d8bf06a905a635f300809efe17520"
+      },
+      {
+        "bytes": 548,
+        "path": "configs/calibration/ara2_fmatmul64_4lane.conf",
+        "sha256": "c39b047ef2972a8cbc35d453a701575ed1a775da440b9d94688e58de1a6a44a8"
+      },
+      {
+        "bytes": 262,
+        "path": "configs/calibration/ara_fmatmul64_128_16lane.conf",
+        "sha256": "2023ca2c245c33ab82a8fbbd0aa97c831305a6f72375d9f9a60d5a0b03b53eae"
+      },
+      {
+        "bytes": 152,
+        "path": "configs/calibration/ara_fmatmul64_128_16lane_affine.conf",
+        "sha256": "662fe8fdc802317648b1de12316848dd0633babc58463f3faab2b54441e5d63d"
+      },
+      {
+        "bytes": 260,
+        "path": "configs/calibration/ara_fmatmul64_128_2lane.conf",
+        "sha256": "5b769924226fd48e3b08f43c86286ee85335ab5bc7cdc9bc682dd0a3c5ee61dd"
+      },
+      {
+        "bytes": 563,
+        "path": "configs/calibration/ara_fmatmul64_128_4lane.conf",
+        "sha256": "ff6a80c4f434f73bbae61c5c4b50864143849b3511a673beda16e7d1c4b447a7"
+      },
+      {
+        "bytes": 260,
+        "path": "configs/calibration/ara_fmatmul64_128_8lane.conf",
+        "sha256": "bbe463c489250c02c530474f154ee69bc5c3ebc790db866f1f52fc65a6187642"
+      },
+      {
+        "bytes": 150,
+        "path": "configs/calibration/ara_fmatmul64_128_8lane_affine.conf",
+        "sha256": "4551bfd258ccbe851ba3d62be0f7653a69a9dfa79fb2f3154b2492532dee8721"
+      },
+      {
+        "bytes": 481,
+        "path": "configs/calibration/ara_fmatmul64_32_4lane.conf",
+        "sha256": "7efc67f2404f76533e0825c869b309bc9147af2a7aec2cdfddbbcda821eafc90"
+      },
+      {
+        "bytes": 482,
+        "path": "configs/calibration/ara_fmatmul64_64_4lane.conf",
+        "sha256": "c0145e8a03f3dfe906c6bbfca031c30e8f7ac3e9f11eb0f19fc496473b7a8a5a"
+      },
+      {
+        "bytes": 483,
+        "path": "configs/calibration/ara_fmatmul64_96_4lane.conf",
+        "sha256": "7f44cf03c44fa48278ff6e40b4286c32ed94926e6b76b89e9f8ef02da714a97a"
+      },
+      {
+        "bytes": 1541,
+        "path": "configs/implementation_proxy/manifest.conf",
+        "sha256": "9b442f6a3e970eb7042896ab91f3db8e052bfdcf9a6f69ff8dc919b0669351d9"
+      },
+      {
+        "bytes": 1093,
+        "path": "configs/mappings/mnist12_baseline.json",
+        "sha256": "298b2676e7067b3a1032994569581a4d347551171d9ceba3e5e701dfd91e24af"
+      },
+      {
+        "bytes": 1175,
+        "path": "configs/mappings/mnist12_controlled_int8.json",
+        "sha256": "8e6098462bc4d59c99f68b4af3af1f0282498b9ba7304540fc81342e16027d6d"
+      },
+      {
+        "bytes": 1213,
+        "path": "configs/mappings/mnist12_fp16_storage.json",
+        "sha256": "0fa5848b7ebdddbf1922cc56e20245d5cd84a8fbd3afa867117c1e146d686f0a"
+      },
+      {
+        "bytes": 1286,
+        "path": "configs/mappings/mnist12_fused_persistent_weights.json",
+        "sha256": "315fca93cc035f8c41900aef2046383f04d287bbbc3ae66918923167d6642b4e"
+      },
+      {
+        "bytes": 1166,
+        "path": "configs/mappings/mnist12_persistent_weights.json",
+        "sha256": "0aa99d4c0373c2128579b207ac5d1582de7726026b02a6624b3c90b3bc9bea2c"
+      },
+      {
+        "bytes": 1195,
+        "path": "configs/mappings/mnist12_plus_relu_fused.json",
+        "sha256": "57b7baacc5bb2168439fccf872d7e60480c7b7a43138e08ea08c1f778f280fab"
+      },
+      {
+        "bytes": 559,
+        "path": "configs/power_budget/manifest.conf",
+        "sha256": "e3cd4a587bf58dcfdbe9d0e59b690fe5542f8a9f376567f9e17674a3144e793c"
+      },
+      {
+        "bytes": 298,
+        "path": "configs/qos/mnist12_burst.conf",
+        "sha256": "c55d5d5427799555f3cb8030486c6c3eb43a4ab59bb0a44a68b9a65c5ead220f"
+      },
+      {
+        "bytes": 336,
+        "path": "configs/qos/periodic_trace.conf",
+        "sha256": "bf411f04aadfc2a3f44452053beb19f3109672f5b8156f65a2c87b75a045f7df"
+      },
+      {
+        "bytes": 364,
+        "path": "configs/qos/synthetic_burst.conf",
+        "sha256": "c35026881fdca4f874b91a8bd21f108eee3c891c7aa106e7ea711777b7a69d3d"
+      },
+      {
+        "bytes": 390,
+        "path": "configs/workloads/mnist12_controlled_int8.conf",
+        "sha256": "91ad067bbc53383724c30d3a427e2808bbc998d4a6e0ee6867813ab5dffe1b53"
+      },
+      {
+        "bytes": 629,
+        "path": "configs/workloads/mnist12_fp16_storage.conf",
+        "sha256": "83ddc6f58914b2f633d5c964a1d0cf5d2bff27bd5a5eb4993dc2470fa762deec"
+      },
+      {
+        "bytes": 838,
+        "path": "configs/workloads/mnist12_fused_persistent_weights.conf",
+        "sha256": "009b9db44d687dfbb820e6cfc5188940867a9f2098973049525b9155ef058d99"
+      },
+      {
+        "bytes": 988,
+        "path": "configs/workloads/mnist12_persistent_weights.conf",
+        "sha256": "fb1016c3c8b2fafb9e09ca79c217a36a4b1c1ee71d0fc0de6dc83c7f4627cbb0"
+      },
+      {
+        "bytes": 954,
+        "path": "configs/workloads/mnist12_persistent_weights_insufficient_sram.conf",
+        "sha256": "6e86cc454ff1045552539bde7d43b160a41c82e560a5ff2ea2157b2a49d66c82"
+      },
+      {
+        "bytes": 471,
+        "path": "configs/workloads/mnist12_plus_relu_fused.conf",
+        "sha256": "27a3514cb7e9423c282fd36c816757708f18d79d184b780cdce3663f95f24219"
+      },
+      {
+        "bytes": 538,
+        "path": "configs/workloads/mnist12_profiled.conf",
+        "sha256": "1cef33ad9857ae82c0b16bf3e1d85a67355b7a785040cccc746bf4099f29e712"
+      },
+      {
+        "bytes": 244,
+        "path": "configs/workloads/mnist12_sensitivity_ranges.csv",
+        "sha256": "e089ce39bc00c3d3e04bc19dbc6873595c10f46461283cd5331799aa5634adb4"
+      },
+      {
+        "bytes": 2952,
+        "path": "reference_data/ara/README.md",
+        "sha256": "880ff3ee48e43ddda29b5ee22010a3f91f0cac1802d21de931c3c2c5ca74b246"
+      },
+      {
+        "bytes": 426,
+        "path": "reference_data/ara/ara2_published_latency.csv",
+        "sha256": "f25424cf6dabcb02db0880f1affcfa8828bd197e3408b079b485c2f1416b55b5"
+      },
+      {
+        "bytes": 220,
+        "path": "reference_data/ara/ara_latency_template.csv",
+        "sha256": "9b1aaf9da1765ff393907b261b6ac4cab01709ce50680475b50dedd1c07bbd25"
+      },
+      {
+        "bytes": 1595,
+        "path": "reference_data/ara/ara_rtl_4lane_size_controls.csv",
+        "sha256": "98ae149b28771ee92fcb155fd1758b55e3c0dc2c2a974998decaa9ef11c81787"
+      },
+      {
+        "bytes": 1339,
+        "path": "reference_data/ara/ara_rtl_lane_holdout.csv",
+        "sha256": "2ea85b632e7e4ea38a5aae0839d4969dc004e4dc5d706ecb8947beb42750adce"
+      },
+      {
+        "bytes": 725,
+        "path": "reference_data/ara/ara_rtl_lane_size_controls.csv",
+        "sha256": "0ce85a5f7f9102c2fa98753e9505829adc6a17a216ab8cbdd5a8eeae1c2ca8a1"
+      },
+      {
+        "bytes": 518,
+        "path": "reference_data/ara/ara_rtl_reproduced_latency.csv",
+        "sha256": "bfdc1ed4226a7f6e40a0c0bc8399f84ca01ee8de493e6d74fad0571ef9a6eaf6"
+      },
+      {
+        "bytes": 797,
+        "path": "reference_data/ara/reproductions/README.md",
+        "sha256": "f0582d6ad6ed456aa9aa0e7bf3046af5e842165eb737163634abf553a6fad372"
+      },
+      {
+        "bytes": 650,
+        "path": "reference_data/ara/reproductions/ara_fmatmul64_128_4lane.metadata.txt",
+        "sha256": "6c3458276611ebe2f66dc899d905278aad0da1f63c5607f2b2d4fb6f30721cd7"
+      },
+      {
+        "bytes": 1546,
+        "path": "reference_data/ara/reproductions/ara_fmatmul64_128_4lane.raw.log",
+        "sha256": "ace1122e0060fce5f35c9a481cb736b034fec5248c840dfdd37699451696dfe7"
+      },
+      {
+        "bytes": 870,
+        "path": "reference_data/ara/reproductions/lane_holdout/README.md",
+        "sha256": "6b982332105fab20ff74325dea82ecee9f873fcacd13a30dfa906d2f0ad7a7c0"
+      },
+      {
+        "bytes": 1192,
+        "path": "reference_data/ara/reproductions/lane_holdout/ara_fmatmul64_128_lanes16.metadata.txt",
+        "sha256": "ec8e83a6df3bd1276340eac008d67bf86e87af50b11662ada66780ed838dec02"
+      },
+      {
+        "bytes": 1407,
+        "path": "reference_data/ara/reproductions/lane_holdout/ara_fmatmul64_128_lanes16.raw.log",
+        "sha256": "5c4487efffc74834b90ebccda020ff8284191c281b4b762630f3bf9802c7449d"
+      },
+      {
+        "bytes": 1190,
+        "path": "reference_data/ara/reproductions/lane_holdout/ara_fmatmul64_128_lanes2.metadata.txt",
+        "sha256": "b39c913c3524a1597d28d262fd404c69fc7c78369e2acc1740e1f022da918292"
+      },
+      {
+        "bytes": 1408,
+        "path": "reference_data/ara/reproductions/lane_holdout/ara_fmatmul64_128_lanes2.raw.log",
+        "sha256": "44fc4987f813b0eccbc175d5e1e825d1e4cc7e6b8b23b60977d5eb42fe3b1b15"
+      },
+      {
+        "bytes": 1189,
+        "path": "reference_data/ara/reproductions/lane_holdout/ara_fmatmul64_128_lanes8.metadata.txt",
+        "sha256": "4256986215347f21e0d4d0cf1d08cf9b70193c2a2052c785ceec8c6abc05a7c6"
+      },
+      {
+        "bytes": 1407,
+        "path": "reference_data/ara/reproductions/lane_holdout/ara_fmatmul64_128_lanes8.raw.log",
+        "sha256": "bdfedce7b6ae97095348fc7b3a05ca723e3af6fdeca7ddffdec9ed990b11a05c"
+      },
+      {
+        "bytes": 963,
+        "path": "reference_data/ara/reproductions/size_controls/README.md",
+        "sha256": "d84adc53b617fc7f2f1217b8cb4f8cd6c5f99e536f831fd392202eca59d20334"
+      },
+      {
+        "bytes": 1182,
+        "path": "reference_data/ara/reproductions/size_controls/ara_fmatmul64_128_lanes4.metadata.txt",
+        "sha256": "ceea5095015ae625359dd2b1e8830f7c47b845f020559a2b2da47da3f7ebd949"
+      },
+      {
+        "bytes": 1408,
+        "path": "reference_data/ara/reproductions/size_controls/ara_fmatmul64_128_lanes4.raw.log",
+        "sha256": "01ae20dfd527c8075b1dbbd03c6e5bdd6e790fc2995a7daf9c9251b7a2177b36"
+      },
+      {
+        "bytes": 1174,
+        "path": "reference_data/ara/reproductions/size_controls/ara_fmatmul64_32_lanes4.metadata.txt",
+        "sha256": "44bd6cd4e9b0078a2b1273e5a1e89f0bc4bd207e073fc29c0164f1aad1475b5d"
+      },
+      {
+        "bytes": 1400,
+        "path": "reference_data/ara/reproductions/size_controls/ara_fmatmul64_32_lanes4.raw.log",
+        "sha256": "c3d5ca9153aead3329444482eeea7a8bdd9932d52b0699cea8af0928bf00790e"
+      },
+      {
+        "bytes": 1174,
+        "path": "reference_data/ara/reproductions/size_controls/ara_fmatmul64_64_lanes4.metadata.txt",
+        "sha256": "72acf6ed9745f2cc00485d6577ef0cb80e5665b4463a1c87c0201867e3582ce6"
+      },
+      {
+        "bytes": 1404,
+        "path": "reference_data/ara/reproductions/size_controls/ara_fmatmul64_64_lanes4.raw.log",
+        "sha256": "98286fab60b0b445ced58ce3df89dadfef82b1b377b0c4888b6c9d4096808849"
+      },
+      {
+        "bytes": 1175,
+        "path": "reference_data/ara/reproductions/size_controls/ara_fmatmul64_96_lanes4.metadata.txt",
+        "sha256": "cd65808dd8a76ae4c60df623014b564bdd7517061c24ce0b21c632804affe26d"
+      },
+      {
+        "bytes": 1406,
+        "path": "reference_data/ara/reproductions/size_controls/ara_fmatmul64_96_lanes4.raw.log",
+        "sha256": "d781bac8135efb5d3aeb5cdb7bfe6236b73cea7a3c0fccddb2c3a5b84a53ff3c"
+      },
+      {
+        "bytes": 3426,
+        "path": "reference_data/hosts/README.md",
+        "sha256": "bf5de73f2305a8c9239afa5dd1b2bdd7e2bee795c45ad11abae8d0b25521ef46"
+      },
+      {
+        "bytes": 3089,
+        "path": "reference_data/hosts/apple-silicon-arm64-mobilenetv2-7.json",
+        "sha256": "2711fd03b37107ab948de0d49da9cb5d9ae7b466998689525f4d7c46cd3d5283"
+      },
+      {
+        "bytes": 2566,
+        "path": "reference_data/hosts/github-actions-ubuntu-x86_64-mobilenetv2-7.json",
+        "sha256": "0207b50dfac5c613dc36dc48752e7da48d195b593f3f5d73c6a807d9dda4fdc6"
+      },
+      {
+        "bytes": 299,
+        "path": "reference_data/qos/periodic_30fps.csv",
+        "sha256": "157c8ed9555e62de7c51c050fb15ee21cec02af60bfd5ea83ecda6f452e905cc"
+      },
+      {
+        "bytes": 197,
+        "path": "reference_data/qos/periodic_30fps.md",
+        "sha256": "52e8f9a91e04480cbc4995879fd1eba7bb52174f57cd350a39283830af8b279a"
+      },
+      {
+        "bytes": 291,
+        "path": "reference_data/qos/synthetic_burst_stress.csv",
+        "sha256": "8f4968fc226e12a14150abb53dbc27b1e72d698f25b1904a566a41d774055469"
+      },
+      {
+        "bytes": 423,
+        "path": "reference_data/qos/synthetic_burst_stress.md",
+        "sha256": "a8a5c24696e39deea7545e1b36b5ebd4a6e0d0355aa209b6b189052813f1db9d"
+      },
+      {
+        "bytes": 327,
+        "path": "reference_data/workloads/README.md",
+        "sha256": "b8a6be2d7ca8638caf0b9a665872448fa7d946c18b747be346c1667eaebdf190"
+      },
+      {
+        "bytes": 1293,
+        "path": "reference_data/workloads/mnist12_controlled_int8_accuracy.json",
+        "sha256": "f1149509b8c01b3f9a82d6b0c050e88cfe2d5304f33af5d8f21417b6286622fc"
+      },
+      {
+        "bytes": 6912,
+        "path": "reference_data/workloads/mnist12_profile.json",
+        "sha256": "5eb88f191b418855274c699c88230e358a61f3cdcec1686bbf18d1c9cbc1eea1"
+      }
+    ],
+    "experiment_shell_scripts": [
+      {
+        "bytes": 690,
+        "path": "experiments/analyze_capacity_sweep.sh",
+        "sha256": "bfe628ec69e5d61ac63b578f2e6da4edebbb022ab3b9e070e25bb4b8771c7223"
+      },
+      {
+        "bytes": 803,
+        "path": "experiments/analyze_power_budget_study.sh",
+        "sha256": "af158d9db4ccb2230d5e12f89a250ee63e942e22de159aaa1dc92525890a5402"
+      },
+      {
+        "bytes": 1498,
+        "path": "experiments/run_capacity_sweep.sh",
+        "sha256": "49fbd18ae29e193f1aa9972dc96eff9c07ba8317042e5d43fc1511346885b769"
+      },
+      {
+        "bytes": 1149,
+        "path": "experiments/run_design_space.sh",
+        "sha256": "35bca6efab15f9a72493185543457b60f9754aae3501e5989e526c82ca5025c0"
+      },
+      {
+        "bytes": 1419,
+        "path": "experiments/run_gemm_heavy_power_study.sh",
+        "sha256": "dd3b0e51b4732c43f9acb16f88804ea5917e37e29eecfc26ceed5e2b831dad5c"
+      },
+      {
+        "bytes": 1232,
+        "path": "experiments/run_initial_study.sh",
+        "sha256": "99db00e7ccdf5b4d9cf7fe35f717b47bea45f929fba95620cc1f6b80d471f5bf"
+      },
+      {
+        "bytes": 2361,
+        "path": "experiments/run_mnist12_mapping_policy_study.sh",
+        "sha256": "7bafb11731c2e5b7697fa06f94470d3ffefdd1ec683f26420611a0af97737de9"
+      },
+      {
+        "bytes": 1212,
+        "path": "experiments/run_mnist12_profile_study.sh",
+        "sha256": "9a19365e703ce0eaba5204fe3631c6896cfb7c8f7a877521211092de1833cb5b"
+      },
+      {
+        "bytes": 1671,
+        "path": "experiments/run_power_budget_study.sh",
+        "sha256": "30d28dd4c300d73e106bed22af3d0d8d01bf078acfd07dbad431af2cfd520501"
+      }
+    ],
+    "per_cli_baseline": {
+      "gemm_heavy": [
+        {
+          "bytes": 559,
+          "path": "configs/power_budget/manifest.conf",
+          "sha256": "e3cd4a587bf58dcfdbe9d0e59b690fe5542f8a9f376567f9e17674a3144e793c"
+        },
+        {
+          "bytes": 427,
+          "path": "configs/baseline/workload.conf",
+          "sha256": "bc0f2fb21b467b9e53651e9851024400ce6d8bf06a905a635f300809efe17520"
+        },
+        {
+          "bytes": 508,
+          "path": "configs/baseline/architecture.conf",
+          "sha256": "7e57e69527d1c12e3cbdaf689d15dbbe722c6f7e2b718a78729c069404243b31"
+        },
+        {
+          "bytes": 313,
+          "path": "configs/baseline/implementation.conf",
+          "sha256": "422f2fb78bc6421ae84d7d4589b9cec322fdd2bcc0bb54b07859a7160d62fcda"
+        },
+        {
+          "bytes": 195,
+          "path": "configs/baseline/energy.conf",
+          "sha256": "48c94337ae9eb6e82b995c5e6c11276ad625e648ccf6e5d33de2ead715d30e3e"
+        }
+      ],
+      "mnist12_legacy": [
+        {
+          "bytes": 538,
+          "path": "configs/workloads/mnist12_profiled.conf",
+          "sha256": "1cef33ad9857ae82c0b16bf3e1d85a67355b7a785040cccc746bf4099f29e712"
+        },
+        {
+          "bytes": 508,
+          "path": "configs/baseline/architecture.conf",
+          "sha256": "7e57e69527d1c12e3cbdaf689d15dbbe722c6f7e2b718a78729c069404243b31"
+        },
+        {
+          "bytes": 313,
+          "path": "configs/baseline/implementation.conf",
+          "sha256": "422f2fb78bc6421ae84d7d4589b9cec322fdd2bcc0bb54b07859a7160d62fcda"
+        },
+        {
+          "bytes": 195,
+          "path": "configs/baseline/energy.conf",
+          "sha256": "48c94337ae9eb6e82b995c5e6c11276ad625e648ccf6e5d33de2ead715d30e3e"
+        },
+        {
+          "bytes": 6912,
+          "path": "reference_data/workloads/mnist12_profile.json",
+          "sha256": "5eb88f191b418855274c699c88230e358a61f3cdcec1686bbf18d1c9cbc1eea1"
+        },
+        {
+          "bytes": 1093,
+          "path": "configs/mappings/mnist12_baseline.json",
+          "sha256": "298b2676e7067b3a1032994569581a4d347551171d9ceba3e5e701dfd91e24af"
+        }
+      ],
+      "physical_ai": [
+        {
+          "bytes": 323,
+          "path": "configs/baseline/manifest.conf",
+          "sha256": "3ea1507802a3eb9993e2fb2be0281f504c4ccc4ed9fba75f359be7a5bc0e69f2"
+        },
+        {
+          "bytes": 427,
+          "path": "configs/baseline/workload.conf",
+          "sha256": "bc0f2fb21b467b9e53651e9851024400ce6d8bf06a905a635f300809efe17520"
+        },
+        {
+          "bytes": 508,
+          "path": "configs/baseline/architecture.conf",
+          "sha256": "7e57e69527d1c12e3cbdaf689d15dbbe722c6f7e2b718a78729c069404243b31"
+        },
+        {
+          "bytes": 313,
+          "path": "configs/baseline/implementation.conf",
+          "sha256": "422f2fb78bc6421ae84d7d4589b9cec322fdd2bcc0bb54b07859a7160d62fcda"
+        },
+        {
+          "bytes": 195,
+          "path": "configs/baseline/energy.conf",
+          "sha256": "48c94337ae9eb6e82b995c5e6c11276ad625e648ccf6e5d33de2ead715d30e3e"
+        }
+      ]
+    }
+  },
+  "power_model_boundary": {
+    "claim_boundary": "All CLI results are analytical simulator outputs. Arm64 host measurements are separate evidence and are not target-chip measurements or power calibration.",
+    "documented_missing_costs": [
+      "DRAM-interface static power does not scale with bandwidth",
+      "SRAM access energy is not modeled",
+      "incremental resident-weight SRAM static/access costs are not fully represented"
+    ],
+    "legacy_workload_defaults": {
+      "mnist12_legacy": {
+        "dram_interface_static_power_w": 0.0,
+        "it_power_budget_w": 0.0,
+        "npu_static_power_per_mac_w": 0.0,
+        "pue": 1.0,
+        "rvv_static_power_per_lane_w": 0.0,
+        "sram_static_power_per_kib_w": 0.0,
+        "static_power_w": 0.0
+      },
+      "physical_ai_baseline": {
+        "dram_interface_static_power_w": 0.0,
+        "it_power_budget_w": 0.0,
+        "npu_static_power_per_mac_w": 0.0,
+        "pue": 1.0,
+        "rvv_static_power_per_lane_w": 0.0,
+        "sram_static_power_per_kib_w": 0.0,
+        "static_power_w": 0.0
+      },
+      "power_budget_reference": {
+        "dram_interface_static_power_w": 0.02,
+        "it_power_budget_w": 0.23,
+        "npu_static_power_per_mac_w": 3e-05,
+        "pue": 1.5,
+        "rvv_static_power_per_lane_w": 0.002,
+        "sram_static_power_per_kib_w": 0.0001,
+        "static_power_w": 0.05
+      }
+    },
+    "reference_config": "configs/power_budget/manifest.conf",
+    "reference_it_power_budget_w": 0.23,
+    "reference_power_assumptions": {
+      "dram_interface_static_power_w": 0.02,
+      "npu_static_power_per_mac_w": 3e-05,
+      "pue": 1.5,
+      "rvv_static_power_per_lane_w": 0.002,
+      "sram_static_power_per_kib_w": 0.0001,
+      "static_power_w": 0.05
+    }
+  },
+  "preexisting_untracked_paths": [
+    "complete_dx601_hw10.py",
+    "deliverables/",
+    "docs/autograder-parsing-checklist.md",
+    "make_a10_pdf.py",
+    "make_a10_submission.py",
+    "output/",
+    "portfolio/",
+    "skills-lock.json"
+  ],
+  "purpose": "Immutable M0 regression reference for existing CLI/GUI, workload, and study-script behavior before study implementation.",
+  "schema_id": "axissim.m0-baseline-preservation.v1",
+  "source_revision": "3aedc3af381d8f13d7e1dd21961c002519db4eed",
+  "tracked_worktree_clean": true
+}

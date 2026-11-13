@@ -25,6 +25,7 @@ ModelAccounting model_accounting(const Config& config, double dynamic_energy_pj,
   accounting.modeled_area_mm2 = modeled_area_mm2(config);
   accounting.static_energy_pj = accounting.modeled_static_power_w * makespan_us * 1'000'000.0;
   accounting.it_energy_pj = dynamic_energy_pj + accounting.static_energy_pj;
+  accounting.facility_energy_pj = config.pue * accounting.it_energy_pj;
   accounting.average_it_power_w = makespan_us > 0.0 ? accounting.it_energy_pj / makespan_us / 1'000'000.0 : 0.0;
   accounting.average_facility_power_w = config.pue * accounting.average_it_power_w;
   accounting.deployment_facility_energy_kwh = accounting.average_facility_power_w * config.deployment_xpu_count * config.deployment_hours / 1000.0;

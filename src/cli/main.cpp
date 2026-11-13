@@ -81,16 +81,16 @@ void write_result_json(const std::string& path, const Simulator& simulator, cons
   const auto& latency = simulator.latencies_us();
   const double mean = std::accumulate(latency.begin(), latency.end(), 0.0) / latency.size();
   const double energy_per_frame_uj = simulator.total_energy_pj() / latency.size() / 1'000'000.0;
-  const double static_power_w = modeled_static_power_w(config);
-  const double static_energy_pj = static_power_w * simulator.makespan_us() * 1'000'000.0;
-  const double it_energy_pj = simulator.total_energy_pj() + static_energy_pj;
-  const double average_it_power_w = simulator.makespan_us() > 0 ? it_energy_pj / simulator.makespan_us() / 1'000'000.0 : 0.0;
-  const double deployment_facility_kwh = config.pue * average_it_power_w * config.deployment_xpu_count * config.deployment_hours / 1000.0;
-  const double area_mm2 = modeled_area_mm2(config);
-  const double steady_temp_c = config.ambient_temp_c + average_it_power_w * config.thermal_resistance_c_per_w;
-  const double tau_s = config.thermal_resistance_c_per_w * config.thermal_capacitance_j_per_c;
-  const double end_temp_c = tau_s > 0 ? config.ambient_temp_c + (steady_temp_c - config.ambient_temp_c) * (1.0 - std::exp(-(simulator.makespan_us() / 1'000'000.0) / tau_s)) : steady_temp_c;
-  const double expected_failures = config.reliability_fit_rate * config.reliability_voltage_fit_multiplier * config.deployment_xpu_count * config.deployment_hours / 1'000'000'000.0;
+  const ModelAccounting accounting = model_accounting(config, simulator.total_energy_pj(), simulator.makespan_us());
+  const double static_power_w = accounting.modeled_static_power_w;
+  const double static_energy_pj = accounting.static_energy_pj;
+  const double it_energy_pj = accounting.it_energy_pj;
+  const double average_it_power_w = accounting.average_it_power_w;
+  const double deployment_facility_kwh = accounting.deployment_facility_energy_kwh;
+  const double area_mm2 = accounting.modeled_area_mm2;
+  const double steady_temp_c = accounting.thermal_steady_state_c;
+  const double end_temp_c = accounting.thermal_end_c;
+  const double expected_failures = accounting.reliability_expected_failures;
   const auto& queue_delay = simulator.vision_resource_queue_delays_us();
   const auto& control_response = simulator.control_response_times_us();
   const double queue_delay_mean = queue_delay.empty() ? 0.0 : std::accumulate(queue_delay.begin(), queue_delay.end(), 0.0) / queue_delay.size();
@@ -141,13 +141,13 @@ void write_result_json(const std::string& path, const Simulator& simulator, cons
          << ", \"dataset\": \"" << json_escape(simulator.profile().accuracy_dataset) << "\""
          << ", \"evaluator\": \"" << json_escape(simulator.profile().accuracy_evaluator) << "\""
          << ", \"source_url\": \"" << json_escape(simulator.profile().accuracy_source_url) << "\"},\n"
-         << "  \"energy\": {\"per_frame_uj\": " << energy_per_frame_uj << ", \"static_per_frame_uj\": " << static_energy_pj / latency.size() / 1'000'000.0 << ", \"it_per_frame_uj\": " << it_energy_pj / latency.size() / 1'000'000.0 << ", \"facility_per_frame_uj\": " << config.pue * it_energy_pj / latency.size() / 1'000'000.0 << ", \"vector_pj\": " << simulator.vector_energy_pj()
+         << "  \"energy\": {\"per_frame_uj\": " << energy_per_frame_uj << ", \"static_per_frame_uj\": " << static_energy_pj / latency.size() / 1'000'000.0 << ", \"it_per_frame_uj\": " << it_energy_pj / latency.size() / 1'000'000.0 << ", \"facility_per_frame_uj\": " << accounting.facility_energy_pj / latency.size() / 1'000'000.0 << ", \"vector_pj\": " << simulator.vector_energy_pj()
          << ", \"npu_arithmetic_pj\": " << simulator.npu_arithmetic_energy_pj() << ", \"dram_pj\": " << simulator.dram_energy_pj()
          << ", \"dma_pj\": " << simulator.dma_energy_pj() << "},\n"
-         << "  \"power\": {\"base_static_w\": " << config.static_power_w << ", \"modeled_static_w\": " << static_power_w << ", \"average_it_w\": " << average_it_power_w << ", \"average_facility_w\": " << config.pue * average_it_power_w << ", \"budget_w\": " << config.it_power_budget_w << ", \"pue\": " << config.pue << ", \"feasible\": " << (config.it_power_budget_w == 0 || average_it_power_w <= config.it_power_budget_w ? "true" : "false") << "},\n"
-         << "  \"deployment\": {\"xpu_count\": " << config.deployment_xpu_count << ", \"hours\": " << config.deployment_hours << ", \"electricity_cost_per_kwh\": " << config.electricity_cost_per_kwh << ", \"facility_energy_kwh\": " << deployment_facility_kwh << ", \"electricity_cost\": " << deployment_facility_kwh * config.electricity_cost_per_kwh << "},\n"
-         << "  \"area_proxy\": {\"base_mm2\": " << config.base_area_mm2 << ", \"npu_per_mac_mm2\": " << config.npu_area_per_mac_mm2 << ", \"rvv_per_lane_mm2\": " << config.rvv_area_per_lane_mm2 << ", \"sram_per_kib_mm2\": " << config.sram_area_per_kib_mm2 << ", \"modeled_mm2\": " << area_mm2 << ", \"limit_mm2\": " << config.max_area_mm2 << ", \"feasible\": " << (config.max_area_mm2 == 0 || area_mm2 <= config.max_area_mm2 ? "true" : "false") << "},\n"
-         << "  \"thermal_proxy\": {\"ambient_c\": " << config.ambient_temp_c << ", \"resistance_c_per_w\": " << config.thermal_resistance_c_per_w << ", \"capacitance_j_per_c\": " << config.thermal_capacitance_j_per_c << ", \"end_c\": " << end_temp_c << ", \"steady_state_c\": " << steady_temp_c << ", \"limit_c\": " << config.max_junction_temp_c << ", \"feasible\": " << (config.max_junction_temp_c == 0 || end_temp_c <= config.max_junction_temp_c ? "true" : "false") << "},\n"
+         << "  \"power\": {\"base_static_w\": " << config.static_power_w << ", \"modeled_static_w\": " << static_power_w << ", \"average_it_w\": " << average_it_power_w << ", \"average_facility_w\": " << accounting.average_facility_power_w << ", \"budget_w\": " << config.it_power_budget_w << ", \"pue\": " << config.pue << ", \"feasible\": " << (accounting.power_feasible ? "true" : "false") << "},\n"
+         << "  \"deployment\": {\"xpu_count\": " << config.deployment_xpu_count << ", \"hours\": " << config.deployment_hours << ", \"electricity_cost_per_kwh\": " << config.electricity_cost_per_kwh << ", \"facility_energy_kwh\": " << deployment_facility_kwh << ", \"electricity_cost\": " << accounting.deployment_electricity_cost << "},\n"
+         << "  \"area_proxy\": {\"base_mm2\": " << config.base_area_mm2 << ", \"npu_per_mac_mm2\": " << config.npu_area_per_mac_mm2 << ", \"rvv_per_lane_mm2\": " << config.rvv_area_per_lane_mm2 << ", \"sram_per_kib_mm2\": " << config.sram_area_per_kib_mm2 << ", \"modeled_mm2\": " << area_mm2 << ", \"limit_mm2\": " << config.max_area_mm2 << ", \"feasible\": " << (accounting.area_feasible ? "true" : "false") << "},\n"
+         << "  \"thermal_proxy\": {\"ambient_c\": " << config.ambient_temp_c << ", \"resistance_c_per_w\": " << config.thermal_resistance_c_per_w << ", \"capacitance_j_per_c\": " << config.thermal_capacitance_j_per_c << ", \"end_c\": " << end_temp_c << ", \"steady_state_c\": " << steady_temp_c << ", \"limit_c\": " << config.max_junction_temp_c << ", \"feasible\": " << (accounting.thermal_feasible ? "true" : "false") << "},\n"
          << "  \"reliability_proxy\": {\"fit_rate\": " << config.reliability_fit_rate << ", \"voltage_multiplier\": " << config.reliability_voltage_fit_multiplier << ", \"expected_failures\": " << expected_failures << "}\n"
          << "}\n";
 }
@@ -156,16 +156,16 @@ void print_results(const Simulator& simulator, const Config& config) {
   const auto& latency = simulator.latencies_us();
   const double mean = std::accumulate(latency.begin(), latency.end(), 0.0) / latency.size();
   const double energy_per_frame_uj = simulator.total_energy_pj() / latency.size() / 1'000'000.0;
-  const double static_power_w = modeled_static_power_w(config);
-  const double static_energy_pj = static_power_w * simulator.makespan_us() * 1'000'000.0;
-  const double it_energy_pj = simulator.total_energy_pj() + static_energy_pj;
-  const double average_it_power_w = simulator.makespan_us() > 0 ? it_energy_pj / simulator.makespan_us() / 1'000'000.0 : 0.0;
-  const double deployment_facility_kwh = config.pue * average_it_power_w * config.deployment_xpu_count * config.deployment_hours / 1000.0;
-  const double area_mm2 = modeled_area_mm2(config);
-  const double steady_temp_c = config.ambient_temp_c + average_it_power_w * config.thermal_resistance_c_per_w;
-  const double tau_s = config.thermal_resistance_c_per_w * config.thermal_capacitance_j_per_c;
-  const double end_temp_c = tau_s > 0 ? config.ambient_temp_c + (steady_temp_c - config.ambient_temp_c) * (1.0 - std::exp(-(simulator.makespan_us() / 1'000'000.0) / tau_s)) : steady_temp_c;
-  const double expected_failures = config.reliability_fit_rate * config.reliability_voltage_fit_multiplier * config.deployment_xpu_count * config.deployment_hours / 1'000'000'000.0;
+  const ModelAccounting accounting = model_accounting(config, simulator.total_energy_pj(), simulator.makespan_us());
+  const double static_power_w = accounting.modeled_static_power_w;
+  const double static_energy_pj = accounting.static_energy_pj;
+  const double it_energy_pj = accounting.it_energy_pj;
+  const double average_it_power_w = accounting.average_it_power_w;
+  const double deployment_facility_kwh = accounting.deployment_facility_energy_kwh;
+  const double area_mm2 = accounting.modeled_area_mm2;
+  const double steady_temp_c = accounting.thermal_steady_state_c;
+  const double end_temp_c = accounting.thermal_end_c;
+  const double expected_failures = accounting.reliability_expected_failures;
   const auto& queue_delay = simulator.vision_resource_queue_delays_us();
   const auto& control_response = simulator.control_response_times_us();
   const double queue_delay_mean = queue_delay.empty() ? 0.0 : std::accumulate(queue_delay.begin(), queue_delay.end(), 0.0) / queue_delay.size();
@@ -233,11 +233,11 @@ void print_results(const Simulator& simulator, const Config& config) {
             << per_frame_uj(simulator.npu_arithmetic_energy_pj()) << " / " << per_frame_uj(simulator.dram_energy_pj())
             << " / " << per_frame_uj(simulator.dma_energy_pj()) << " uJ\n"
             << "  modeled static power: " << static_power_w << " W\n"
-            << "  energy static/IT/facility: " << static_energy_pj / latency.size() / 1'000'000.0 << " / " << it_energy_pj / latency.size() / 1'000'000.0 << " / " << config.pue * it_energy_pj / latency.size() / 1'000'000.0 << " uJ\n"
-            << "  average IT/facility power: " << average_it_power_w << " / " << config.pue * average_it_power_w << " W\n";
-  if (config.it_power_budget_w > 0) std::cout << "  IT power budget:      " << config.it_power_budget_w << " W (" << (average_it_power_w <= config.it_power_budget_w ? "feasible" : "infeasible") << ")\n";
-  if (config.deployment_hours > 0) std::cout << "  deployment facility energy / cost: " << deployment_facility_kwh << " kWh / " << deployment_facility_kwh * config.electricity_cost_per_kwh << " (modeled extrapolation)\n";
-  if (config.max_area_mm2 > 0 || area_mm2 > 0) std::cout << "  architecture area proxy: " << area_mm2 << " mm^2" << (config.max_area_mm2 > 0 ? (area_mm2 <= config.max_area_mm2 ? " (feasible)" : " (infeasible)") : "") << "\n";
+            << "  energy static/IT/facility: " << static_energy_pj / latency.size() / 1'000'000.0 << " / " << it_energy_pj / latency.size() / 1'000'000.0 << " / " << accounting.facility_energy_pj / latency.size() / 1'000'000.0 << " uJ\n"
+            << "  average IT/facility power: " << average_it_power_w << " / " << accounting.average_facility_power_w << " W\n";
+  if (config.it_power_budget_w > 0) std::cout << "  IT power budget:      " << config.it_power_budget_w << " W (" << (accounting.power_feasible ? "feasible" : "infeasible") << ")\n";
+  if (config.deployment_hours > 0) std::cout << "  deployment facility energy / cost: " << deployment_facility_kwh << " kWh / " << accounting.deployment_electricity_cost << " (modeled extrapolation)\n";
+  if (config.max_area_mm2 > 0 || area_mm2 > 0) std::cout << "  architecture area proxy: " << area_mm2 << " mm^2" << (config.max_area_mm2 > 0 ? (accounting.area_feasible ? " (feasible)" : " (infeasible)") : "") << "\n";
   if (config.thermal_resistance_c_per_w > 0) std::cout << "  first-order thermal proxy end / steady: " << end_temp_c << " / " << steady_temp_c << " C\n";
   if (config.reliability_fit_rate > 0 && config.deployment_hours > 0) std::cout << "  reliability proxy expected failures: " << expected_failures << " (assumption-driven FIT extrapolation)\n";
   if (simulator.control_tasks() > 0) {
@@ -355,20 +355,12 @@ struct AnalysisPoint {
   Simulator simulator(config);
   simulator.run();
   const auto& latency = simulator.latencies_us();
-  const double static_power_w = modeled_static_power_w(config);
-  const double static_energy_pj = static_power_w * simulator.makespan_us() * 1'000'000.0;
-  const double it_energy_pj = simulator.total_energy_pj() + static_energy_pj;
-  const double average_it_power_w = simulator.makespan_us() > 0 ? it_energy_pj / simulator.makespan_us() / 1'000'000.0 : 0.0;
-  const double steady_temp_c = config.ambient_temp_c + average_it_power_w * config.thermal_resistance_c_per_w;
-  const double tau_s = config.thermal_resistance_c_per_w * config.thermal_capacitance_j_per_c;
-  const double end_temp_c = tau_s > 0 ? config.ambient_temp_c + (steady_temp_c - config.ambient_temp_c) * (1.0 - std::exp(-(simulator.makespan_us() / 1'000'000.0) / tau_s)) : steady_temp_c;
-  const bool power_feasible = config.it_power_budget_w == 0.0 || average_it_power_w <= config.it_power_budget_w;
-  const bool area_feasible = config.max_area_mm2 == 0.0 || modeled_area_mm2(config) <= config.max_area_mm2;
-  const bool thermal_feasible = config.max_junction_temp_c == 0.0 || end_temp_c <= config.max_junction_temp_c;
+  const ModelAccounting accounting = model_accounting(config, simulator.total_energy_pj(), simulator.makespan_us());
   return {std::move(analysis), std::move(parameter), std::move(setting),
           std::accumulate(latency.begin(), latency.end(), 0.0) / latency.size(), percentile(latency, 0.99),
-          simulator.deadline_misses(), it_energy_pj / latency.size() / 1'000'000.0,
-          average_it_power_w, end_temp_c, power_feasible && area_feasible && thermal_feasible};
+          simulator.deadline_misses(), accounting.it_energy_pj / latency.size() / 1'000'000.0,
+          accounting.average_it_power_w, accounting.thermal_end_c,
+          accounting.power_feasible && accounting.area_feasible && accounting.thermal_feasible};
 }
 
 void write_analysis_csv(const std::vector<AnalysisPoint>& points, std::ostream& output) {

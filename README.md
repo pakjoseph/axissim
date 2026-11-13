@@ -64,6 +64,19 @@ flowchart LR
 - Reference-data calibration reports with public/reproduced provenance labels
 - Native Qt 6 architecture workbench with an Overview, guided Experiment Lab, candidate comparison, model evidence, light/dark appearance modes, and accessible keyboard controls
 
+Dynamic energy is accumulated from scheduled vector/NPU arithmetic and DRAM/DMA
+traffic. Configured static-power terms are integrated across the full modeled
+makespan; there is no separate idle or leakage-energy term. DRAM-interface
+static power is a fixed configured value and does not scale with bandwidth.
+SRAM access energy is not modeled, and resident-weight SRAM's incremental
+static/access costs are not fully represented. Budget feasibility therefore
+means feasible under the current modeled terms, not physically feasible silicon.
+The 0.23 W reference is in `configs/power_budget/manifest.conf`; the legacy
+MNIST-12 profile keeps its zero-default static-power terms and disabled budget.
+For compatibility, the `run` and JSON `per_frame_uj` values remain dynamic
+activity energy, while the separate `it_per_frame_uj` value includes configured
+static energy; `sweep` CSV energy columns also remain dynamic-only.
+
 ## What the baseline study finds
 
 All figures below are reproducible model outputs from `configs/baseline/manifest.conf`, not silicon measurements.
