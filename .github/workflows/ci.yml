@@ -6,7 +6,7 @@ on:
 
 jobs:
   study-runner-python:
-    name: Python ${{ matrix.python-version }} study preflight contract
+    name: Python ${{ matrix.python-version }} study runner contracts
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -21,8 +21,8 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DAXISSIM_BUILD_GUI=OFF
       - name: Build simulator
         run: cmake --build build --parallel
-      - name: Run study preflight contract tests
-        run: ctest --test-dir build --output-on-failure -R study_manifest_preflight_contract
+      - name: Run study runner, execution, and Pareto contract tests
+        run: ctest --test-dir build --output-on-failure -R "study_(manifest_preflight|m5_execution_pareto)_contract"
 
   build-and-test:
     name: ${{ matrix.os }} ${{ matrix.gui == 'true' && 'desktop' || 'core' }}

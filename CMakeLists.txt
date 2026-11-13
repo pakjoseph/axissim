@@ -157,6 +157,10 @@ if(BUILD_TESTING)
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/study_contract_e2e.py
                        --source-root ${CMAKE_SOURCE_DIR}
                        --binary $<TARGET_FILE:axissim>)
+      add_test(NAME study_m5_execution_pareto_contract
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/study_m5_tests.py
+                       --source-root ${CMAKE_SOURCE_DIR}
+                       --binary $<TARGET_FILE:axissim>)
       add_test(NAME legacy_study_baselines_reproduce
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/check_legacy_study_parity.py
                        --source-root ${CMAKE_SOURCE_DIR}
@@ -286,7 +290,9 @@ if(BUILD_TESTING)
   add_test(NAME exact_power_accounting
            COMMAND bash ${CMAKE_SOURCE_DIR}/tests/check_power_accounting.sh $<TARGET_FILE:axissim> ${CMAKE_SOURCE_DIR}/tests/tiny_pipeline.conf)
   add_test(NAME pareto_filter_rejects_dominated_and_infeasible
-           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/check_pareto_filter.sh ${CMAKE_SOURCE_DIR}/experiments/analyze_capacity_sweep.sh)
+           COMMAND bash ${CMAKE_SOURCE_DIR}/tests/check_pareto_filter.sh
+                   ${CMAKE_SOURCE_DIR}/experiments/analyze_capacity_sweep.sh
+                   ${CMAKE_SOURCE_DIR}/tests/fixtures/pareto_capacity_sweep.csv)
   add_test(NAME deployment_economics_are_explicit
            COMMAND axissim run ${CMAKE_SOURCE_DIR}/tests/tiny_pipeline.conf --set static_power_w=1 --set pue=1.5 --set deployment_xpu_count=1000 --set deployment_hours=1 --set electricity_cost_per_kwh=0.1)
   set_tests_properties(deployment_economics_are_explicit PROPERTIES PASS_REGULAR_EXPRESSION "1.50 kWh / 0.15")

@@ -770,6 +770,7 @@ class AxisSimWindow final : public QMainWindow {
     latency_card_ = new KpiCard("Mean latency", "End-to-end per frame", content_panel);
     deadline_card_ = new KpiCard("Deadline margin", "Configured vision deadline", content_panel);
     energy_card_ = new KpiCard("IT energy / frame", "Modeled estimate", content_panel);
+    energy_card_->setToolTip("Legacy whole-run scope: total modeled IT energy over the makespan divided by completed vision frames. The numerator may also include configured control-work energy. Compare with study energy per completed work unit only when workload inputs, model and power assumptions, and measurement interval match; the study may apply a different power overlay.");
     traffic_card_ = new KpiCard("Dominant energy", "Largest modeled component", content_panel);
     const std::array<KpiCard*, 4> metrics = {latency_card_, deadline_card_, energy_card_, traffic_card_};
     for (std::size_t index = 0; index < metrics.size(); ++index) {
@@ -808,6 +809,7 @@ class AxisSimWindow final : public QMainWindow {
     energy_panel_layout->setContentsMargins(12, 10, 12, 10);
     energy_panel_layout->setSpacing(0);
     energy_chart_ = new EnergyBreakdownWidget(energy_panel);
+    energy_chart_->setToolTip("Component ledger is shown per completed vision frame. Dynamic categories are divided by the vision-frame count; the static component is configured static power integrated over the run and divided by that same count. Total IT energy also includes configured control-task energy, if any. Numeric comparisons with the study report require matching workload, model, power overlay, and interval.");
     energy_panel_layout->addWidget(energy_chart_);
     analysis_layout->addWidget(energy_panel, 1);
     metrics_ = new QTableWidget(overview_page);
