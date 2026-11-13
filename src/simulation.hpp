@@ -37,11 +37,16 @@ class Simulator {
     }
   }
 
-  [[nodiscard]] StudyMeasurementResult run_study(const StudyMeasurementRequest& request) {
-    frame_arrivals_us_ = load_frame_arrivals(c_);
+  [[nodiscard]] StudyMeasurementResult run_study(const StudyMeasurementRequest& request,
+                                                 const WorkloadProfile* resolved_profile = nullptr,
+                                                 const std::vector<double>* resolved_frame_arrivals = nullptr) {
+    frame_arrivals_us_ = resolved_frame_arrivals != nullptr ? *resolved_frame_arrivals : load_frame_arrivals(c_);
     if (c_.workload_mode == "profiled_graph") {
-      profile_ = load_workload_profile(c_.workload_profile);
-      if (!c_.mapping_plan.empty()) apply_mapping_plan(profile_, load_mapping_plan(c_.mapping_plan, profile_), c_);
+      if (resolved_profile != nullptr) profile_ = *resolved_profile;
+      else {
+        profile_ = load_workload_profile(c_.workload_profile);
+        if (!c_.mapping_plan.empty()) apply_mapping_plan(profile_, load_mapping_plan(c_.mapping_plan, profile_), c_);
+      }
     }
 
     std::vector<StudyWorkUnitSpec> schedule;
@@ -304,7 +309,7 @@ class Simulator {
                                              double start_us, double end_us, const std::string& resource,
                                              const StudyTaskEnergyPj& energy) {
     return observer == nullptr || observer->record_task_dispatch(start_us, study_work_unit_id(task), task.name,
-                                                                   resource, start_us, end_us, energy);
+                                                                   resource, task.release_us, task.ready_us, start_us, end_us, energy);
   }
 
   void accumulate_runtime_energy(const RuntimeTask& task, const StudyTaskEnergyPj& energy) {
@@ -459,6 +464,7 @@ class Simulator {
         Completion completion = completions.top(); completions.pop();
         busy[static_cast<std::size_t>(completion.resource)] = false;
         const RuntimeTask& task = completion.task;
+        if (observer != nullptr) observer->record_task_completed(study_work_unit_id(task), task.name, completion.end_us);
         if (task.stage == RuntimeStage::ProfileTransfer) {
           future.push(make_profile_task(task.frame, task.profile_index, false, task.release_us, completion.end_us));
         } else if (task.stage == RuntimeStage::ProfileCompute) {
@@ -575,6 +581,7 @@ class Simulator {
         Completion completion = completions.top(); completions.pop();
         busy[static_cast<std::size_t>(completion.resource)] = false;
         const RuntimeTask& task = completion.task;
+        if (observer != nullptr) observer->record_task_completed(study_work_unit_id(task), task.name, completion.end_us);
         const auto total_vector_elements = (task.stage == RuntimeStage::Preprocess || task.stage == RuntimeStage::VectorKernel) ? c_.preprocess_elements : task.stage == RuntimeStage::Postprocess ? c_.postprocess_elements : 0;
         if (total_vector_elements > 0 && task.vector_offset + task.vector_elements < total_vector_elements) {
           future.push(make_runtime_task(task.frame, task.stage, task.release_us, completion.end_us, task.vector_offset + task.vector_elements));

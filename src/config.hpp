@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -90,9 +92,20 @@ struct Config {
   double reliability_voltage_fit_multiplier = 1.0;
 };
 
+struct ConfigLoadResult {
+  Config config;
+  // Absolute, lexically-normalized configuration files read by the same
+  // parser used by load_config(), in first-visit order.
+  std::vector<std::filesystem::path> source_files;
+  // Exact bytes parsed for each source, keyed by its absolute normalized path.
+  std::map<std::filesystem::path, std::string> source_contents;
+};
+
 Config load_config(const std::string& path, const std::map<std::string, std::string>& overrides = {});
+ConfigLoadResult load_config_with_sources(const std::string& path, const std::map<std::string, std::string>& overrides = {});
 const std::set<std::string>& supported_keys();
-void validate(const Config& config);
+void validate(const Config& config, const std::optional<std::string>& frame_arrival_trace_contents = std::nullopt);
 std::vector<double> load_frame_arrivals(const Config& config);
+std::vector<double> load_frame_arrivals(const Config& config, const std::optional<std::string>& frame_arrival_trace_contents);
 
 }  // namespace axissim

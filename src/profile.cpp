@@ -102,10 +102,7 @@ namespace {
   return objects;
 }
 
-[[nodiscard]] WorkloadProfile load_workload_profile(const std::string& path) {
-  std::ifstream input(path);
-  if (!input) throw std::runtime_error("Unable to open workload profile: " + path);
-  const std::string json((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+WorkloadProfile load_workload_profile_text(const std::string& json) {
   if (json_string_field(json, "schema_version") != std::optional<std::string>("axissim.workload-profile.v1")) {
     throw std::runtime_error("Unsupported workload-profile schema; expected axissim.workload-profile.v1");
   }
@@ -173,10 +170,14 @@ namespace {
   return profile;
 }
 
-[[nodiscard]] MappingPlan load_mapping_plan(const std::string& path, const WorkloadProfile& profile) {
-  std::ifstream input(path);
-  if (!input) throw std::runtime_error("Unable to open mapping plan: " + path);
+WorkloadProfile load_workload_profile(const std::string& path) {
+  std::ifstream input(path, std::ios::binary);
+  if (!input) throw std::runtime_error("Unable to open workload profile: " + path);
   const std::string json((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+  return load_workload_profile_text(json);
+}
+
+MappingPlan load_mapping_plan_text(const std::string& path, const WorkloadProfile& profile, const std::string& json) {
   if (json_string_field(json, "schema_version") != std::optional<std::string>("axissim.mapping-plan.v1")) {
     throw std::runtime_error("Unsupported mapping-plan schema; expected axissim.mapping-plan.v1");
   }
@@ -282,6 +283,13 @@ namespace {
     }
   }
   return plan;
+}
+
+MappingPlan load_mapping_plan(const std::string& path, const WorkloadProfile& profile) {
+  std::ifstream input(path, std::ios::binary);
+  if (!input) throw std::runtime_error("Unable to open mapping plan: " + path);
+  const std::string json((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+  return load_mapping_plan_text(path,profile,json);
 }
 
 void apply_mapping_plan(WorkloadProfile& profile, const MappingPlan& plan, const Config& config) {

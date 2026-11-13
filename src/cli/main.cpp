@@ -25,6 +25,7 @@
 #include "metrics.hpp"
 #include "profile.hpp"
 #include "simulation.hpp"
+#include "study_contract.hpp"
 
 namespace axissim {
 
@@ -542,6 +543,31 @@ void write_calibration_csv(const std::string& config_path, const std::map<std::s
 int main(int argc, char** argv) {
   using namespace axissim;
   try {
+    if (argc >= 2 && std::string(argv[1]) == "study-evaluate") {
+      std::optional<std::string> request_path;
+      std::optional<std::string> result_path;
+      std::optional<std::string> study_trace_path;
+      for (int argument = 2; argument < argc; ++argument) {
+        const std::string option = argv[argument];
+        if (option == "--request") {
+          if (++argument >= argc || request_path) throw std::runtime_error("study-evaluate --request requires one path and may appear once");
+          request_path = argv[argument];
+        } else if (option == "--result") {
+          if (++argument >= argc || result_path) throw std::runtime_error("study-evaluate --result requires one path and may appear once");
+          result_path = argv[argument];
+        } else if (option == "--trace") {
+          if (++argument >= argc || study_trace_path) throw std::runtime_error("study-evaluate --trace requires one path and may appear once");
+          study_trace_path = argv[argument];
+        } else {
+          throw std::runtime_error("Unknown study-evaluate option: " + option);
+        }
+      }
+      if (!request_path || !result_path) {
+        std::cerr << "Usage: axissim study-evaluate --request <candidate-request.json> --result <candidate-result.json> [--trace <task-trace.jsonl>]\n";
+        return 2;
+      }
+      return run_study_evaluate(*request_path,*result_path,argv[0],study_trace_path);
+    }
     if ((argc == 3 || argc == 4) && std::string(argv[1]) == "profile-validate") {
       const WorkloadProfile profile = load_workload_profile(argv[2]);
       if (argc == 4) (void)load_mapping_plan(argv[3], profile);

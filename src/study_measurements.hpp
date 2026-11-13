@@ -66,8 +66,13 @@ struct StudyTaskIntervalRecord {
   std::string work_unit_id;
   std::string task_name;
   std::string resource;
+  double release_us = 0.0;
+  double ready_us = 0.0;
   double start_us = 0.0;
   double end_us = 0.0;
+  double observed_end_us = 0.0;
+  std::string completion_status = "in_flight_at_censor";
+  bool completion_observed = false;
   double vector_energy_j = 0.0;
   double npu_arithmetic_energy_j = 0.0;
   double dram_energy_j = 0.0;
@@ -146,6 +151,7 @@ struct StudyMeasurementResult {
   std::optional<StudyQueueSnapshot> start_snapshot;
   std::optional<StudyQueueSnapshot> end_snapshot;
   std::optional<std::int64_t> backlog_delta_work_units;
+  std::optional<bool> power_budget_feasible;
   std::vector<StudyWorkUnitRecord> work_units;
   std::vector<StudyTaskIntervalRecord> task_intervals;
 };
@@ -284,8 +290,21 @@ class StudyMeasurementObserver {
   [[nodiscard]] bool record_ready_event(double time_us) { return consume_scheduler_event(time_us); }
   [[nodiscard]] bool record_task_completion_event(double time_us) { return consume_scheduler_event(time_us); }
 
+  void record_task_completed(const std::string& work_unit_id, const std::string& task_name, double end_us) {
+    const auto found = std::find_if(tasks_.begin(), tasks_.end(), [&work_unit_id,&task_name,end_us](const StudyTaskIntervalRecord& task) {
+      return !task.completion_observed && task.work_unit_id == work_unit_id && task.task_name == task_name
+          && task.end_us == end_us;
+    });
+    if (found != tasks_.end()) {
+      found->completion_observed = true;
+      found->observed_end_us = end_us;
+      found->completion_status = "completed";
+    }
+  }
+
   [[nodiscard]] bool record_task_dispatch(double time_us, std::string work_unit_id, std::string task_name,
-                                          std::string resource, double start_us, double end_us,
+                                          std::string resource, double release_us, double ready_us,
+                                          double start_us, double end_us,
                                           const StudyTaskEnergyPj& energy_pj) {
     if (!consume_scheduler_event(time_us)) return false;
     const auto found = unit_index_.find(work_unit_id);
@@ -293,7 +312,8 @@ class StudyMeasurementObserver {
       fail("study_task_without_released_work_unit", time_us);
       return false;
     }
-    if (!std::isfinite(start_us) || !std::isfinite(end_us) || start_us < 0.0 || end_us < start_us || start_us != time_us
+    if (!std::isfinite(release_us) || !std::isfinite(ready_us) || release_us < 0.0 || ready_us < release_us
+        || !std::isfinite(start_us) || !std::isfinite(end_us) || start_us < ready_us || end_us < start_us || start_us != time_us
         || !std::isfinite(energy_pj.vector) || energy_pj.vector < 0.0
         || !std::isfinite(energy_pj.npu_arithmetic) || energy_pj.npu_arithmetic < 0.0
         || !std::isfinite(energy_pj.dram) || energy_pj.dram < 0.0
@@ -303,11 +323,24 @@ class StudyMeasurementObserver {
       return false;
     }
     const std::uint64_t task_id = next_task_id_++;
-    tasks_.push_back({task_id, std::move(work_unit_id), std::move(task_name), std::move(resource), start_us, end_us,
+    tasks_.push_back({task_id, std::move(work_unit_id), std::move(task_name), std::move(resource), release_us, ready_us, start_us, end_us, start_us, "in_flight_at_censor", false,
         energy_pj.vector / 1e12, energy_pj.npu_arithmetic / 1e12, energy_pj.dram / 1e12,
         energy_pj.dma / 1e12, energy_pj.total / 1e12});
     task_energy_pj_.push_back({start_us, end_us, energy_pj});
     return true;
+  }
+
+  // Compatibility overload for focused observer tests and callers that do not
+  // have scheduler-ready timestamps. Production scheduler hooks use the full
+  // overload above and preserve the observed ready time.
+  [[nodiscard]] bool record_task_dispatch(double time_us, std::string work_unit_id, std::string task_name,
+                                          std::string resource, double start_us, double end_us,
+                                          const StudyTaskEnergyPj& energy_pj) {
+    const auto found = unit_index_.find(work_unit_id);
+    if (found == unit_index_.end()) return false;
+    const double release_us = units_[found->second].spec.release_us;
+    return record_task_dispatch(time_us,std::move(work_unit_id),std::move(task_name),std::move(resource),
+                                release_us,start_us,start_us,end_us,energy_pj);
   }
 
   void record_work_unit_completion(const std::string& id, double completion_us) {
@@ -381,6 +414,7 @@ class StudyMeasurementObserver {
     sync_result_counts();
     result_.task_event_count = task_event_count_;
     result_.work_units = units_;
+    for (auto& task : tasks_) if (!task.completion_observed) task.observed_end_us = std::min(task.end_us, result_.last_model_time_us);
     result_.task_intervals = tasks_;
     result_.final_unfinished_work_units = count_unfinished_units();
     result_.final_scheduled_not_released_work_units = static_cast<std::uint64_t>(std::count_if(units_.cbegin(), units_.cend(), [](const StudyWorkUnitRecord& unit) { return !unit.released; }));
@@ -414,6 +448,7 @@ class StudyMeasurementObserver {
       const double duration_us = result_.interval_duration_us;
       const double dynamic_energy_pj = request_.mode == StudyMeasurementMode::Finite ? whole_run_dynamic_energy_pj : window_dynamic_energy_pj_;
       const ModelAccounting accounting = model_accounting(config, dynamic_energy_pj, duration_us);
+      if (config.it_power_budget_w > 0.0) result_.power_budget_feasible = accounting.power_feasible;
       set_value(result_.energy.dynamic_energy_j, dynamic_energy_pj / 1e12);
       set_energy_categories();
       set_value(result_.energy.static_energy_j, accounting.static_energy_pj / 1e12);

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 #include <stdexcept>
 
@@ -18,15 +19,22 @@ namespace {
 }
 
 [[nodiscard]] std::map<std::string, std::string> read_key_values_impl(
-    const std::filesystem::path& path, std::set<std::string>& active_paths) {
-  const std::string canonical_path = std::filesystem::absolute(path).lexically_normal().string();
+    const std::filesystem::path& path, std::set<std::string>& active_paths,
+    std::vector<std::filesystem::path>* source_files,
+    std::map<std::filesystem::path, std::string>* source_contents) {
+  const auto absolute_path = std::filesystem::absolute(path).lexically_normal();
+  const std::string canonical_path = absolute_path.string();
   if (!active_paths.insert(canonical_path).second) throw std::runtime_error("Configuration include cycle: " + canonical_path);
-  std::ifstream input(path);
+  if (source_files != nullptr) source_files->push_back(absolute_path);
+  std::ifstream input(path, std::ios::binary);
   if (!input) throw std::runtime_error("Unable to open config: " + path.string());
+  const std::string contents((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+  if (source_contents != nullptr) source_contents->insert_or_assign(absolute_path, contents);
+  std::istringstream lines(contents);
   std::map<std::string, std::string> values;
   std::string line;
   int line_number = 0;
-  while (std::getline(input, line)) {
+  while (std::getline(lines, line)) {
     ++line_number;
     const auto comment = line.find('#');
     if (comment != std::string::npos) line.erase(comment);
@@ -38,7 +46,7 @@ namespace {
     const std::string value = trim(line.substr(separator + 1));
     if (key.empty() || value.empty()) throw std::runtime_error("Invalid key/value at " + path.string() + ":" + std::to_string(line_number));
     if (key == "include") {
-      const auto included = read_key_values_impl(path.parent_path() / value, active_paths);
+      const auto included = read_key_values_impl(path.parent_path() / value, active_paths, source_files, source_contents);
       for (const auto& [included_key, included_value] : included) {
         if (!values.emplace(included_key, included_value).second) throw std::runtime_error("Duplicate key from include: " + included_key);
       }
@@ -50,9 +58,11 @@ namespace {
   return values;
 }
 
-[[nodiscard]] std::map<std::string, std::string> read_key_values(const std::string& path) {
+[[nodiscard]] std::map<std::string, std::string> read_key_values(
+    const std::string& path, std::vector<std::filesystem::path>* source_files = nullptr,
+    std::map<std::filesystem::path, std::string>* source_contents = nullptr) {
   std::set<std::string> active_paths;
-  return read_key_values_impl(path, active_paths);
+  return read_key_values_impl(path, active_paths, source_files, source_contents);
 }
 
 template <typename T>
@@ -80,8 +90,10 @@ const std::set<std::string>& supported_keys() {
   return keys;
 }
 
-Config load_config(const std::string& path, const std::map<std::string, std::string>& overrides) {
-  auto values = read_key_values(path);
+ConfigLoadResult load_config_with_sources(const std::string& path, const std::map<std::string, std::string>& overrides) {
+  std::vector<std::filesystem::path> source_files;
+  std::map<std::filesystem::path, std::string> source_contents;
+  auto values = read_key_values(path, &source_files, &source_contents);
   for (const auto& [key, value] : overrides) values[key] = value;
   for (const auto& [key, value] : values) {
     (void)value;
@@ -116,11 +128,15 @@ Config load_config(const std::string& path, const std::map<std::string, std::str
   AXISSIM_LOAD(static_power_w); AXISSIM_LOAD(npu_static_power_per_mac_w); AXISSIM_LOAD(rvv_static_power_per_lane_w); AXISSIM_LOAD(sram_static_power_per_kib_w); AXISSIM_LOAD(dram_interface_static_power_w); AXISSIM_LOAD(it_power_budget_w); AXISSIM_LOAD(pue); AXISSIM_LOAD(electricity_cost_per_kwh); AXISSIM_LOAD(deployment_xpu_count); AXISSIM_LOAD(deployment_hours);
   AXISSIM_LOAD(base_area_mm2); AXISSIM_LOAD(npu_area_per_mac_mm2); AXISSIM_LOAD(rvv_area_per_lane_mm2); AXISSIM_LOAD(sram_area_per_kib_mm2); AXISSIM_LOAD(max_area_mm2); AXISSIM_LOAD(ambient_temp_c); AXISSIM_LOAD(thermal_resistance_c_per_w); AXISSIM_LOAD(thermal_capacitance_j_per_c); AXISSIM_LOAD(max_junction_temp_c); AXISSIM_LOAD(reliability_fit_rate); AXISSIM_LOAD(reliability_voltage_fit_multiplier);
 #undef AXISSIM_LOAD
-  return c;
+  return {std::move(c), std::move(source_files), std::move(source_contents)};
+}
+
+Config load_config(const std::string& path, const std::map<std::string, std::string>& overrides) {
+  return load_config_with_sources(path, overrides).config;
 }
 
 
-void validate(const Config& c) {
+void validate(const Config& c, const std::optional<std::string>& frame_arrival_trace_contents) {
   if (c.frames < 1 || c.frame_period_us <= 0 || c.deadline_us <= 0) throw std::runtime_error("Frame configuration must be positive");
   if (c.workload_mode != "physical_ai" && c.workload_mode != "rvv_stream" && c.workload_mode != "profiled_graph") throw std::runtime_error("workload_mode must be physical_ai, rvv_stream, or profiled_graph");
   if (c.workload_mode == "profiled_graph" && c.workload_profile.empty()) throw std::runtime_error("profiled_graph workloads require workload_profile");
@@ -147,10 +163,14 @@ void validate(const Config& c) {
   if (c.vector_op_pj < 0 || c.npu_mac_pj < 0 || c.npu_arithmetic_energy_scale <= 0 || c.arithmetic_voltage_ratio <= 0 || c.dram_byte_pj < 0 || c.dma_byte_pj < 0) throw std::runtime_error("Energy values must be non-negative (scale and voltage ratio must be positive)");
   if (c.static_power_w < 0 || c.npu_static_power_per_mac_w < 0 || c.rvv_static_power_per_lane_w < 0 || c.sram_static_power_per_kib_w < 0 || c.dram_interface_static_power_w < 0 || c.it_power_budget_w < 0 || c.pue < 1.0 || c.electricity_cost_per_kwh < 0 || c.deployment_xpu_count < 1 || c.deployment_hours < 0) throw std::runtime_error("Power and deployment parameters are invalid");
   if (c.base_area_mm2 < 0 || c.npu_area_per_mac_mm2 < 0 || c.rvv_area_per_lane_mm2 < 0 || c.sram_area_per_kib_mm2 < 0 || c.max_area_mm2 < 0 || c.thermal_resistance_c_per_w < 0 || c.thermal_capacitance_j_per_c < 0 || c.reliability_fit_rate < 0 || c.reliability_voltage_fit_multiplier <= 0) throw std::runtime_error("Area, thermal, and reliability proxy parameters are invalid");
-  if (c.frame_arrival_mode == "trace") (void)load_frame_arrivals(c);
+  if (c.frame_arrival_mode == "trace") (void)load_frame_arrivals(c,frame_arrival_trace_contents);
 }
 
-[[nodiscard]] std::vector<double> load_frame_arrivals(const Config& config) {
+std::vector<double> load_frame_arrivals(const Config& config) {
+  return load_frame_arrivals(config,std::nullopt);
+}
+
+std::vector<double> load_frame_arrivals(const Config& config, const std::optional<std::string>& frame_arrival_trace_contents) {
   std::vector<double> releases;
   releases.reserve(static_cast<std::size_t>(config.frames));
   if (config.frame_arrival_mode == "periodic") {
@@ -161,16 +181,25 @@ void validate(const Config& c) {
   std::ifstream provenance(config.frame_arrival_provenance);
   if (!provenance) throw std::runtime_error("Unable to open frame-arrival provenance: " + config.frame_arrival_provenance);
   if (provenance.peek() == std::ifstream::traits_type::eof()) throw std::runtime_error("Frame-arrival provenance must not be empty");
-  std::ifstream input(config.frame_arrival_trace);
-  if (!input) throw std::runtime_error("Unable to open frame-arrival trace: " + config.frame_arrival_trace);
+  std::ifstream input_file;
+  std::istringstream input_contents;
+  std::istream* input = nullptr;
+  if (frame_arrival_trace_contents) {
+    input_contents.str(*frame_arrival_trace_contents);
+    input = &input_contents;
+  } else {
+    input_file.open(config.frame_arrival_trace);
+    if (!input_file) throw std::runtime_error("Unable to open frame-arrival trace: " + config.frame_arrival_trace);
+    input = &input_file;
+  }
   std::string header;
-  if (!std::getline(input, header) || trim(header) != "frame,release_us") {
+  if (!std::getline(*input, header) || trim(header) != "frame,release_us") {
     throw std::runtime_error("Frame-arrival trace header must be exactly: frame,release_us");
   }
   std::string line;
   int expected_frame = 0;
   double previous_release = -1.0;
-  while (std::getline(input, line)) {
+  while (std::getline(*input, line)) {
     if (trim(line).empty() || trim(line).starts_with('#')) continue;
     const auto comma = line.find(',');
     if (comma == std::string::npos || line.find(',', comma + 1) != std::string::npos) {

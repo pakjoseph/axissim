@@ -80,7 +80,9 @@ struct MappingPlan {
 };
 
 WorkloadProfile load_workload_profile(const std::string& path);
+WorkloadProfile load_workload_profile_text(const std::string& json);
 MappingPlan load_mapping_plan(const std::string& path, const WorkloadProfile& profile);
+MappingPlan load_mapping_plan_text(const std::string& path, const WorkloadProfile& profile, const std::string& json);
 void apply_mapping_plan(WorkloadProfile& profile, const MappingPlan& plan, const Config& config);
 
 }  // namespace axissim

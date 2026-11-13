@@ -18,7 +18,8 @@ endfunction()
 add_library(axissim-core STATIC
   src/config.cpp
   src/metrics.cpp
-  src/profile.cpp)
+  src/profile.cpp
+  src/study_contract.cpp)
 target_include_directories(axissim-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 axissim_enable_strict_warnings(axissim-core)
 
@@ -133,6 +134,12 @@ if(BUILD_TESTING)
   target_compile_definitions(axissim-study-measurement-tests PRIVATE AXISSIM_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
   axissim_enable_strict_warnings(axissim-study-measurement-tests)
   add_test(NAME study_measurement_contract COMMAND axissim-study-measurement-tests)
+  add_executable(axissim-study-contract-tests tests/study_contract_tests.cpp)
+  target_link_libraries(axissim-study-contract-tests PRIVATE axissim-core)
+  target_include_directories(axissim-study-contract-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  target_compile_definitions(axissim-study-contract-tests PRIVATE AXISSIM_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+  axissim_enable_strict_warnings(axissim-study-contract-tests)
+  add_test(NAME study_candidate_accounting_contract COMMAND axissim-study-contract-tests)
   find_package(Python3 COMPONENTS Interpreter QUIET)
   if(Python3_Interpreter_FOUND)
     add_test(NAME host_reference_harness_help
@@ -142,6 +149,10 @@ if(BUILD_TESTING)
                      ${CMAKE_SOURCE_DIR}/reference_data/hosts/apple-silicon-arm64-mobilenetv2-7.json
                      ${CMAKE_SOURCE_DIR}/reference_data/hosts/github-actions-ubuntu-x86_64-mobilenetv2-7.json)
     if(Python3_VERSION VERSION_GREATER_EQUAL "3.10")
+      add_test(NAME study_candidate_cli_contract
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/study_contract_e2e.py
+                       --source-root ${CMAKE_SOURCE_DIR}
+                       --binary $<TARGET_FILE:axissim>)
       add_test(NAME legacy_study_baselines_reproduce
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/check_legacy_study_parity.py
                        --source-root ${CMAKE_SOURCE_DIR}
