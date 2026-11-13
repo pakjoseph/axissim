@@ -1,0 +1,1183 @@
+{
+  "schema_id": "axissim.study-planning-manifest.v1",
+  "schema_version": 1,
+  "accounting_model_id": "axissim-model-accounting-v1",
+  "power_budget_w": 0.23,
+  "factor_order": [
+    "npu_macs",
+    "rvv_lanes",
+    "dram_bandwidth_gbps",
+    "sram_capacity_bytes",
+    "npu_tile_m",
+    "npu_tile_n",
+    "npu_tile_k",
+    "scheduler_policy",
+    "rvv_chunk_elements",
+    "npu_weights_resident",
+    "weight_sram_capacity_bytes",
+    "npu_arithmetic_energy_scale",
+    "arithmetic_voltage_ratio",
+    "release_schedule"
+  ],
+  "factor_levels": {
+    "npu_macs": [
+      256,
+      512,
+      1024,
+      2048,
+      4096
+    ],
+    "rvv_lanes": [
+      2,
+      4,
+      8,
+      16
+    ],
+    "dram_bandwidth_gbps": [
+      0.15,
+      0.5,
+      1,
+      5,
+      20
+    ],
+    "sram_capacity_bytes": [
+      131072,
+      262144,
+      524288
+    ],
+    "npu_tile_m": [
+      64,
+      128,
+      256
+    ],
+    "npu_tile_n": [
+      64,
+      128,
+      256
+    ],
+    "npu_tile_k": [
+      128,
+      256
+    ],
+    "scheduler_policy": [
+      "fcfs",
+      "fixed_priority",
+      "edf"
+    ],
+    "rvv_chunk_elements": [
+      0,
+      20000
+    ],
+    "npu_weights_resident": [
+      0,
+      1
+    ],
+    "weight_sram_capacity_bytes": [
+      0,
+      16384,
+      262144,
+      524288
+    ],
+    "npu_arithmetic_energy_scale": [
+      1,
+      0.333333
+    ],
+    "arithmetic_voltage_ratio": [
+      1,
+      0.666667
+    ],
+    "release_schedule": [
+      "periodic_30fps",
+      "trace_30fps"
+    ]
+  },
+  "workloads": [
+    {
+      "workload_id": "physical_ai_baseline",
+      "family_id": "physical_ai",
+      "workload_mode": "physical_ai",
+      "base_config_path": "configs/power_budget/manifest.conf",
+      "included_config_paths": [
+        "configs/baseline/workload.conf",
+        "configs/baseline/architecture.conf",
+        "configs/baseline/implementation.conf",
+        "configs/baseline/energy.conf"
+      ],
+      "source_paths": [],
+      "profile_path": null,
+      "mapping_path": null,
+      "fixed_overrides": {},
+      "pilot_overrides": {},
+      "pilot_release_stratum_id": "periodic_30fps",
+      "base_factor_assignments": {
+        "npu_macs": 1024,
+        "rvv_lanes": 8,
+        "dram_bandwidth_gbps": 20,
+        "sram_capacity_bytes": 131072,
+        "npu_tile_m": 64,
+        "npu_tile_n": 64,
+        "npu_tile_k": 128,
+        "scheduler_policy": "fixed_priority",
+        "rvv_chunk_elements": 0,
+        "npu_weights_resident": 0,
+        "weight_sram_capacity_bytes": 0,
+        "npu_arithmetic_energy_scale": 1,
+        "arithmetic_voltage_ratio": 1
+      },
+      "factor_config_keys": {
+        "npu_macs": "npu_macs",
+        "rvv_lanes": "rvv_lanes",
+        "dram_bandwidth_gbps": "dram_bandwidth_gbps",
+        "sram_capacity_bytes": "sram_capacity_bytes",
+        "npu_tile_m": "npu_tile_m",
+        "npu_tile_n": "npu_tile_n",
+        "npu_tile_k": "npu_tile_k",
+        "scheduler_policy": "scheduler_policy",
+        "rvv_chunk_elements": "rvv_chunk_elements",
+        "npu_weights_resident": "npu_weights_resident",
+        "weight_sram_capacity_bytes": "weight_sram_capacity_bytes",
+        "npu_arithmetic_energy_scale": "npu_arithmetic_energy_scale",
+        "arithmetic_voltage_ratio": "arithmetic_voltage_ratio"
+      },
+      "applicability": {
+        "npu_macs": "modeled",
+        "rvv_lanes": "modeled",
+        "dram_bandwidth_gbps": "modeled",
+        "sram_capacity_bytes": "modeled",
+        "npu_tile_m": "modeled",
+        "npu_tile_n": "modeled",
+        "npu_tile_k": "modeled",
+        "scheduler_policy": "modeled",
+        "rvv_chunk_elements": "modeled",
+        "npu_weights_resident": "modeled",
+        "weight_sram_capacity_bytes": "modeled",
+        "npu_arithmetic_energy_scale": "modeled",
+        "arithmetic_voltage_ratio": "modeled",
+        "release_schedule": "modeled"
+      },
+      "power_coverage_expectations": {
+        "npu_macs": "complete",
+        "rvv_lanes": "complete",
+        "dram_bandwidth_gbps": "partial",
+        "sram_capacity_bytes": "partial",
+        "npu_tile_m": "partial",
+        "npu_tile_n": "partial",
+        "npu_tile_k": "partial",
+        "scheduler_policy": "partial",
+        "rvv_chunk_elements": "partial",
+        "npu_weights_resident": "missing",
+        "weight_sram_capacity_bytes": "missing",
+        "npu_arithmetic_energy_scale": "complete",
+        "arithmetic_voltage_ratio": "partial",
+        "release_schedule": "n/a"
+      },
+      "release_strata": [
+        {
+          "release_stratum_id": "periodic_30fps",
+          "release_schedule": {
+            "kind": "periodic",
+            "period_us": 33333
+          },
+          "config_overrides": {}
+        },
+        {
+          "release_stratum_id": "trace_30fps",
+          "release_schedule": {
+            "kind": "trace",
+            "path": "reference_data/qos/periodic_30fps.csv",
+            "provenance_path": "reference_data/qos/periodic_30fps.md"
+          },
+          "config_overrides": {
+            "frame_arrival_mode": "trace",
+            "frame_arrival_trace": "../../reference_data/qos/periodic_30fps.csv",
+            "frame_arrival_provenance": "../../reference_data/qos/periodic_30fps.md"
+          }
+        }
+      ],
+      "measurement_protocol": {
+        "mode": "finite",
+        "time_origin_us": 0,
+        "deadline_policy": {
+          "frame": {
+            "relative_deadline_us": 33333,
+            "handling": "objective"
+          },
+          "control": {
+            "relative_deadline_us": null,
+            "handling": "not_applicable"
+          }
+        },
+        "percentile_method": "linear_n_minus_1_p99"
+      },
+      "power_overlay": {
+        "source_path": "configs/power_budget/manifest.conf",
+        "source_sha256": "e3cd4a587bf58dcfdbe9d0e59b690fe5542f8a9f376567f9e17674a3144e793c",
+        "fields": {}
+      },
+      "pilot_power_overlay": {},
+      "rvv_chunk_stage_elements": [
+        921600,
+        100001
+      ]
+    },
+    {
+      "workload_id": "mnist12_profiled",
+      "family_id": "mnist12",
+      "workload_mode": "profiled_graph",
+      "base_config_path": "configs/workloads/mnist12_profiled.conf",
+      "included_config_paths": [
+        "configs/baseline/architecture.conf",
+        "configs/baseline/implementation.conf",
+        "configs/baseline/energy.conf"
+      ],
+      "source_paths": [],
+      "profile_path": "reference_data/workloads/mnist12_profile.json",
+      "mapping_path": "configs/mappings/mnist12_baseline.json",
+      "fixed_overrides": {},
+      "pilot_overrides": {},
+      "pilot_release_stratum_id": "periodic_30fps",
+      "base_factor_assignments": {
+        "npu_macs": 1024,
+        "rvv_lanes": 8,
+        "dram_bandwidth_gbps": 20,
+        "sram_capacity_bytes": 131072,
+        "scheduler_policy": "fixed_priority",
+        "npu_arithmetic_energy_scale": 1,
+        "arithmetic_voltage_ratio": 1
+      },
+      "factor_config_keys": {
+        "npu_macs": "npu_macs",
+        "rvv_lanes": "rvv_lanes",
+        "dram_bandwidth_gbps": "dram_bandwidth_gbps",
+        "sram_capacity_bytes": "sram_capacity_bytes",
+        "npu_tile_m": "npu_tile_m",
+        "npu_tile_n": "npu_tile_n",
+        "npu_tile_k": "npu_tile_k",
+        "scheduler_policy": "scheduler_policy",
+        "rvv_chunk_elements": "rvv_chunk_elements",
+        "npu_weights_resident": "npu_weights_resident",
+        "weight_sram_capacity_bytes": "weight_sram_capacity_bytes",
+        "npu_arithmetic_energy_scale": "npu_arithmetic_energy_scale",
+        "arithmetic_voltage_ratio": "arithmetic_voltage_ratio"
+      },
+      "applicability": {
+        "npu_macs": "modeled",
+        "rvv_lanes": "modeled",
+        "dram_bandwidth_gbps": "modeled",
+        "sram_capacity_bytes": "modeled",
+        "npu_tile_m": "n/a",
+        "npu_tile_n": "n/a",
+        "npu_tile_k": "n/a",
+        "scheduler_policy": "modeled",
+        "rvv_chunk_elements": "n/a",
+        "npu_weights_resident": "n/a",
+        "weight_sram_capacity_bytes": "n/a",
+        "npu_arithmetic_energy_scale": "modeled",
+        "arithmetic_voltage_ratio": "modeled",
+        "release_schedule": "modeled"
+      },
+      "power_coverage_expectations": {
+        "npu_macs": "complete",
+        "rvv_lanes": "complete",
+        "dram_bandwidth_gbps": "partial",
+        "sram_capacity_bytes": "partial",
+        "npu_tile_m": "n/a",
+        "npu_tile_n": "n/a",
+        "npu_tile_k": "n/a",
+        "scheduler_policy": "partial",
+        "rvv_chunk_elements": "n/a",
+        "npu_weights_resident": "n/a",
+        "weight_sram_capacity_bytes": "n/a",
+        "npu_arithmetic_energy_scale": "complete",
+        "arithmetic_voltage_ratio": "partial",
+        "release_schedule": "n/a"
+      },
+      "release_strata": [
+        {
+          "release_stratum_id": "periodic_30fps",
+          "release_schedule": {
+            "kind": "periodic",
+            "period_us": 33333
+          },
+          "config_overrides": {}
+        },
+        {
+          "release_stratum_id": "trace_30fps",
+          "release_schedule": {
+            "kind": "trace",
+            "path": "reference_data/qos/periodic_30fps.csv",
+            "provenance_path": "reference_data/qos/periodic_30fps.md"
+          },
+          "config_overrides": {
+            "frame_arrival_mode": "trace",
+            "frame_arrival_trace": "../../reference_data/qos/periodic_30fps.csv",
+            "frame_arrival_provenance": "../../reference_data/qos/periodic_30fps.md"
+          }
+        }
+      ],
+      "measurement_protocol": {
+        "mode": "finite",
+        "time_origin_us": 0,
+        "deadline_policy": {
+          "frame": {
+            "relative_deadline_us": 33333,
+            "handling": "objective"
+          },
+          "control": {
+            "relative_deadline_us": null,
+            "handling": "not_applicable"
+          }
+        },
+        "percentile_method": "linear_n_minus_1_p99"
+      },
+      "power_overlay": {
+        "source_path": "configs/power_budget/manifest.conf",
+        "source_sha256": "e3cd4a587bf58dcfdbe9d0e59b690fe5542f8a9f376567f9e17674a3144e793c",
+        "fields": {
+          "static_power_w": 0.05,
+          "npu_static_power_per_mac_w": 3e-05,
+          "rvv_static_power_per_lane_w": 0.002,
+          "sram_static_power_per_kib_w": 0.0001,
+          "dram_interface_static_power_w": 0.02,
+          "it_power_budget_w": 0.23
+        }
+      },
+      "pilot_power_overlay": {
+        "static_power_w": 0.05,
+        "npu_static_power_per_mac_w": 3e-05,
+        "rvv_static_power_per_lane_w": 0.002,
+        "sram_static_power_per_kib_w": 0.0001,
+        "dram_interface_static_power_w": 0.02,
+        "it_power_budget_w": 0.23
+      }
+    },
+    {
+      "workload_id": "gemm_heavy_512",
+      "family_id": "gemm_heavy",
+      "workload_mode": "physical_ai",
+      "base_config_path": "configs/power_budget/manifest.conf",
+      "included_config_paths": [
+        "configs/baseline/workload.conf",
+        "configs/baseline/architecture.conf",
+        "configs/baseline/implementation.conf",
+        "configs/baseline/energy.conf"
+      ],
+      "source_paths": [],
+      "profile_path": null,
+      "mapping_path": null,
+      "fixed_overrides": {
+        "gemm_m": 512,
+        "gemm_n": 512,
+        "gemm_k": 512,
+        "npu_tile_m": 128,
+        "npu_tile_n": 128,
+        "npu_tile_k": 128,
+        "sram_capacity_bytes": 131072,
+        "npu_weights_resident": 1,
+        "weight_sram_capacity_bytes": 524288,
+        "npu_mac_pj": 2.0,
+        "dram_byte_pj": 5.0,
+        "npu_arithmetic_energy_scale": 1
+      },
+      "pilot_overrides": {},
+      "pilot_release_stratum_id": "periodic_30fps",
+      "base_factor_assignments": {
+        "npu_macs": 1024,
+        "rvv_lanes": 8,
+        "dram_bandwidth_gbps": 20,
+        "sram_capacity_bytes": 131072,
+        "npu_tile_m": 128,
+        "npu_tile_n": 128,
+        "npu_tile_k": 128,
+        "scheduler_policy": "fixed_priority",
+        "rvv_chunk_elements": 0,
+        "npu_weights_resident": 1,
+        "weight_sram_capacity_bytes": 524288,
+        "npu_arithmetic_energy_scale": 1,
+        "arithmetic_voltage_ratio": 1
+      },
+      "factor_config_keys": {
+        "npu_macs": "npu_macs",
+        "rvv_lanes": "rvv_lanes",
+        "dram_bandwidth_gbps": "dram_bandwidth_gbps",
+        "sram_capacity_bytes": "sram_capacity_bytes",
+        "npu_tile_m": "npu_tile_m",
+        "npu_tile_n": "npu_tile_n",
+        "npu_tile_k": "npu_tile_k",
+        "scheduler_policy": "scheduler_policy",
+        "rvv_chunk_elements": "rvv_chunk_elements",
+        "npu_weights_resident": "npu_weights_resident",
+        "weight_sram_capacity_bytes": "weight_sram_capacity_bytes",
+        "npu_arithmetic_energy_scale": "npu_arithmetic_energy_scale",
+        "arithmetic_voltage_ratio": "arithmetic_voltage_ratio"
+      },
+      "applicability": {
+        "npu_macs": "modeled",
+        "rvv_lanes": "modeled",
+        "dram_bandwidth_gbps": "modeled",
+        "sram_capacity_bytes": "modeled",
+        "npu_tile_m": "modeled",
+        "npu_tile_n": "modeled",
+        "npu_tile_k": "modeled",
+        "scheduler_policy": "modeled",
+        "rvv_chunk_elements": "modeled",
+        "npu_weights_resident": "modeled",
+        "weight_sram_capacity_bytes": "modeled",
+        "npu_arithmetic_energy_scale": "modeled",
+        "arithmetic_voltage_ratio": "modeled",
+        "release_schedule": "modeled"
+      },
+      "power_coverage_expectations": {
+        "npu_macs": "complete",
+        "rvv_lanes": "complete",
+        "dram_bandwidth_gbps": "partial",
+        "sram_capacity_bytes": "partial",
+        "npu_tile_m": "partial",
+        "npu_tile_n": "partial",
+        "npu_tile_k": "partial",
+        "scheduler_policy": "partial",
+        "rvv_chunk_elements": "partial",
+        "npu_weights_resident": "missing",
+        "weight_sram_capacity_bytes": "missing",
+        "npu_arithmetic_energy_scale": "complete",
+        "arithmetic_voltage_ratio": "partial",
+        "release_schedule": "n/a"
+      },
+      "release_strata": [
+        {
+          "release_stratum_id": "periodic_30fps",
+          "release_schedule": {
+            "kind": "periodic",
+            "period_us": 33333
+          },
+          "config_overrides": {}
+        },
+        {
+          "release_stratum_id": "trace_30fps",
+          "release_schedule": {
+            "kind": "trace",
+            "path": "reference_data/qos/periodic_30fps.csv",
+            "provenance_path": "reference_data/qos/periodic_30fps.md"
+          },
+          "config_overrides": {
+            "frame_arrival_mode": "trace",
+            "frame_arrival_trace": "../../reference_data/qos/periodic_30fps.csv",
+            "frame_arrival_provenance": "../../reference_data/qos/periodic_30fps.md"
+          }
+        }
+      ],
+      "measurement_protocol": {
+        "mode": "finite",
+        "time_origin_us": 0,
+        "deadline_policy": {
+          "frame": {
+            "relative_deadline_us": 33333,
+            "handling": "objective"
+          },
+          "control": {
+            "relative_deadline_us": null,
+            "handling": "not_applicable"
+          }
+        },
+        "percentile_method": "linear_n_minus_1_p99"
+      },
+      "power_overlay": {
+        "source_path": "configs/power_budget/manifest.conf",
+        "source_sha256": "e3cd4a587bf58dcfdbe9d0e59b690fe5542f8a9f376567f9e17674a3144e793c",
+        "fields": {}
+      },
+      "pilot_power_overlay": {},
+      "rvv_chunk_stage_elements": [
+        921600,
+        100001
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "group_id": "oat:rvv_lanes",
+      "factors": [
+        "rvv_lanes"
+      ],
+      "workload_ids": [
+        "physical_ai_baseline",
+        "gemm_heavy_512"
+      ],
+      "candidate_rows": [
+        {
+          "rvv_lanes": 2
+        },
+        {
+          "rvv_lanes": 4
+        },
+        {
+          "rvv_lanes": 8
+        },
+        {
+          "rvv_lanes": 16
+        }
+      ],
+      "comparison_class": "architecture",
+      "paired_interaction_id": null
+    },
+    {
+      "group_id": "oat:npu_macs",
+      "factors": [
+        "npu_macs"
+      ],
+      "workload_ids": [
+        "physical_ai_baseline",
+        "gemm_heavy_512"
+      ],
+      "candidate_rows": [
+        {
+          "npu_macs": 256
+        },
+        {
+          "npu_macs": 512
+        },
+        {
+          "npu_macs": 1024
+        },
+        {
+          "npu_macs": 2048
+        },
+        {
+          "npu_macs": 4096
+        }
+      ],
+      "comparison_class": "architecture",
+      "paired_interaction_id": null
+    },
+    {
+      "group_id": "oat:dram_bandwidth_gbps",
+      "factors": [
+        "dram_bandwidth_gbps"
+      ],
+      "workload_ids": [
+        "physical_ai_baseline",
+        "gemm_heavy_512"
+      ],
+      "candidate_rows": [
+        {
+          "dram_bandwidth_gbps": 0.15
+        },
+        {
+          "dram_bandwidth_gbps": 0.5
+        },
+        {
+          "dram_bandwidth_gbps": 1
+        },
+        {
+          "dram_bandwidth_gbps": 5
+        },
+        {
+          "dram_bandwidth_gbps": 20
+        }
+      ],
+      "comparison_class": "architecture",
+      "paired_interaction_id": null
+    },
+    {
+      "group_id": "oat:sram_capacity_bytes",
+      "factors": [
+        "sram_capacity_bytes"
+      ],
+      "workload_ids": [
+        "physical_ai_baseline",
+        "gemm_heavy_512"
+      ],
+      "candidate_rows": [
+        {
+          "sram_capacity_bytes": 131072
+        },
+        {
+          "sram_capacity_bytes": 262144
+        },
+        {
+          "sram_capacity_bytes": 524288
+        }
+      ],
+      "comparison_class": "architecture",
+      "paired_interaction_id": null
+    },
+    {
+      "group_id": "oat:scheduler_policy",
+      "factors": [
+        "scheduler_policy"
+      ],
+      "workload_ids": [
+        "physical_ai_baseline",
+        "gemm_heavy_512"
+      ],
+      "candidate_rows": [
+        {
+          "scheduler_policy": "fcfs"
+        },
+        {
+          "scheduler_policy": "fixed_priority"
+        },
+        {
+          "scheduler_policy": "edf"
+        }
+      ],
+      "comparison_class": "architecture",
+      "paired_interaction_id": "scheduler_policy_by_release_stratum"
+    },
+    {
+      "group_id": "oat:rvv_chunk_elements",
+      "factors": [
+        "rvv_chunk_elements"
+      ],
+      "workload_ids": [
+        "physical_ai_baseline",
+        "gemm_heavy_512"
+      ],
+      "candidate_rows": [
+        {
+          "rvv_chunk_elements": 0
+        },
+        {
+          "rvv_chunk_elements": 20000
+        }
+      ],
+      "comparison_class": "architecture",
+      "paired_interaction_id": null
+    },
+    {
+      "group_id": "oat:npu_tile_mapping",
+      "factors": [
+        "npu_tile_m",
+        "npu_tile_n",
+        "npu_tile_k"
+      ],
+      "workload_ids": [
+        "physical_ai_baseline",
+        "gemm_heavy_512"
+      ],
+      "candidate_rows": [
+        {
+          "npu_tile_m": 64,
+          "npu_tile_n": 64,
+          "npu_tile_k": 128
+        },
+        {
+          "npu_tile_m": 128,
+          "npu_tile_n": 128,
+          "npu_tile_k": 128
+        },
+        {
+          "npu_tile_m": 256,
+          "npu_tile_n": 256,
+          "npu_tile_k": 256
+        }
+      ],
+      "comparison_class": "architecture",
+      "fixed_overrides": {
+        "sram_capacity_bytes": 524288
+      },
+      "held_constant_factor_assignments": {
+        "sram_capacity_bytes": 524288
+      }
+    },
+    {
+      "group_id": "oat:npu_arithmetic_energy_scale",
+      "factors": [
+        "npu_arithmetic_energy_scale"
+      ],
+      "workload_ids": [
+        "physical_ai_baseline",
+        "gemm_heavy_512"
+      ],
+      "candidate_rows": [
+        {
+          "npu_arithmetic_energy_scale": 1
+        },
+        {
+          "npu_arithmetic_energy_scale": 0.333333
+        }
+      ],
+      "comparison_class": "model_sensitivity"
+    },
+    {
+      "group_id": "oat:arithmetic_voltage_ratio",
+      "factors": [
+        "arithmetic_voltage_ratio"
+      ],
+      "workload_ids": [
+        "physical_ai_baseline",
+        "gemm_heavy_512"
+      ],
+      "candidate_rows": [
+        {
+          "arithmetic_voltage_ratio": 1
+        },
+        {
+          "arithmetic_voltage_ratio": 0.666667
+        }
+      ],
+      "comparison_class": "model_sensitivity"
+    },
+    {
+      "group_id": "oat:rvv_lanes:mnist",
+      "factors": [
+        "rvv_lanes"
+      ],
+      "workload_ids": [
+        "mnist12_profiled"
+      ],
+      "candidate_rows": [
+        {
+          "rvv_lanes": 2
+        },
+        {
+          "rvv_lanes": 4
+        },
+        {
+          "rvv_lanes": 8
+        },
+        {
+          "rvv_lanes": 16
+        }
+      ],
+      "comparison_class": "architecture",
+      "paired_interaction_id": null
+    },
+    {
+      "group_id": "oat:npu_macs:mnist",
+      "factors": [
+        "npu_macs"
+      ],
+      "workload_ids": [
+        "mnist12_profiled"
+      ],
+      "candidate_rows": [
+        {
+          "npu_macs": 256
+        },
+        {
+          "npu_macs": 512
+        },
+        {
+          "npu_macs": 1024
+        },
+        {
+          "npu_macs": 2048
+        },
+        {
+          "npu_macs": 4096
+        }
+      ],
+      "comparison_class": "architecture",
+      "paired_interaction_id": null
+    },
+    {
+      "group_id": "oat:dram_bandwidth_gbps:mnist",
+      "factors": [
+        "dram_bandwidth_gbps"
+      ],
+      "workload_ids": [
+        "mnist12_profiled"
+      ],
+      "candidate_rows": [
+        {
+          "dram_bandwidth_gbps": 0.15
+        },
+        {
+          "dram_bandwidth_gbps": 0.5
+        },
+        {
+          "dram_bandwidth_gbps": 1
+        },
+        {
+          "dram_bandwidth_gbps": 5
+        },
+        {
+          "dram_bandwidth_gbps": 20
+        }
+      ],
+      "comparison_class": "architecture",
+      "paired_interaction_id": null
+    },
+    {
+      "group_id": "oat:sram_capacity_bytes:mnist",
+      "factors": [
+        "sram_capacity_bytes"
+      ],
+      "workload_ids": [
+        "mnist12_profiled"
+      ],
+      "candidate_rows": [
+        {
+          "sram_capacity_bytes": 131072
+        },
+        {
+          "sram_capacity_bytes": 262144
+        },
+        {
+          "sram_capacity_bytes": 524288
+        }
+      ],
+      "comparison_class": "architecture",
+      "paired_interaction_id": null
+    },
+    {
+      "group_id": "oat:scheduler_policy:mnist",
+      "factors": [
+        "scheduler_policy"
+      ],
+      "workload_ids": [
+        "mnist12_profiled"
+      ],
+      "candidate_rows": [
+        {
+          "scheduler_policy": "fcfs"
+        },
+        {
+          "scheduler_policy": "fixed_priority"
+        },
+        {
+          "scheduler_policy": "edf"
+        }
+      ],
+      "comparison_class": "architecture",
+      "paired_interaction_id": "scheduler_policy_by_release_stratum"
+    },
+    {
+      "group_id": "oat:npu_arithmetic_energy_scale:mnist",
+      "factors": [
+        "npu_arithmetic_energy_scale"
+      ],
+      "workload_ids": [
+        "mnist12_profiled"
+      ],
+      "candidate_rows": [
+        {
+          "npu_arithmetic_energy_scale": 1
+        },
+        {
+          "npu_arithmetic_energy_scale": 0.333333
+        }
+      ],
+      "comparison_class": "model_sensitivity"
+    },
+    {
+      "group_id": "oat:arithmetic_voltage_ratio:mnist",
+      "factors": [
+        "arithmetic_voltage_ratio"
+      ],
+      "workload_ids": [
+        "mnist12_profiled"
+      ],
+      "candidate_rows": [
+        {
+          "arithmetic_voltage_ratio": 1
+        },
+        {
+          "arithmetic_voltage_ratio": 0.666667
+        }
+      ],
+      "comparison_class": "model_sensitivity"
+    },
+    {
+      "group_id": "oat:npu_weights_resident",
+      "factors": [
+        "npu_weights_resident"
+      ],
+      "workload_ids": [
+        "physical_ai_baseline",
+        "gemm_heavy_512"
+      ],
+      "candidate_rows": [
+        {
+          "npu_weights_resident": 0
+        },
+        {
+          "npu_weights_resident": 1
+        }
+      ],
+      "comparison_class": "architecture",
+      "fixed_overrides": {
+        "weight_sram_capacity_bytes": 524288
+      },
+      "held_constant_factor_assignments": {
+        "weight_sram_capacity_bytes": 524288
+      }
+    },
+    {
+      "group_id": "oat:weight_sram_capacity_bytes",
+      "factors": [
+        "weight_sram_capacity_bytes"
+      ],
+      "workload_ids": [
+        "physical_ai_baseline",
+        "gemm_heavy_512"
+      ],
+      "candidate_rows": [
+        {
+          "weight_sram_capacity_bytes": 0
+        },
+        {
+          "weight_sram_capacity_bytes": 16384
+        },
+        {
+          "weight_sram_capacity_bytes": 262144
+        },
+        {
+          "weight_sram_capacity_bytes": 524288
+        }
+      ],
+      "comparison_class": "architecture",
+      "fixed_overrides": {
+        "npu_weights_resident": 1
+      },
+      "held_constant_factor_assignments": {
+        "npu_weights_resident": 1
+      }
+    },
+    {
+      "group_id": "interaction:npu_macs_x_dram_bandwidth",
+      "factors": [
+        "npu_macs",
+        "dram_bandwidth_gbps"
+      ],
+      "workload_ids": [
+        "physical_ai_baseline",
+        "gemm_heavy_512",
+        "mnist12_profiled"
+      ],
+      "candidate_rows": [
+        {
+          "npu_macs": 256,
+          "dram_bandwidth_gbps": 0.15
+        },
+        {
+          "npu_macs": 256,
+          "dram_bandwidth_gbps": 0.5
+        },
+        {
+          "npu_macs": 256,
+          "dram_bandwidth_gbps": 1
+        },
+        {
+          "npu_macs": 256,
+          "dram_bandwidth_gbps": 5
+        },
+        {
+          "npu_macs": 256,
+          "dram_bandwidth_gbps": 20
+        },
+        {
+          "npu_macs": 512,
+          "dram_bandwidth_gbps": 0.15
+        },
+        {
+          "npu_macs": 512,
+          "dram_bandwidth_gbps": 0.5
+        },
+        {
+          "npu_macs": 512,
+          "dram_bandwidth_gbps": 1
+        },
+        {
+          "npu_macs": 512,
+          "dram_bandwidth_gbps": 5
+        },
+        {
+          "npu_macs": 512,
+          "dram_bandwidth_gbps": 20
+        },
+        {
+          "npu_macs": 1024,
+          "dram_bandwidth_gbps": 0.15
+        },
+        {
+          "npu_macs": 1024,
+          "dram_bandwidth_gbps": 0.5
+        },
+        {
+          "npu_macs": 1024,
+          "dram_bandwidth_gbps": 1
+        },
+        {
+          "npu_macs": 1024,
+          "dram_bandwidth_gbps": 5
+        },
+        {
+          "npu_macs": 1024,
+          "dram_bandwidth_gbps": 20
+        },
+        {
+          "npu_macs": 2048,
+          "dram_bandwidth_gbps": 0.15
+        },
+        {
+          "npu_macs": 2048,
+          "dram_bandwidth_gbps": 0.5
+        },
+        {
+          "npu_macs": 2048,
+          "dram_bandwidth_gbps": 1
+        },
+        {
+          "npu_macs": 2048,
+          "dram_bandwidth_gbps": 5
+        },
+        {
+          "npu_macs": 2048,
+          "dram_bandwidth_gbps": 20
+        },
+        {
+          "npu_macs": 4096,
+          "dram_bandwidth_gbps": 0.15
+        },
+        {
+          "npu_macs": 4096,
+          "dram_bandwidth_gbps": 0.5
+        },
+        {
+          "npu_macs": 4096,
+          "dram_bandwidth_gbps": 1
+        },
+        {
+          "npu_macs": 4096,
+          "dram_bandwidth_gbps": 5
+        },
+        {
+          "npu_macs": 4096,
+          "dram_bandwidth_gbps": 20
+        }
+      ],
+      "comparison_class": "architecture"
+    },
+    {
+      "group_id": "interaction:sram_capacity_x_tile_mapping",
+      "factors": [
+        "sram_capacity_bytes",
+        "npu_tile_m",
+        "npu_tile_n",
+        "npu_tile_k"
+      ],
+      "workload_ids": [
+        "physical_ai_baseline",
+        "gemm_heavy_512"
+      ],
+      "candidate_rows": [
+        {
+          "sram_capacity_bytes": 131072,
+          "npu_tile_m": 64,
+          "npu_tile_n": 64,
+          "npu_tile_k": 128
+        },
+        {
+          "sram_capacity_bytes": 131072,
+          "npu_tile_m": 128,
+          "npu_tile_n": 128,
+          "npu_tile_k": 128
+        },
+        {
+          "sram_capacity_bytes": 131072,
+          "npu_tile_m": 256,
+          "npu_tile_n": 256,
+          "npu_tile_k": 256
+        },
+        {
+          "sram_capacity_bytes": 262144,
+          "npu_tile_m": 64,
+          "npu_tile_n": 64,
+          "npu_tile_k": 128
+        },
+        {
+          "sram_capacity_bytes": 262144,
+          "npu_tile_m": 128,
+          "npu_tile_n": 128,
+          "npu_tile_k": 128
+        },
+        {
+          "sram_capacity_bytes": 262144,
+          "npu_tile_m": 256,
+          "npu_tile_n": 256,
+          "npu_tile_k": 256
+        },
+        {
+          "sram_capacity_bytes": 524288,
+          "npu_tile_m": 64,
+          "npu_tile_n": 64,
+          "npu_tile_k": 128
+        },
+        {
+          "sram_capacity_bytes": 524288,
+          "npu_tile_m": 128,
+          "npu_tile_n": 128,
+          "npu_tile_k": 128
+        },
+        {
+          "sram_capacity_bytes": 524288,
+          "npu_tile_m": 256,
+          "npu_tile_n": 256,
+          "npu_tile_k": 256
+        }
+      ],
+      "comparison_class": "architecture"
+    },
+    {
+      "group_id": "interaction:scheduler_policy_x_rvv_chunk",
+      "factors": [
+        "scheduler_policy",
+        "rvv_chunk_elements"
+      ],
+      "workload_ids": [
+        "physical_ai_baseline",
+        "gemm_heavy_512"
+      ],
+      "candidate_rows": [
+        {
+          "scheduler_policy": "fcfs",
+          "rvv_chunk_elements": 0
+        },
+        {
+          "scheduler_policy": "fcfs",
+          "rvv_chunk_elements": 20000
+        },
+        {
+          "scheduler_policy": "fixed_priority",
+          "rvv_chunk_elements": 0
+        },
+        {
+          "scheduler_policy": "fixed_priority",
+          "rvv_chunk_elements": 20000
+        },
+        {
+          "scheduler_policy": "edf",
+          "rvv_chunk_elements": 0
+        },
+        {
+          "scheduler_policy": "edf",
+          "rvv_chunk_elements": 20000
+        }
+      ],
+      "comparison_class": "architecture"
+    }
+  ],
+  "omitted_interactions": [
+    {
+      "interaction_id": "npu_arithmetic_energy_scale_x_gemm_shape",
+      "reason": "Only one checked-in GEMM-heavy shape (512x512x512) is in scope; do not synthesize shape levels."
+    },
+    {
+      "interaction_id": "scheduler_policy_x_release_stratum",
+      "reason": "Scheduler OAT is expanded independently for periodic_30fps and trace_30fps; release strata remain separate comparison groups and are reported as paired sensitivity."
+    },
+    {
+      "interaction_id": "npu_weights_resident_x_weight_sram_capacity_bytes",
+      "reason": "The approved initial interaction set excludes this pair. Both factors are explored independently under a fixed fitting capacity/residency; incompatible capacity rows remain visible as invalid in planning."
+    }
+  ],
+  "planning_notes": [
+    "No implicit resource or execution caps are applied in planning mode.",
+    "Planning pilots are one legacy axissim run per workload/build identity, using the periodic release stratum.",
+    "Candidate rows are explicit; correlated tile geometries are never independently Cartesianized.",
+    "The MNIST-12 static-power overlay uses only documented coefficients from configs/power_budget/manifest.conf and does not modify configs/workloads/mnist12_profiled.conf.",
+    "DRAM-interface bandwidth scaling and resident-weight SRAM costs remain incomplete; affected candidates are exploratory."
+  ]
+}

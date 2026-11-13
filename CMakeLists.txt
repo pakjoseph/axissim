@@ -149,6 +149,10 @@ if(BUILD_TESTING)
                      ${CMAKE_SOURCE_DIR}/reference_data/hosts/apple-silicon-arm64-mobilenetv2-7.json
                      ${CMAKE_SOURCE_DIR}/reference_data/hosts/github-actions-ubuntu-x86_64-mobilenetv2-7.json)
     if(Python3_VERSION VERSION_GREATER_EQUAL "3.10")
+      add_test(NAME study_manifest_preflight_contract
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/study_runner_tests.py
+                       --source-root ${CMAKE_SOURCE_DIR}
+                       --binary $<TARGET_FILE:axissim>)
       add_test(NAME study_candidate_cli_contract
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/study_contract_e2e.py
                        --source-root ${CMAKE_SOURCE_DIR}
