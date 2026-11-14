@@ -304,8 +304,11 @@ void serialize_into(std::string& out, const Json& json) {
   out.push_back('{');
   bool first = true;
   for (const auto& [key, child] : object) {
-    if (!first) out.push_back(','); first = false;
-    append_escaped(out, key); out.push_back(':'); serialize_into(out, child);
+    if (!first) out.push_back(',');
+    first = false;
+    append_escaped(out, key);
+    out.push_back(':');
+    serialize_into(out, child);
   }
   out.push_back('}');
 }
@@ -383,17 +386,20 @@ class Sha256 {
 [[noreturn]] void invalid(std::string code, std::string field, std::string message) {
   throw ContractError(std::move(code), std::move(field), std::move(message));
 }
-[[nodiscard]] const Json& required(const Json::Object& object, const std::string& key, const std::string& parent) {
-  const auto found = object.find(key);
-  if (found == object.end()) invalid("missing_field", parent.empty() ? key : parent + "." + key, "A required request field is missing.");
+[[nodiscard]] const Json& required(const Json::Object& object, std::string_view key, std::string_view parent) {
+  const auto found = object.find(std::string(key));
+  if (found == object.end()) {
+    const std::string field = parent.empty() ? std::string(key) : std::string(parent) + "." + std::string(key);
+    invalid("missing_field", field, "A required request field is missing.");
+  }
   return found->second;
 }
-[[nodiscard]] const Json::Object& as_object(const Json& value, const std::string& field) {
-  if (!value.is_object()) invalid("invalid_type", field, "Request field must be an object.");
+[[nodiscard]] const Json::Object& as_object(const Json& value, std::string_view field) {
+  if (!value.is_object()) invalid("invalid_type", std::string(field), "Request field must be an object.");
   return value.object();
 }
-[[nodiscard]] const Json::Array& as_array(const Json& value, const std::string& field) {
-  if (!value.is_array()) invalid("invalid_type", field, "Request field must be an array.");
+[[nodiscard]] const Json::Array& as_array(const Json& value, std::string_view field) {
+  if (!value.is_array()) invalid("invalid_type", std::string(field), "Request field must be an array.");
   return value.array();
 }
 [[nodiscard]] std::string as_string(const Json& value, const std::string& field) {
