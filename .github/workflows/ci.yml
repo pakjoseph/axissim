@@ -22,7 +22,7 @@ jobs:
       - name: Build simulator
         run: cmake --build build --parallel
       - name: Run study runner, execution, and Pareto contract tests
-        run: ctest --test-dir build --output-on-failure -R "study_(manifest_preflight|m5_execution_pareto)_contract"
+        run: ctest --test-dir build --output-on-failure -R "study_(manifest_preflight|m5_execution_pareto)_contract|scheduler_ordering_deterministic_contract"
 
   build-and-test:
     name: ${{ matrix.os }} ${{ matrix.gui == 'true' && 'desktop' || 'core' }}
@@ -61,3 +61,9 @@ jobs:
       - name: Run desktop smoke suite
         if: matrix.gui == 'true'
         run: ctest --test-dir build -C Release --output-on-failure -R "desktop_gui_(initializes|runs_model|portable_layout_runs_model)"
+      - name: Run scheduler-ordering portability contracts
+        if: matrix.os == 'windows-latest'
+        run: ctest --test-dir build -C Release --output-on-failure -R "scheduler_ordering_cpp_contract|scheduler_ordering_deterministic_contract|legacy_study_baselines_repeat_per_platform"
+      - name: Run historical and deterministic scheduler contracts
+        if: matrix.os == 'macos-latest'
+        run: ctest --test-dir build -C Release --output-on-failure -R "legacy_study_baselines_(reproduce|repeat_per_platform)|scheduler_ordering_cpp_contract|scheduler_ordering_deterministic_contract"

@@ -681,7 +681,9 @@ struct CandidateRequest {
   PUT_CONFIG(scenario_name); PUT_CONFIG(model_version); PUT_CONFIG(workload_mode);
   values.emplace("workload_profile", Json(c.workload_profile.empty() ? "" : repo_relative(root, c.workload_profile)));
   values.emplace("mapping_plan", Json(c.mapping_plan.empty() ? "" : repo_relative(root, c.mapping_plan)));
-  PUT_CONFIG(scheduler_policy); PUT_CONFIG(frame_arrival_mode);
+  PUT_CONFIG(scheduler_policy);
+  if (c.scheduler_ordering_policy == "deterministic_v1") PUT_CONFIG(scheduler_ordering_policy);
+  PUT_CONFIG(frame_arrival_mode);
   values.emplace("frame_arrival_trace", Json(c.frame_arrival_trace.empty() ? "" : repo_relative(root, c.frame_arrival_trace)));
   values.emplace("frame_arrival_provenance", Json(c.frame_arrival_provenance.empty() ? "" : repo_relative(root, c.frame_arrival_provenance)));
   PUT_CONFIG(frames); PUT_CONFIG(frame_period_us); PUT_CONFIG(deadline_us); PUT_CONFIG(dram_bandwidth_gbps); PUT_CONFIG(dma_setup_us);

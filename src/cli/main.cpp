@@ -102,13 +102,16 @@ void write_result_json(const std::string& path, const Simulator& simulator, cons
                                                      [](std::uint64_t total, const ProfileTransferLedgerEntry& entry) { return total + entry.bytes; });
   output << std::fixed << std::setprecision(6);
   output << "{\n"
-         << "  \"schema_version\": \"1.2\",\n"
+         << "  \"schema_version\": \"" << (config.scheduler_ordering_policy == "deterministic_v1" ? "1.3" : "1.2") << "\",\n"
          << "  \"scenario_name\": \"" << json_escape(config.scenario_name) << "\",\n"
          << "  \"model_version\": \"" << json_escape(config.model_version) << "\",\n"
          << "  \"workload_mode\": \"" << json_escape(config.workload_mode) << "\",\n"
          << "  \"mapping_plan\": \"" << json_escape(config.mapping_plan.empty() ? "implicit-profile-mapping" : std::filesystem::path(config.mapping_plan).filename().string()) << "\",\n"
-         << "  \"scheduler_policy\": \"" << json_escape(config.scheduler_policy) << "\",\n"
-         << "  \"arrival_mode\": \"" << json_escape(config.frame_arrival_mode) << "\",\n"
+         << "  \"scheduler_policy\": \"" << json_escape(config.scheduler_policy) << "\",\n";
+  if (config.scheduler_ordering_policy == "deterministic_v1") {
+    output << "  \"scheduler_ordering_policy\": \"deterministic_v1\",\n";
+  }
+  output << "  \"arrival_mode\": \"" << json_escape(config.frame_arrival_mode) << "\",\n"
          << "  \"deadline_us\": " << config.deadline_us << ",\n"
          << "  \"assumptions\": {\"npu_arithmetic_energy_scale\": " << config.npu_arithmetic_energy_scale << ", \"arithmetic_voltage_ratio\": " << config.arithmetic_voltage_ratio << ", \"base_static_power_w\": " << config.static_power_w << ", \"npu_static_power_per_mac_w\": " << config.npu_static_power_per_mac_w << ", \"rvv_static_power_per_lane_w\": " << config.rvv_static_power_per_lane_w << ", \"sram_static_power_per_kib_w\": " << config.sram_static_power_per_kib_w << ", \"dram_interface_static_power_w\": " << config.dram_interface_static_power_w << ", \"pue\": " << config.pue << ", \"it_power_budget_w\": " << config.it_power_budget_w << "},\n"
          << "  \"timing\": {\"makespan_us\": " << simulator.makespan_us() << "},\n"
@@ -187,8 +190,11 @@ void print_results(const Simulator& simulator, const Config& config) {
             << "  RVV timing model:     " << config.rvv_timing_model << "\n"
             << "  RVV memory accounting:" << config.rvv_memory_accounting << "\n"
             << "  arithmetic voltage ratio: " << config.arithmetic_voltage_ratio << " (energy sensitivity only)\n"
-            << "  scheduler policy:    " << config.scheduler_policy << "\n"
-            << "  frames:              " << latency.size() << "\n"
+            << "  scheduler policy:    " << config.scheduler_policy << "\n";
+  if (config.scheduler_ordering_policy == "deterministic_v1") {
+    std::cout << "  scheduler ordering:  deterministic_v1\n";
+  }
+  std::cout << "  frames:              " << latency.size() << "\n"
             << "  RVV VLMAX:           " << simulator.vlmax() << " elements\n"
             << "  workload vector ops / NPU MACs per frame: " << vector_ops_per_frame << " / " << npu_macs_per_frame << "\n"
             << "  RVV tail utilization: " << 100.0 * simulator.tail_utilization(config.preprocess_elements) << "%";

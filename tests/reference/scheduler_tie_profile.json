@@ -1,0 +1,76 @@
+{
+  "schema_version": "axissim.workload-profile.v1",
+  "source": {
+    "model_name": "scheduler equal-time contract fixture",
+    "source_url": "https://example.invalid/scheduler-tie-fixture",
+    "license": "test-only",
+    "model_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "operators": [
+    {
+      "id": "root_npu",
+      "mapping_class": "npu_compute",
+      "dependencies": [],
+      "inputs": [],
+      "outputs": ["npu_root_out"],
+      "macs": 1,
+      "vector_elements": 0,
+      "ops_per_element": 0,
+      "activation_read_bytes": 0,
+      "activation_write_bytes": 0,
+      "weight_bytes": 0
+    },
+    {
+      "id": "root_rvv",
+      "mapping_class": "rvv_elementwise",
+      "dependencies": [],
+      "inputs": [],
+      "outputs": ["rvv_root_out"],
+      "macs": 0,
+      "vector_elements": 1,
+      "ops_per_element": 1,
+      "activation_read_bytes": 0,
+      "activation_write_bytes": 0,
+      "weight_bytes": 0
+    },
+    {
+      "id": "child_npu",
+      "mapping_class": "npu_compute",
+      "dependencies": ["root_npu"],
+      "inputs": ["npu_root_out"],
+      "outputs": ["npu_child_out"],
+      "macs": 1,
+      "vector_elements": 0,
+      "ops_per_element": 0,
+      "activation_read_bytes": 1,
+      "activation_write_bytes": 0,
+      "weight_bytes": 0
+    },
+    {
+      "id": "child_rvv",
+      "mapping_class": "rvv_elementwise",
+      "dependencies": ["root_rvv"],
+      "inputs": ["rvv_root_out"],
+      "outputs": ["rvv_child_out"],
+      "macs": 0,
+      "vector_elements": 1,
+      "ops_per_element": 1,
+      "activation_read_bytes": 1,
+      "activation_write_bytes": 0,
+      "weight_bytes": 0
+    },
+    {
+      "id": "join",
+      "mapping_class": "npu_compute",
+      "dependencies": ["root_npu", "root_rvv"],
+      "inputs": ["npu_root_out", "rvv_root_out"],
+      "outputs": ["join_out"],
+      "macs": 1,
+      "vector_elements": 0,
+      "ops_per_element": 0,
+      "activation_read_bytes": 0,
+      "activation_write_bytes": 0,
+      "weight_bytes": 0
+    }
+  ]
+}

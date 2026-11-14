@@ -128,6 +128,12 @@ if(BUILD_TESTING)
   target_include_directories(axissim-core-model-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
   axissim_enable_strict_warnings(axissim-core-model-tests)
   add_test(NAME core_model_api_contract COMMAND axissim-core-model-tests)
+  add_executable(axissim-scheduler-ordering-tests tests/scheduler_ordering_tests.cpp)
+  target_link_libraries(axissim-scheduler-ordering-tests PRIVATE axissim-core)
+  target_include_directories(axissim-scheduler-ordering-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  target_compile_definitions(axissim-scheduler-ordering-tests PRIVATE AXISSIM_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+  axissim_enable_strict_warnings(axissim-scheduler-ordering-tests)
+  add_test(NAME scheduler_ordering_cpp_contract COMMAND axissim-scheduler-ordering-tests)
   add_executable(axissim-study-measurement-tests tests/study_measurement_tests.cpp)
   target_link_libraries(axissim-study-measurement-tests PRIVATE axissim-core)
   target_include_directories(axissim-study-measurement-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -161,11 +167,25 @@ if(BUILD_TESTING)
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/study_m5_tests.py
                        --source-root ${CMAKE_SOURCE_DIR}
                        --binary $<TARGET_FILE:axissim>)
-      add_test(NAME legacy_study_baselines_reproduce
-               COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/check_legacy_study_parity.py
+      if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+        add_test(NAME legacy_study_baselines_reproduce
+                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/check_legacy_study_parity.py
+                         --source-root ${CMAKE_SOURCE_DIR}
+                         --binary $<TARGET_FILE:axissim>
+                         --fixture ${CMAKE_SOURCE_DIR}/tests/reference/legacy_study_baselines.json)
+      else()
+        add_test(NAME legacy_study_baselines_repeat_per_platform
+                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/check_legacy_study_parity.py
+                         --source-root ${CMAKE_SOURCE_DIR}
+                         --binary $<TARGET_FILE:axissim>
+                         --fixture ${CMAKE_SOURCE_DIR}/tests/reference/legacy_study_baselines.json
+                         --repeat-only)
+      endif()
+      add_test(NAME scheduler_ordering_deterministic_contract
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/check_deterministic_scheduler.py
                        --source-root ${CMAKE_SOURCE_DIR}
                        --binary $<TARGET_FILE:axissim>
-                       --fixture ${CMAKE_SOURCE_DIR}/tests/reference/legacy_study_baselines.json)
+                       --fixture ${CMAKE_SOURCE_DIR}/tests/reference/deterministic_scheduler_v1.json)
       add_test(NAME mnist12_study_power_overlay_preserves_legacy_config
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/check_mnist12_power_overlay.py
                        ${CMAKE_SOURCE_DIR} $<TARGET_FILE:axissim>)
@@ -180,6 +200,10 @@ if(BUILD_TESTING)
   add_test(NAME rejects_unknown_configuration_key
            COMMAND axissim validate ${CMAKE_SOURCE_DIR}/tests/unknown_key.conf)
   set_tests_properties(rejects_unknown_configuration_key PROPERTIES WILL_FAIL TRUE)
+  add_test(NAME rejects_unknown_scheduler_ordering_policy
+           COMMAND axissim validate ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf
+                   --set scheduler_ordering_policy=platform_default)
+  set_tests_properties(rejects_unknown_scheduler_ordering_policy PROPERTIES WILL_FAIL TRUE)
   add_test(NAME validates_workload_profile_contract
            COMMAND axissim profile-validate ${CMAKE_SOURCE_DIR}/tests/reference/tiny_workload_profile.json)
   add_test(NAME validates_explicit_mnist_mapping_plan

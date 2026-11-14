@@ -16,6 +16,7 @@
 
 #include "config.hpp"
 #include "profile.hpp"
+#include "scheduler_ordering.hpp"
 #include "study_measurements.hpp"
 
 namespace axissim {
@@ -221,15 +222,60 @@ class Simulator {
     std::string name;
     int profile_index = -1;
     std::uint64_t control_sequence = 0;
+    std::uint64_t enqueue_sequence = 0;
   };
 
   struct FutureTaskOrder {
-    bool operator()(const RuntimeTask& left, const RuntimeTask& right) const { return left.ready_us > right.ready_us; }
+    bool deterministic_v1 = false;
+    bool operator()(const RuntimeTask& left, const RuntimeTask& right) const {
+      return detail::scheduler_event_later({left.ready_us, left.enqueue_sequence},
+                                           {right.ready_us, right.enqueue_sequence}, deterministic_v1);
+    }
   };
-  struct Completion { double end_us; RuntimeResource resource; RuntimeTask task; };
+  struct Completion { double end_us; RuntimeResource resource; RuntimeTask task; std::uint64_t dispatch_sequence = 0; };
   struct CompletionOrder {
-    bool operator()(const Completion& left, const Completion& right) const { return left.end_us > right.end_us; }
+    bool deterministic_v1 = false;
+    bool operator()(const Completion& left, const Completion& right) const {
+      return detail::scheduler_event_later({left.end_us, left.dispatch_sequence},
+                                           {right.end_us, right.dispatch_sequence}, deterministic_v1);
+    }
   };
+
+  void enqueue_future(std::priority_queue<RuntimeTask, std::vector<RuntimeTask>, FutureTaskOrder>& future,
+                      RuntimeTask task, std::uint64_t& next_sequence) const {
+    if (c_.scheduler_ordering_policy == "deterministic_v1") task.enqueue_sequence = detail::take_scheduler_sequence(next_sequence);
+    future.push(std::move(task));
+  }
+
+  void enqueue_completion(std::priority_queue<Completion, std::vector<Completion>, CompletionOrder>& completions,
+                          double end_us, RuntimeResource resource, RuntimeTask task,
+                          std::uint64_t& next_sequence) const {
+    const auto sequence = c_.scheduler_ordering_policy == "deterministic_v1" ? detail::take_scheduler_sequence(next_sequence) : 0;
+    completions.push({end_us, resource, std::move(task), sequence});
+  }
+
+  [[nodiscard]] bool resource_task_precedes(const RuntimeTask& left, const RuntimeTask& right) const {
+    if (c_.scheduler_ordering_policy == "legacy_implicit") {
+      if (c_.scheduler_policy == "fixed_priority" && left.priority != right.priority) return left.priority < right.priority;
+      if (c_.scheduler_policy == "edf") {
+        const double left_deadline = left.release_us + (left.stage == RuntimeStage::Control ? c_.control_deadline_us : c_.deadline_us);
+        const double right_deadline = right.release_us + (right.stage == RuntimeStage::Control ? c_.control_deadline_us : c_.deadline_us);
+        if (left_deadline != right_deadline) return left_deadline < right_deadline;
+      }
+      return left.ready_us < right.ready_us;
+    }
+
+    if (c_.scheduler_policy == "fixed_priority" && left.priority != right.priority) return left.priority < right.priority;
+    if (c_.scheduler_policy == "edf") {
+      const double left_deadline = left.release_us + (left.stage == RuntimeStage::Control ? c_.control_deadline_us : c_.deadline_us);
+      const double right_deadline = right.release_us + (right.stage == RuntimeStage::Control ? c_.control_deadline_us : c_.deadline_us);
+      if (detail::scheduler_time_precedes(left_deadline, right_deadline)) return true;
+      if (detail::scheduler_time_precedes(right_deadline, left_deadline)) return false;
+    }
+    if (detail::scheduler_time_precedes(left.ready_us, right.ready_us)) return true;
+    if (detail::scheduler_time_precedes(right.ready_us, left.ready_us)) return false;
+    return left.enqueue_sequence < right.enqueue_sequence;
+  }
 
   [[nodiscard]] std::uint64_t vector_chunk_size(std::uint64_t total_elements, std::uint64_t offset) const {
     const auto remaining = total_elements - offset;
@@ -384,8 +430,11 @@ class Simulator {
       if (base_dependencies[index] == 0) roots.push_back(static_cast<int>(index));
       if (successors[index].empty()) ++terminals_per_frame;
     }
-    std::priority_queue<RuntimeTask, std::vector<RuntimeTask>, FutureTaskOrder> future;
-    std::priority_queue<Completion, std::vector<Completion>, CompletionOrder> completions;
+    const bool deterministic_v1 = c_.scheduler_ordering_policy == "deterministic_v1";
+    std::priority_queue<RuntimeTask, std::vector<RuntimeTask>, FutureTaskOrder> future(FutureTaskOrder{deterministic_v1});
+    std::priority_queue<Completion, std::vector<Completion>, CompletionOrder> completions(CompletionOrder{deterministic_v1});
+    std::uint64_t next_enqueue_sequence = 0;
+    std::uint64_t next_completion_sequence = 0;
     std::array<std::vector<RuntimeTask>, 3> pending;
     std::array<bool, 3> busy = {false, false, false};
     std::vector<std::vector<int>> remaining(static_cast<std::size_t>(c_.frames), base_dependencies);
@@ -422,9 +471,10 @@ class Simulator {
       }
       return task;
     };
-    const auto enqueue_operation = [&future, &make_profile_task, &operations, &transfer_bytes_for_frame](int frame, int operation, double release, double ready) {
+    const auto enqueue_operation = [this, &future, &make_profile_task, &operations, &transfer_bytes_for_frame,
+                                    &next_enqueue_sequence](int frame, int operation, double release, double ready) {
       const auto& profile_operation = operations[static_cast<std::size_t>(operation)];
-      future.push(make_profile_task(frame, operation, transfer_bytes_for_frame(profile_operation, frame) > 0, release, ready));
+      enqueue_future(future, make_profile_task(frame, operation, transfer_bytes_for_frame(profile_operation, frame) > 0, release, ready), next_enqueue_sequence);
     };
     for (int frame = 0; frame < c_.frames; ++frame) {
       const double release = frame_arrivals_us_[static_cast<std::size_t>(frame)];
@@ -439,7 +489,7 @@ class Simulator {
         if (observer != nullptr && !observer->includes_work_unit(id)) continue;
         RuntimeTask task = make_runtime_task(-1, RuntimeStage::Control, release, release);
         task.control_sequence = sequence;
-        future.push(std::move(task));
+        enqueue_future(future, std::move(task), next_enqueue_sequence);
       }
     }
     const auto resource_name = [](RuntimeResource resource) { return resource == RuntimeResource::Dma ? "DMA+DRAM" : resource == RuntimeResource::Rvv ? "RVV" : "NPU"; };
@@ -466,7 +516,7 @@ class Simulator {
         const RuntimeTask& task = completion.task;
         if (observer != nullptr) observer->record_task_completed(study_work_unit_id(task), task.name, completion.end_us);
         if (task.stage == RuntimeStage::ProfileTransfer) {
-          future.push(make_profile_task(task.frame, task.profile_index, false, task.release_us, completion.end_us));
+          enqueue_future(future, make_profile_task(task.frame, task.profile_index, false, task.release_us, completion.end_us), next_enqueue_sequence);
         } else if (task.stage == RuntimeStage::ProfileCompute) {
           const auto operation = static_cast<std::size_t>(task.profile_index);
           for (const int successor : successors[operation]) {
@@ -498,13 +548,7 @@ class Simulator {
         if (busy[index] || pending[index].empty()) continue;
         auto& queue = pending[index];
         const auto selected = std::min_element(queue.begin(), queue.end(), [this](const RuntimeTask& left, const RuntimeTask& right) {
-          if (c_.scheduler_policy == "fixed_priority" && left.priority != right.priority) return left.priority < right.priority;
-          if (c_.scheduler_policy == "edf") {
-            const double left_deadline = left.release_us + (left.stage == RuntimeStage::Control ? c_.control_deadline_us : c_.deadline_us);
-            const double right_deadline = right.release_us + (right.stage == RuntimeStage::Control ? c_.control_deadline_us : c_.deadline_us);
-            if (left_deadline != right_deadline) return left_deadline < right_deadline;
-          }
-          return left.ready_us < right.ready_us;
+          return resource_task_precedes(left, right);
         });
         RuntimeTask task = *selected;
         const double end = time + task.duration_us;
@@ -514,7 +558,8 @@ class Simulator {
         if (task.frame >= 0) vision_resource_queue_delays_us_.push_back(time - task.ready_us);
         trace_.push_back({task.frame, task.name, resource_name(task.resource), time, end});
         accumulate_runtime_energy(task, task_energy);
-        completions.push({end, task.resource, std::move(task)});
+        const auto resource = task.resource;
+        enqueue_completion(completions, end, resource, std::move(task), next_completion_sequence);
         if (observer != nullptr && !observer->is_running()) break;
       }
       if (observer != nullptr && !observer->is_running()) break;
@@ -534,18 +579,21 @@ class Simulator {
   }
 
   void run_event_scheduler(StudyMeasurementObserver* observer) {
-    std::priority_queue<RuntimeTask, std::vector<RuntimeTask>, FutureTaskOrder> future;
-    std::priority_queue<Completion, std::vector<Completion>, CompletionOrder> completions;
+    const bool deterministic_v1 = c_.scheduler_ordering_policy == "deterministic_v1";
+    std::priority_queue<RuntimeTask, std::vector<RuntimeTask>, FutureTaskOrder> future(FutureTaskOrder{deterministic_v1});
+    std::priority_queue<Completion, std::vector<Completion>, CompletionOrder> completions(CompletionOrder{deterministic_v1});
+    std::uint64_t next_enqueue_sequence = 0;
+    std::uint64_t next_completion_sequence = 0;
     std::array<std::vector<RuntimeTask>, 3> pending;
     std::array<bool, 3> busy = {false, false, false};
     const auto initial_stage = c_.workload_mode == "rvv_stream" ? RuntimeStage::VectorKernel : RuntimeStage::Camera;
     if (c_.dma_double_buffering == 1) {
       for (int frame = 0; frame < c_.frames; ++frame) {
         if (observer != nullptr && !observer->includes_work_unit("frame:" + std::to_string(frame))) continue;
-        future.push(make_runtime_task(frame, initial_stage, frame_arrivals_us_[static_cast<std::size_t>(frame)], frame_arrivals_us_[static_cast<std::size_t>(frame)]));
+        enqueue_future(future, make_runtime_task(frame, initial_stage, frame_arrivals_us_[static_cast<std::size_t>(frame)], frame_arrivals_us_[static_cast<std::size_t>(frame)]), next_enqueue_sequence);
       }
     } else {
-      future.push(make_runtime_task(0, initial_stage, 0.0, 0.0));
+      enqueue_future(future, make_runtime_task(0, initial_stage, 0.0, 0.0), next_enqueue_sequence);
     }
     if (c_.control_period_us > 0.0) {
       const double horizon_us = frame_arrivals_us_.back() + c_.frame_period_us;
@@ -555,7 +603,7 @@ class Simulator {
         if (observer != nullptr && !observer->includes_work_unit(id)) continue;
         RuntimeTask task = make_runtime_task(-1, RuntimeStage::Control, release, release);
         task.control_sequence = sequence;
-        future.push(std::move(task));
+        enqueue_future(future, std::move(task), next_enqueue_sequence);
       }
     }
     auto resource_name = [](RuntimeResource resource) { return resource == RuntimeResource::Dma ? "DMA+DRAM" : resource == RuntimeResource::Rvv ? "RVV" : "NPU"; };
@@ -584,7 +632,7 @@ class Simulator {
         if (observer != nullptr) observer->record_task_completed(study_work_unit_id(task), task.name, completion.end_us);
         const auto total_vector_elements = (task.stage == RuntimeStage::Preprocess || task.stage == RuntimeStage::VectorKernel) ? c_.preprocess_elements : task.stage == RuntimeStage::Postprocess ? c_.postprocess_elements : 0;
         if (total_vector_elements > 0 && task.vector_offset + task.vector_elements < total_vector_elements) {
-          future.push(make_runtime_task(task.frame, task.stage, task.release_us, completion.end_us, task.vector_offset + task.vector_elements));
+          enqueue_future(future, make_runtime_task(task.frame, task.stage, task.release_us, completion.end_us, task.vector_offset + task.vector_elements), next_enqueue_sequence);
         } else if (task.stage == RuntimeStage::Postprocess || task.stage == RuntimeStage::VectorKernel) {
           const double latency = completion.end_us - task.release_us;
           latencies_us_.push_back(latency);
@@ -594,7 +642,7 @@ class Simulator {
           if (c_.dma_double_buffering == 0 && task.frame + 1 < c_.frames
               && (observer == nullptr || observer->includes_work_unit("frame:" + std::to_string(task.frame + 1)))) {
             const double next_release = frame_arrivals_us_[static_cast<std::size_t>(task.frame + 1)];
-            future.push(make_runtime_task(task.frame + 1, initial_stage, next_release, std::max(next_release, completion.end_us)));
+            enqueue_future(future, make_runtime_task(task.frame + 1, initial_stage, next_release, std::max(next_release, completion.end_us)), next_enqueue_sequence);
           }
         } else if (task.stage == RuntimeStage::Control) {
           ++control_tasks_;
@@ -603,7 +651,7 @@ class Simulator {
           if (response > c_.control_deadline_us) ++control_deadline_misses_;
           if (observer != nullptr) observer->record_work_unit_completion("control:" + std::to_string(task.control_sequence), completion.end_us);
         } else {
-          future.push(make_runtime_task(task.frame, static_cast<RuntimeStage>(static_cast<int>(task.stage) + 1), task.release_us, completion.end_us));
+          enqueue_future(future, make_runtime_task(task.frame, static_cast<RuntimeStage>(static_cast<int>(task.stage) + 1), task.release_us, completion.end_us), next_enqueue_sequence);
         }
       }
       if (observer != nullptr && !observer->is_running()) break;
@@ -611,13 +659,7 @@ class Simulator {
         if (busy[index] || pending[index].empty()) continue;
         auto& queue = pending[index];
         const auto selected = std::min_element(queue.begin(), queue.end(), [this](const RuntimeTask& left, const RuntimeTask& right) {
-          if (c_.scheduler_policy == "fixed_priority" && left.priority != right.priority) return left.priority < right.priority;
-          if (c_.scheduler_policy == "edf") {
-            const double left_deadline = left.release_us + (left.stage == RuntimeStage::Control ? c_.control_deadline_us : c_.deadline_us);
-            const double right_deadline = right.release_us + (right.stage == RuntimeStage::Control ? c_.control_deadline_us : c_.deadline_us);
-            if (left_deadline != right_deadline) return left_deadline < right_deadline;
-          }
-          return left.ready_us < right.ready_us;
+          return resource_task_precedes(left, right);
         });
         RuntimeTask task = *selected;
         const double end = time + task.duration_us;
@@ -631,7 +673,8 @@ class Simulator {
         }
         trace_.push_back({task.frame, task.name, resource_name(task.resource), time, end});
         accumulate_runtime_energy(task, task_energy);
-        completions.push({end, task.resource, std::move(task)});
+        const auto resource = task.resource;
+        enqueue_completion(completions, end, resource, std::move(task), next_completion_sequence);
         if (observer != nullptr && !observer->is_running()) break;
       }
       if (observer != nullptr && !observer->is_running()) break;

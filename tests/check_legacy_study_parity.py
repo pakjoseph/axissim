@@ -27,7 +27,8 @@ def comparable_file_bytes(data: bytes) -> bytes:
     return data
 
 
-def run_case(root: Path, binary: Path, case: dict[str, object], run_number: int) -> tuple[bytes, bytes, bytes]:
+def run_case(root: Path, binary: Path, case: dict[str, object], run_number: int,
+             compare_fixture: bool = True) -> tuple[bytes, bytes, bytes]:
     with tempfile.TemporaryDirectory(prefix=f"axissim-m0-{run_number}-") as directory:
         temporary = Path(directory)
         json_path = temporary / "result.json"
@@ -53,21 +54,21 @@ def run_case(root: Path, binary: Path, case: dict[str, object], run_number: int)
         comparable_trace = comparable_file_bytes(trace_bytes)
         result = json.loads(result_bytes)
 
-        if normalized_stdout.decode() != case["stdout_normalized"]:
+        if compare_fixture and normalized_stdout.decode() != case["stdout_normalized"]:
             raise RuntimeError(f"{argv[1]} normalized CLI output differs from the M0 fixture")
-        if result != case["result_json"]:
+        if compare_fixture and result != case["result_json"]:
             raise RuntimeError(f"{argv[1]} schema {result.get('schema_version')} JSON values differ from M0")
         if result.get("schema_version") != case["result_schema_version"]:
             raise RuntimeError(f"{argv[1]} result schema version changed")
-        if len(comparable_result) != case["result_json_bytes"] or sha256(comparable_result) != case["result_json_sha256"]:
+        if compare_fixture and (len(comparable_result) != case["result_json_bytes"] or sha256(comparable_result) != case["result_json_sha256"]):
             raise RuntimeError(f"{argv[1]} JSON bytes/hash differ from M0")
-        if len(comparable_trace) != case["trace_bytes"] or sha256(comparable_trace) != case["trace_sha256"]:
+        if compare_fixture and (len(comparable_trace) != case["trace_bytes"] or sha256(comparable_trace) != case["trace_sha256"]):
             raise RuntimeError(f"{argv[1]} trace bytes/hash differ from M0")
 
         trace_lines = comparable_trace.splitlines()
-        if not trace_lines or trace_lines[0].decode() != case["trace_header"]:
+        if not trace_lines or (compare_fixture and trace_lines[0].decode() != case["trace_header"]):
             raise RuntimeError(f"{argv[1]} trace header differs from M0")
-        if len(trace_lines) - 1 != case["trace_record_count"]:
+        if compare_fixture and len(trace_lines) - 1 != case["trace_record_count"]:
             raise RuntimeError(f"{argv[1]} trace record count differs from M0")
 
         return normalized_stdout, comparable_result, comparable_trace
@@ -78,6 +79,8 @@ def main() -> int:
     parser.add_argument("--source-root", required=True, type=Path)
     parser.add_argument("--binary", required=True, type=Path)
     parser.add_argument("--fixture", required=True, type=Path)
+    parser.add_argument("--repeat-only", action="store_true",
+                        help="test repeatability of legacy behavior on this platform without comparing it to the macOS M0 fixture")
     arguments = parser.parse_args()
 
     if sys.version_info < (3, 10):
@@ -93,11 +96,14 @@ def main() -> int:
         raise RuntimeError(f"simulator binary does not exist: {binary}")
 
     for name, case in sorted(fixture["cli_baselines"].items()):
-        first = run_case(root, binary, case, 1)
-        second = run_case(root, binary, case, 2)
+        first = run_case(root, binary, case, 1, compare_fixture=not arguments.repeat_only)
+        second = run_case(root, binary, case, 2, compare_fixture=not arguments.repeat_only)
         if first != second:
             raise RuntimeError(f"{name} is not repeatable across independent output directories")
-        print(f"PASS {name}: exact M0 stdout, schema 1.2 JSON, trace, and repeatability")
+        if arguments.repeat_only:
+            print(f"PASS {name}: legacy output is repeatable within this platform (not compared to the macOS M0 snapshot)")
+        else:
+            print(f"PASS {name}: exact M0 stdout, schema 1.2 JSON, trace, and repeatability")
     return 0
 
 

@@ -203,6 +203,8 @@ class CandidateApiTests(unittest.TestCase):
         self.assertEqual(a, b)
         self.assertEqual(a["execution_status"], "completed")
         self.assertEqual(a["schema_id"], "axissim.study-candidate-result.v1")
+        self.assertNotIn("scheduler_ordering_policy", a["effective_configuration"],
+                         "legacy candidate records must preserve their pre-policy effective configuration")
         self.assertEqual(a["configured_it_power_budget_w"], 0.23)
         self.assertIsNone(a["configured_it_power_budget_unavailable_reason"])
         average_power = a["measurements"]["energy"]["average_it_power_w"]
@@ -224,6 +226,16 @@ class CandidateApiTests(unittest.TestCase):
         self.assertEqual(factors["npu_macs"]["power_coverage"], "complete")
         self.assertEqual(factors["dram_bandwidth_gbps"]["power_coverage"], "partial")
         self.assertEqual(factors["sram_capacity_bytes"]["power_coverage"], "partial")
+
+    def test_deterministic_scheduler_policy_is_in_candidate_provenance(self) -> None:
+        request = self.request(frames=2)
+        request["configuration"]["overrides"]["scheduler_ordering_policy"] = "deterministic_v1"
+        self.refresh(request)
+        process, result, _ = self.invoke(request, "deterministic-ordering")
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertEqual(result["execution_status"], "completed")
+        self.assertEqual(result["effective_configuration"]["scheduler_ordering_policy"], "deterministic_v1")
+        self.assertEqual(result["configuration_identity"], request["configuration_identity"])
 
     def test_budget_boundary_uses_reported_cpp_power_and_coverage(self) -> None:
         request = self.request(frames=1)

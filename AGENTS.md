@@ -1,7 +1,7 @@
 # AxisSim agent instructions
 
 ## Product and architecture
-AxisSim is a deterministic C++ architecture simulator for a hypothetical Physical AI SoC, with a Qt 6 Widgets desktop explorer when enabled. The C++ engine/CLI is the source of truth. Preserve manifest semantics, run/trace/JSON behavior, reproducibility and tests. Do not substitute mock calculations or fabricated benchmarks.
+AxisSim is a C++ discrete-event architecture simulator for a hypothetical Physical AI SoC, with a Qt 6 Widgets desktop explorer when enabled. The C++ engine/CLI is the source of truth. Existing configurations retain `legacy_implicit` scheduler ordering; `deterministic_v1` is an explicit cross-platform ordering contract. Preserve manifest semantics, run/trace/JSON behavior, reproducibility and tests. Do not substitute mock calculations or fabricated benchmarks.
 
 ## Design governance
 Before ANY UI, chart, component, styling, or UX work, read the repository-root `DESIGN.md` in full. Its token values and component rules override external design-skill aesthetic defaults. Keep typography, colors, spacing, radii, layout, motion and semantic states consistent. If a requested UI change requires a new token, amend `DESIGN.md` intentionally rather than introducing a one-off literal. Do not redesign the brand or invent a theme from scratch during each session.

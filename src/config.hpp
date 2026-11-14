@@ -18,6 +18,9 @@ struct Config {
   std::string workload_profile;
   std::string mapping_plan;
   std::string scheduler_policy = "fixed_priority";
+  // Historical inputs keep the original implementation-dependent tie order.
+  // New cross-platform studies may opt into a fully ordered event policy.
+  std::string scheduler_ordering_policy = "legacy_implicit";
   std::string frame_arrival_mode = "periodic";
   std::string frame_arrival_trace;
   std::string frame_arrival_provenance;

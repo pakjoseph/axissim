@@ -80,7 +80,7 @@ template <typename T>
 
 const std::set<std::string>& supported_keys() {
   static const std::set<std::string> keys = {
-      "scenario_name", "model_version", "workload_mode", "workload_profile", "mapping_plan", "scheduler_policy", "frame_arrival_mode", "frame_arrival_trace", "frame_arrival_provenance", "frames", "frame_period_us", "deadline_us", "dram_bandwidth_gbps", "dma_setup_us", "control_period_us", "control_deadline_us", "control_ops",
+      "scenario_name", "model_version", "workload_mode", "workload_profile", "mapping_plan", "scheduler_policy", "scheduler_ordering_policy", "frame_arrival_mode", "frame_arrival_trace", "frame_arrival_provenance", "frames", "frame_period_us", "deadline_us", "dram_bandwidth_gbps", "dma_setup_us", "control_period_us", "control_deadline_us", "control_ops",
       "rvv_vlen_bits", "rvv_sew_bits", "rvv_lmul", "rvv_lanes", "rvv_ops_per_lane_cycle", "rvv_frequency_ghz", "rvv_stripmine_overhead_cycles", "rvv_timing_model", "rvv_affine_overhead_cycles", "rvv_compute_cycle_scale", "rvv_chunk_elements", "rvv_memory_accounting", "rvv_memory_bytes_per_element",
       "npu_macs", "npu_frequency_ghz", "input_bytes", "preprocess_elements", "preprocess_ops_per_element", "preprocess_output_bytes",
       "gemm_m", "gemm_n", "gemm_k", "npu_tile_m", "npu_tile_n", "npu_tile_k",
@@ -106,6 +106,7 @@ ConfigLoadResult load_config_with_sources(const std::string& path, const std::ma
   if (values.contains("workload_profile")) c.workload_profile = (std::filesystem::path(path).parent_path() / values.at("workload_profile")).lexically_normal().string();
   if (values.contains("mapping_plan")) c.mapping_plan = (std::filesystem::path(path).parent_path() / values.at("mapping_plan")).lexically_normal().string();
   if (values.contains("scheduler_policy")) c.scheduler_policy = values.at("scheduler_policy");
+  if (values.contains("scheduler_ordering_policy")) c.scheduler_ordering_policy = values.at("scheduler_ordering_policy");
   if (values.contains("frame_arrival_mode")) c.frame_arrival_mode = values.at("frame_arrival_mode");
   if (values.contains("frame_arrival_trace")) c.frame_arrival_trace = (std::filesystem::path(path).parent_path() / values.at("frame_arrival_trace")).lexically_normal().string();
   if (values.contains("frame_arrival_provenance")) c.frame_arrival_provenance = (std::filesystem::path(path).parent_path() / values.at("frame_arrival_provenance")).lexically_normal().string();
@@ -148,6 +149,7 @@ void validate(const Config& c, const std::optional<std::string>& frame_arrival_t
   if (c.rvv_timing_model != "compute_envelope" && c.rvv_timing_model != "affine_overhead") throw std::runtime_error("rvv_timing_model must be compute_envelope or affine_overhead");
   if (c.rvv_memory_accounting != "pipeline_dma" && c.rvv_memory_accounting != "extra_traffic") throw std::runtime_error("rvv_memory_accounting must be pipeline_dma or extra_traffic");
   if (c.scheduler_policy != "fcfs" && c.scheduler_policy != "fixed_priority" && c.scheduler_policy != "edf") throw std::runtime_error("scheduler_policy must be fcfs, fixed_priority, or edf");
+  if (c.scheduler_ordering_policy != "legacy_implicit" && c.scheduler_ordering_policy != "deterministic_v1") throw std::runtime_error("scheduler_ordering_policy must be legacy_implicit or deterministic_v1");
   if (c.control_period_us < 0 || c.control_deadline_us < 0 || (c.control_period_us == 0 && (c.control_deadline_us != 0 || c.control_ops != 0)) || (c.control_period_us > 0 && (c.control_deadline_us <= 0 || c.control_ops == 0))) throw std::runtime_error("Control workload must be fully disabled or have positive period, deadline, and operation count");
   if (c.dram_bandwidth_gbps <= 0 || c.rvv_frequency_ghz <= 0 || c.npu_frequency_ghz <= 0) throw std::runtime_error("Bandwidth and frequencies must be positive");
   if (c.rvv_vlen_bits <= 0 || c.rvv_sew_bits <= 0 || c.rvv_vlen_bits % c.rvv_sew_bits != 0 || c.rvv_lmul < 1 || c.rvv_lanes < 1 || c.rvv_ops_per_lane_cycle < 1 || c.rvv_stripmine_overhead_cycles < 0 || c.rvv_affine_overhead_cycles < 0 || c.rvv_compute_cycle_scale <= 0 || c.rvv_memory_bytes_per_element < 0 || c.preprocess_ops_per_element < 1 || c.postprocess_ops_per_element < 1) throw std::runtime_error("Invalid RVV configuration");

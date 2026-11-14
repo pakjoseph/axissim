@@ -31,7 +31,7 @@ workbench under **Evidence → Host references**.
 
 ## Technical overview
 
-AxisSim is a configurable, deterministic simulator for a **hypothetical Physical AI SoC**. It estimates latency, deadline reliability, shared-DRAM traffic, and energy for a camera-to-inference pipeline comprising DMA, an RVV-style vector engine, and a tiled GEMM NPU.
+AxisSim is a configurable discrete-event simulator for a **hypothetical Physical AI SoC**. It estimates latency, deadline reliability, shared-DRAM traffic, and energy for a camera-to-inference pipeline comprising DMA, an RVV-style vector engine, and a tiled GEMM NPU. Existing configurations retain `legacy_implicit` event ordering; use the explicit `deterministic_v1` policy for a cross-platform equal-time ordering contract. See [scheduler ordering and compatibility](docs/scheduler-ordering.md).
 
 The project is an independent architecture-exploration tool. Its arithmetic-energy scale is a hypothetical parameter inspired by public discussion of lower-power arithmetic; it does not model or disclose any proprietary implementation.
 

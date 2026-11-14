@@ -16,7 +16,7 @@ AxisSim is a native desktop architecture workbench for testing how compute resou
 
 ## Positioning
 
-AxisSim connects an interactive architecture-exploration workflow to a deterministic C++ simulator, explicit assumption files, public Ara RTL reference points, and machine-readable outputs. It is not a chip-power calculator, a functional instruction-set simulator, or a physical-design signoff tool.
+AxisSim connects an interactive architecture-exploration workflow to a C++ discrete-event simulator, explicit assumption files, public Ara RTL reference points, and machine-readable outputs. Its opt-in `deterministic_v1` scheduler policy defines cross-platform tie-breaking; existing configurations retain historical `legacy_implicit` ordering. It is not a chip-power calculator, a functional instruction-set simulator, or a physical-design signoff tool.
 
 ## Operating Context
 

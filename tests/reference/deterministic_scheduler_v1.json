@@ -1,0 +1,39 @@
+{
+  "schema_id": "axissim.scheduler-ordering.v1",
+  "policy": "deterministic_v1",
+  "fixture_workload": "configs/workloads/mnist12_profiled.conf",
+  "fixture_overrides": {
+    "scheduler_ordering_policy": "deterministic_v1"
+  },
+  "generation_environment": {
+    "platform": "macOS arm64",
+    "compiler": "Apple clang 21.0.0",
+    "note": "Portable expected result/trace; generation platform is provenance, not a requirement for reproduction."
+  },
+  "input_sha256": {
+    "base_config": "1cef33ad9857ae82c0b16bf3e1d85a67355b7a785040cccc746bf4099f29e712",
+    "workload_profile": "5eb88f191b418855274c699c88230e358a61f3cdcec1686bbf18d1c9cbc1eea1",
+    "mapping_plan": "298b2676e7067b3a1032994569581a4d347551171d9ceba3e5e701dfd91e24af"
+  },
+  "declared_model_sha256": {
+    "workload": "5c688690f8bacf667d4c2074af5ad0646ca328d7ab03eccf944a65b320171bdd",
+    "mapping_rule": "axissim.mapping-plan.v1"
+  },
+  "legacy_m0_reference": {
+    "makespan_us": 966713.5068,
+    "note": "Historical legacy_implicit result remains in legacy_study_baselines.json and is not overwritten."
+  },
+  "result_sha256": "02a4ef555081429b3b6b61321112e6c556b21e6388299840999c687af2c1d01b",
+  "trace_sha256": "5f6ddbb12c6bbbf8465810b9c692326222d1a6663d8a67ffe5e6fe9dc69c4a1d",
+  "trace_record_count": 720,
+  "result_fields": {
+    "schema_version": "1.3",
+    "scheduler_ordering_policy": "deterministic_v1",
+    "timing.makespan_us": 966713.3528,
+    "latency.mean_us": 56.3528,
+    "latency.p99_us": 56.3528,
+    "deadlines.vision_jobs": 30,
+    "deadlines.vision_misses": 0,
+    "traffic.dram_bytes": 8705280
+  }
+}
