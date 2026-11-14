@@ -76,6 +76,7 @@ MNIST-12 profile keeps its zero-default static-power terms and disabled budget.
 For compatibility, the `run` and JSON `per_frame_uj` values remain dynamic
 activity energy, while the separate `it_per_frame_uj` value includes configured
 static energy; `sweep` CSV energy columns also remain dynamic-only.
+The [power-cost coverage reference](docs/power-cost-coverage.md) documents the current equations, coefficient provenance, missing costs, and limits on interpreting budget passes.
 
 ## What the baseline study finds
 

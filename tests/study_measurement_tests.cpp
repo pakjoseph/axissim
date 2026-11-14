@@ -91,6 +91,48 @@ void test_finite_makespan_and_static_energy() {
   near(*result.energy.energy_per_completed_work_unit_j.value, 11e-6, 1e-18, "finite energy per completed work unit uses all completed units");
 }
 
+void test_finite_multiunit_energy_denominator() {
+  StudyMeasurementObserver observer(finite_request(), {frame(0, 0.0), frame(1, 0.0)});
+  check(observer.process_releases_through(0.0), "both finite work units release");
+  check(observer.record_ready_event(0.0), "first finite task becomes ready");
+  check(observer.record_task_dispatch(0.0, "frame:0", "vector", "RVV", 0.0, 10.0, energy(2e-6)),
+        "first finite task energy is attributed");
+  check(observer.record_ready_event(0.0), "second finite task becomes ready");
+  check(observer.record_task_dispatch(0.0, "frame:1", "matrix", "NPU", 0.0, 10.0, energy(0.0, 6e-6)),
+        "second finite task energy is attributed");
+  complete_unit(observer, 0, 10.0);
+  complete_unit(observer, 1, 10.0);
+  check(observer.finish_quiescent_timestamp(10.0, snapshot(10.0)), "finite run reaches its 10 us makespan");
+
+  Config config;
+  config.static_power_w = 0.2;
+  const auto result = observer.finish(config, 8e6);
+  check(result.execution_status == StudyExecutionStatus::Complete && result.completed_frames_by_drain == 2,
+        "finite energy denominator includes both drained completed frames");
+  near(*result.energy.dynamic_energy_j.value, 8e-6, 1e-18, "finite dynamic energy sums the two task amounts");
+  near(*result.energy.static_energy_j.value, 2e-6, 1e-18, "finite static energy uses 0.2 W over 10 us");
+  near(*result.energy.it_energy_j.value, 10e-6, 1e-18, "finite IT energy includes dynamic and static components");
+  near(*result.energy.average_it_power_w.value, 1.0, 1e-12, "finite average IT power uses 10 us makespan");
+  near(*result.energy.energy_per_completed_work_unit_j.value, 5e-6, 1e-18,
+       "finite IT energy is divided by two completed work units, not one task or frame-stage");
+}
+
+void test_zero_duration_finite_power_is_unavailable() {
+  StudyMeasurementObserver observer(finite_request(), {frame(0, 0.0)});
+  check(observer.process_releases_through(0.0), "zero-duration finite work releases at time zero");
+  complete_unit(observer, 0, 0.0);
+  check(observer.finish_quiescent_timestamp(0.0, snapshot(0.0)), "zero-duration work completes at time zero");
+  const auto result = observer.finish(Config{}, 0.0);
+  check(result.execution_status == StudyExecutionStatus::Complete && result.interval_duration_us == 0.0,
+        "a completed zero-makespan finite workload remains a complete measurement");
+  check(!result.energy.average_it_power_w.value
+        && result.energy.average_it_power_w.null_reason == "zero_duration_interval",
+        "average power is unavailable rather than defined as zero over a zero-duration interval");
+  check(result.energy.energy_per_completed_work_unit_j.value
+        && *result.energy.energy_per_completed_work_unit_j.value == 0.0,
+        "zero IT energy divided by one completed work unit remains a defined zero-energy result");
+}
+
 void test_static_energy_adjacent_windows_conserve() {
   Config config;
   config.static_power_w = 2.0;
@@ -157,6 +199,8 @@ void test_sustained_window_cohort_backlog_and_drain() {
   near(*result.energy.static_energy_j.value, 10e-6, 1e-18, "sustained static energy uses exactly the observation duration");
   near(*result.completed_throughput_per_s.value, 400'000.0, 1e-8, "sustained throughput counts completions in [t0,t1)");
   near(*result.offered_throughput_per_s.value, 400'000.0, 1e-8, "offered throughput counts releases in [t0,t1)");
+  near(*result.energy.energy_per_completed_work_unit_j.value, (19.0 + 10e-6) / 2.0, 1e-12,
+       "sustained window IT energy uses only the two work units completed inside [t0,t1)");
 }
 
 void test_cohort_p99_deadline_equality_and_misses() {
@@ -235,17 +279,22 @@ void test_frame_and_control_cohorts_are_separate() {
   StudyMeasurementObserver observer(finite_request(), {frame(0, 0.0, 10.0), control});
   check(observer.process_releases_through(0.0), "frame and control work release separately");
   check(observer.record_ready_event(0.0), "frame task becomes ready");
-  check(observer.record_task_dispatch(0.0, "frame:0", "frame", "RVV", 0.0, 2.0, energy()), "frame task dispatch is recorded");
+  check(observer.record_task_dispatch(0.0, "frame:0", "frame", "RVV", 0.0, 2.0, energy(2e-6)), "frame task dispatch is recorded");
   check(observer.record_ready_event(0.0), "control task becomes ready");
-  check(observer.record_task_dispatch(0.0, "control:0", "control", "RVV", 0.0, 4.0, energy()), "control task dispatch is recorded");
+  check(observer.record_task_dispatch(0.0, "control:0", "control", "RVV", 0.0, 4.0, energy(4e-6)), "control task dispatch is recorded");
   complete_unit(observer, 0, 2.0);
   check(observer.record_task_completion_event(4.0), "control completion event is recorded");
   observer.record_work_unit_completion("control:0", 4.0);
   check(observer.finish_quiescent_timestamp(4.0, snapshot(4.0)), "separate cohorts complete");
-  const auto result = observer.finish(Config{}, 0.0);
+  // Finite accounting receives the simulator's whole-run energy sum. The
+  // synthetic dispatches above independently total 6 µJ (6e6 pJ).
+  const auto result = observer.finish(Config{}, 6e6);
   check(result.frame_cohort.scheduled == 1 && result.control_cohort.scheduled == 1, "frame and control scheduled counts are distinct");
   check(result.frame_cohort.deadline_misses.value && *result.frame_cohort.deadline_misses.value == 0, "frame deadline outcome is separate");
   check(result.control_cohort.deadline_misses.value && *result.control_cohort.deadline_misses.value == 1, "control deadline outcome is separate");
+  near(*result.energy.dynamic_energy_j.value, 6e-6, 1e-18, "finite dynamic energy includes frame and control work");
+  near(*result.energy.energy_per_completed_work_unit_j.value, 3e-6, 1e-18,
+       "finite per-unit denominator counts completed frames and completed control work");
 }
 
 void test_empty_measurement_inputs_are_invalid() {
@@ -510,6 +559,8 @@ void test_observer_enabled_and_disabled_equivalence_all_paths() {
 int main() {
   test_overlap_and_energy_partition_boundaries();
   test_finite_makespan_and_static_energy();
+  test_finite_multiunit_energy_denominator();
+  test_zero_duration_finite_power_is_unavailable();
   test_static_energy_adjacent_windows_conserve();
   test_sustained_window_cohort_backlog_and_drain();
   test_cohort_p99_deadline_equality_and_misses();

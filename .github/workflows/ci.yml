@@ -21,8 +21,10 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DAXISSIM_BUILD_GUI=OFF
       - name: Build simulator
         run: cmake --build build --parallel
-      - name: Run study runner, execution, and Pareto contract tests
-        run: ctest --test-dir build --output-on-failure -R "study_(manifest_preflight|m5_execution_pareto)_contract|scheduler_ordering_deterministic_contract"
+      - name: Run coverage documentation, candidate, study, and scheduler contracts
+        run: |
+          python tools/verify_m5_study_replay.py --help
+          ctest --test-dir build --output-on-failure -R "(power_cost_coverage_documentation|m5_replay_verifier)_contract|study_(manifest_preflight|candidate_cli|m5_execution_pareto)_contract|scheduler_ordering_deterministic_contract"
 
   build-and-test:
     name: ${{ matrix.os }} ${{ matrix.gui == 'true' && 'desktop' || 'core' }}

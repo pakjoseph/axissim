@@ -155,6 +155,11 @@ if(BUILD_TESTING)
                      ${CMAKE_SOURCE_DIR}/reference_data/hosts/apple-silicon-arm64-mobilenetv2-7.json
                      ${CMAKE_SOURCE_DIR}/reference_data/hosts/github-actions-ubuntu-x86_64-mobilenetv2-7.json)
     if(Python3_VERSION VERSION_GREATER_EQUAL "3.10")
+      add_test(NAME power_cost_coverage_documentation_contract
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/power_cost_coverage_docs.py
+                       --source-root ${CMAKE_SOURCE_DIR})
+      add_test(NAME m5_replay_verifier_contract
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/m5_replay_verifier_tests.py)
       add_test(NAME study_manifest_preflight_contract
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/study_runner_tests.py
                        --source-root ${CMAKE_SOURCE_DIR}
