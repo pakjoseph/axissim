@@ -11,6 +11,7 @@
 #include <limits>
 #include <optional>
 #include <stdexcept>
+#include <string_view>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -127,9 +128,9 @@ void validate_ascii_and_canonical_types(const Value &value,
 }
 
 [[nodiscard]] const Object &as_object(const Value &value,
-                                      const std::string &path) {
+                                      std::string_view path) {
   if (!value.is_object())
-    bad("invalid_type", path);
+    bad("invalid_type", std::string(path));
   return value.object();
 }
 
@@ -559,8 +560,8 @@ void validate_contract_fields(const Value &tree) {
     request.backing_store = params;
   }
 
-  const auto &mappings_root =
-      as_object(field(root, "mappings", ""), "/mappings");
+  const Value mappings_tree = field(root, "mappings", "");
+  const auto &mappings_root = as_object(mappings_tree, "/mappings");
   exact_keys(mappings_root, {"rvv", "matrix"}, "/mappings");
   request.rvv_tree = field(mappings_root, "rvv", "/mappings");
   request.matrix_tree = field(mappings_root, "matrix", "/mappings");
