@@ -234,5 +234,37 @@ int main() {
               string(get(get(cap_result, "errors").array()[0], "code")) ==
                   "request_too_large",
           "request input cap was not enforced");
+
+  std::string non_ascii_key_request = kRequest;
+  non_ascii_key_request.insert(non_ascii_key_request.size() - 1,
+                               R"(,"\u00e9":0)");
+  const auto non_ascii_key = evaluate_study_gemm_pair(non_ascii_key_request);
+  const auto non_ascii_key_result = gemm_json::parse(non_ascii_key.json);
+  const auto &non_ascii_key_error =
+      get(non_ascii_key_result, "errors").array()[0];
+  require(non_ascii_key.exit_code == 2 &&
+              string(get(non_ascii_key_result, "status")) ==
+                  "invalid_request" &&
+              string(get(non_ascii_key_error, "code")) == "invalid_value" &&
+              string(get(non_ascii_key_error, "path")).empty(),
+          "non-ASCII request keys must produce a serializable bounded error");
+
+  std::string long_error_path_request = kRequest;
+  long_error_path_request.insert(long_error_path_request.size() - 1,
+                                 ",\"" + std::string(32700, '~') + "\":0");
+  require(long_error_path_request.size() <= 64 * 1024,
+          "long error-path fixture exceeds the input limit");
+  const auto long_error_path =
+      evaluate_study_gemm_pair(long_error_path_request);
+  const auto long_error_path_result = gemm_json::parse(long_error_path.json);
+  const auto &long_error_path_error =
+      get(long_error_path_result, "errors").array()[0];
+  require(long_error_path.exit_code == 2 &&
+              long_error_path.json.size() <= 64 * 1024 &&
+              string(get(long_error_path_result, "status")) ==
+                  "invalid_request" &&
+              string(get(long_error_path_error, "code")) == "unknown_field" &&
+              string(get(long_error_path_error, "path")).empty(),
+          "unrepresentably large error paths must not exceed the output cap");
   return 0;
 }

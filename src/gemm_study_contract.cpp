@@ -461,10 +461,21 @@ void validate_contract_fields(const Value &tree) {
   return gemm_json::canonical(Value(std::move(envelope)));
 }
 
-[[nodiscard]] std::string pre_envelope(std::string status, std::string code,
-                                       std::string path) {
-  return error_envelope(std::move(status), "request", std::move(code),
-                        std::move(path));
+[[nodiscard]] GemmPairResponse
+pre_envelope(std::string status, std::string code, std::string path) {
+  const bool ascii_path = std::all_of(
+      path.begin(), path.end(), [](unsigned char c) { return c <= 0x7f; });
+  if (!ascii_path)
+    path.clear();
+
+  auto json = error_envelope(status, "request", code, path);
+  if (json.size() > kMaxOutputBytes) {
+    // A JSON pointer can exceed its input key after RFC 6901 escaping. Keep
+    // the request error classification and exit code, but use the root pointer
+    // so the response stays within the public size limit.
+    json = error_envelope(std::move(status), "request", std::move(code), "");
+  }
+  return {std::move(json), 2};
 }
 
 [[nodiscard]] bool is_expected_schema(const Value &tree) {
@@ -924,7 +935,7 @@ optional_serialized(const GemmLogicalTraffic &traffic,
        {"AME_semantics", string_value("not_implemented")}});
 }
 
-[[nodiscard]] std::string file_sha256(const std::string &path) {
+[[nodiscard]] std::string file_sha256(const std::filesystem::path &path) {
   if (path.empty())
     return "unknown";
   std::ifstream input(path, std::ios::binary);
@@ -937,7 +948,8 @@ optional_serialized(const GemmLogicalTraffic &traffic,
   return sha256_hex(bytes);
 }
 
-[[nodiscard]] Value simulator_identity(const std::string &executable_path) {
+[[nodiscard]] Value
+simulator_identity(const std::filesystem::path &executable_path) {
   return object_value(
       {{"source_revision", string_value("unknown")},
        {"source_tree_state", string_value("unknown")},
@@ -974,7 +986,7 @@ optional_serialized(const GemmLogicalTraffic &traffic,
 }
 
 [[nodiscard]] Value result_record(const Request &request,
-                                  const std::string &executable_path,
+                                  const std::filesystem::path &executable_path,
                                   Value rvv_arm, Value matrix_arm,
                                   std::vector<Value> errors,
                                   std::string status) {
@@ -1013,31 +1025,32 @@ optional_serialized(const GemmLogicalTraffic &traffic,
 
 } // namespace
 
-GemmPairResponse evaluate_study_gemm_pair(std::string_view raw,
-                                          const std::string &executable_path) {
+GemmPairResponse
+evaluate_study_gemm_pair(std::string_view raw,
+                         const std::filesystem::path &executable_path) {
   if (raw.size() > kMaxInputBytes)
-    return {pre_envelope("input_limit", "request_too_large", ""), 2};
+    return pre_envelope("input_limit", "request_too_large", "");
   Value tree;
   try {
     tree = parse_request_tree(raw);
   } catch (const RequestError &error) {
-    return {pre_envelope("invalid_json", error.code, error.path), 2};
+    return pre_envelope("invalid_json", error.code, error.path);
   }
   if (!is_expected_schema(tree))
-    return {pre_envelope("unsupported_schema", "unsupported_schema", ""), 2};
+    return pre_envelope("unsupported_schema", "unsupported_schema", "");
   try {
     validate_ascii_and_canonical_types(tree, "");
   } catch (const RequestError &error) {
-    return {pre_envelope("invalid_request", error.code, error.path), 2};
+    return pre_envelope("invalid_request", error.code, error.path);
   }
 
   Request request;
   try {
     request = validate_request(std::move(tree));
   } catch (const RequestError &error) {
-    return {pre_envelope("invalid_request", error.code, error.path), 2};
+    return pre_envelope("invalid_request", error.code, error.path);
   } catch (const std::overflow_error &) {
-    return {pre_envelope("invalid_request", "checked_overflow", ""), 2};
+    return pre_envelope("invalid_request", "checked_overflow", "");
   } catch (const std::exception &) {
     return {error_envelope("internal_error", "global", "internal_error", ""),
             4};
@@ -1120,7 +1133,7 @@ GemmPairResponse evaluate_study_gemm_pair(std::string_view raw,
 
 int run_study_gemm_pair(const std::string &request_path,
                         const std::string &result_path,
-                        const std::string &executable_path) {
+                        const std::filesystem::path &executable_path) {
   std::string request;
   try {
     std::ifstream input(request_path, std::ios::binary);

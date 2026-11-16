@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -86,7 +87,42 @@ def main() -> int:
         one_bytes = one.read_bytes()
         assert one_bytes.endswith(b"\n") and one_bytes.count(b"\n") == 1
         assert one_bytes == two.read_bytes(), "identical request did not produce identical record bytes"
+        path_result_path = root / "path-invocation.result.json"
+        path_environment = os.environ.copy()
+        path_environment["PATH"] = str(binary.parent) + os.pathsep + path_environment.get("PATH", "")
+        path_invocation = subprocess.run(
+            [binary.name, "study-gemm-pair", "--request", str(one.with_suffix(".request.json")),
+             "--result", str(path_result_path)],
+            cwd=root, env=path_environment, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, check=False,
+        )
+        assert path_invocation.returncode == 0, path_invocation.stderr.decode(errors="replace")
+        assert path_result_path.read_bytes() == one_bytes, (
+            "PATH invocation from another working directory changed the result"
+        )
+        if os.name == "posix":
+            shadow_directory = root / "path-shadow"
+            shadow_directory.mkdir()
+            (shadow_directory / binary.name).write_bytes(b"not an executable")
+            shadow_result_path = root / "path-shadow-result.json"
+            shadow_environment = path_environment.copy()
+            shadow_environment["PATH"] = (
+                str(shadow_directory) + os.pathsep + path_environment["PATH"]
+            )
+            shadow_invocation = subprocess.run(
+                [binary.name, "study-gemm-pair", "--request", str(one.with_suffix(".request.json")),
+                 "--result", str(shadow_result_path)],
+                cwd=root, env=shadow_environment, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, check=False,
+            )
+            assert shadow_invocation.returncode == 0, shadow_invocation.stderr.decode(errors="replace")
+            assert shadow_result_path.read_bytes() == one_bytes, (
+                "PATH shadowing changed the identity of the running executable"
+            )
         result = json.loads(one_bytes)
+        assert result["simulator"]["executable_sha256"] == hashlib.sha256(
+            binary.read_bytes()
+        ).hexdigest()
         assert result["schema_id"] == "axissim.gemm-pair.result"
         assert result["schema_version"] == 1
         assert result["status"] == "complete"
@@ -154,6 +190,38 @@ def main() -> int:
         large_run = invoke(binary, b" " * (64 * 1024 + 1), too_large)
         assert large_run.returncode == 2
         assert json.loads(too_large.read_bytes())["status"] == "input_limit"
+
+        non_ascii_key_request = dict(REQUEST)
+        non_ascii_key_request["é"] = 0
+        non_ascii_key_path = root / "non-ascii-key.result.json"
+        non_ascii_key_run = invoke(
+            binary,
+            json.dumps(non_ascii_key_request, separators=(",", ":")).encode("utf-8"),
+            non_ascii_key_path,
+        )
+        assert non_ascii_key_run.returncode == 2
+        non_ascii_key_result = json.loads(non_ascii_key_path.read_bytes())
+        assert non_ascii_key_result["status"] == "invalid_request"
+        assert non_ascii_key_result["errors"] == [
+            {"code": "invalid_value", "path": "", "scope": "request"}
+        ]
+
+        long_error_path_request = dict(REQUEST)
+        long_error_path_request["~" * 32700] = 0
+        long_error_path_bytes = json.dumps(
+            long_error_path_request, separators=(",", ":")
+        ).encode("ascii")
+        assert len(long_error_path_bytes) <= 64 * 1024
+        long_error_path = root / "long-error-path.result.json"
+        long_error_path_run = invoke(binary, long_error_path_bytes, long_error_path)
+        assert long_error_path_run.returncode == 2
+        long_error_path_bytes_out = long_error_path.read_bytes()
+        assert len(long_error_path_bytes_out) <= 64 * 1024 + 1
+        long_error_path_result = json.loads(long_error_path_bytes_out)
+        assert long_error_path_result["status"] == "invalid_request"
+        assert long_error_path_result["errors"] == [
+            {"code": "unknown_field", "path": "", "scope": "request"}
+        ]
 
         bad_cli = subprocess.run(
             [str(binary), "study-gemm-pair", "--request", "x", "--result", str(root / "unused"), "--trace", "z"],
