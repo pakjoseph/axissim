@@ -91,7 +91,9 @@ struct SerializedBackingStoreEstimate {
 // Optional deterministic serialized-bandwidth sensitivity. Read A/B, compute,
 // then write C; no overlap, queueing, DRAM command behavior, or energy is
 // modeled. This does not change the compute-only estimates above. Throws
-// std::invalid_argument for zero bandwidth or inconsistent traffic totals and
+// std::invalid_argument for zero bandwidth, inconsistent traffic totals, or a
+// transfer with bytes but no batches (or batches but no bytes). A zero-byte
+// transfer is supported only with zero batches and incurs no setup. Throws
 // std::overflow_error for unrepresentable cycle arithmetic.
 [[nodiscard]] SerializedBackingStoreEstimate estimate_serialized_backing_store(
     const GemmLogicalTraffic& traffic, std::uint64_t compute_cycles,

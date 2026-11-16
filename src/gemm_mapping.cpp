@@ -41,6 +41,14 @@ namespace {
   return checked_add(read_bytes, traffic.write_c_bytes, "logical byte total");
 }
 
+void validate_transfer_batch_pair(std::uint64_t bytes, std::uint64_t batches,
+                                  const char* transfer_name) {
+  if ((bytes == 0) != (batches == 0)) {
+    throw std::invalid_argument(std::string("GEMM ") + transfer_name +
+                                " bytes and batch count must both be zero or both be nonzero");
+  }
+}
+
 [[nodiscard]] GemmLogicalTraffic make_traffic(std::uint64_t read_a_bytes,
                                               std::uint64_t read_b_bytes,
                                               std::uint64_t write_c_bytes,
@@ -299,6 +307,12 @@ SerializedBackingStoreEstimate estimate_serialized_backing_store(
   if (traffic.total_bytes != checked_total_bytes(traffic)) {
     throw std::invalid_argument("GEMM logical traffic total does not match its A/B/C components");
   }
+  validate_transfer_batch_pair(traffic.read_a_bytes, traffic.read_a_batches,
+                               "A read");
+  validate_transfer_batch_pair(traffic.read_b_bytes, traffic.read_b_batches,
+                               "B read");
+  validate_transfer_batch_pair(traffic.write_c_bytes, traffic.write_c_batches,
+                               "C write");
   const std::uint64_t read_bytes = checked_add(traffic.read_a_bytes,
                                                traffic.read_b_bytes,
                                                "serialized read bytes");

@@ -387,7 +387,8 @@ void test_checked_overflow_paths() {
       1, 0};
   const axissim::GemmLogicalTraffic huge_traffic{
       std::numeric_limits<std::uint64_t>::max(), 0, 0,
-      std::numeric_limits<std::uint64_t>::max(), 0, 0, 0};
+      std::numeric_limits<std::uint64_t>::max(),
+      std::numeric_limits<std::uint64_t>::max(), 0, 0};
   require_throws<std::overflow_error>(
       [&] { (void)axissim::estimate_serialized_backing_store(
           huge_traffic, 0, bandwidth_overflow); },
@@ -405,7 +406,7 @@ void test_checked_overflow_paths() {
       "serialized write byte-times-clock multiplication overflow must be detected");
 
   const axissim::GemmLogicalTraffic huge_write_batch_traffic{
-      0, 0, 0, 0, 0, 0, std::numeric_limits<std::uint64_t>::max()};
+      0, 0, 1, 1, 0, 0, std::numeric_limits<std::uint64_t>::max()};
   require_throws<std::overflow_error>(
       [&] {
         (void)axissim::estimate_serialized_backing_store(
@@ -414,7 +415,7 @@ void test_checked_overflow_paths() {
       "serialized write setup multiplication overflow must be detected");
 
   const axissim::GemmLogicalTraffic huge_read_batch_traffic{
-      0, 0, 0, 0, std::numeric_limits<std::uint64_t>::max(), 0, 0};
+      1, 0, 0, 1, std::numeric_limits<std::uint64_t>::max(), 0, 0};
   require_throws<std::overflow_error>(
       [&] {
         (void)axissim::estimate_serialized_backing_store(
@@ -513,6 +514,46 @@ void test_capacity_and_throughput_sensitivities() {
             inconsistent, base_rvv.compute_cycles, slow);
       },
       "inconsistent logical byte totals must be rejected");
+
+  const auto require_transfer_pair_rejected = [&](axissim::GemmLogicalTraffic traffic,
+                                                   const std::string& field_name) {
+    require_throws<std::invalid_argument>(
+        [&] {
+          (void)axissim::estimate_serialized_backing_store(
+              traffic, base_rvv.compute_cycles, slow);
+        },
+        field_name + " byte/batch mismatch must be rejected");
+  };
+
+  auto a_bytes_without_batches = base_rvv.logical_traffic;
+  a_bytes_without_batches.read_a_batches = 0;
+  require_transfer_pair_rejected(a_bytes_without_batches, "A read with bytes but no batches");
+  auto b_bytes_without_batches = base_rvv.logical_traffic;
+  b_bytes_without_batches.read_b_batches = 0;
+  require_transfer_pair_rejected(b_bytes_without_batches, "B read with bytes but no batches");
+  auto c_bytes_without_batches = base_rvv.logical_traffic;
+  c_bytes_without_batches.write_c_batches = 0;
+  require_transfer_pair_rejected(c_bytes_without_batches, "C write with bytes but no batches");
+
+  auto a_batches_without_bytes = base_rvv.logical_traffic;
+  a_batches_without_bytes.total_bytes -= a_batches_without_bytes.read_a_bytes;
+  a_batches_without_bytes.read_a_bytes = 0;
+  require_transfer_pair_rejected(a_batches_without_bytes, "A read with batches but no bytes");
+  auto b_batches_without_bytes = base_rvv.logical_traffic;
+  b_batches_without_bytes.total_bytes -= b_batches_without_bytes.read_b_bytes;
+  b_batches_without_bytes.read_b_bytes = 0;
+  require_transfer_pair_rejected(b_batches_without_bytes, "B read with batches but no bytes");
+  auto c_batches_without_bytes = base_rvv.logical_traffic;
+  c_batches_without_bytes.total_bytes -= c_batches_without_bytes.write_c_bytes;
+  c_batches_without_bytes.write_c_bytes = 0;
+  require_transfer_pair_rejected(c_batches_without_bytes, "C write with batches but no bytes");
+
+  const auto zero_traffic = axissim::estimate_serialized_backing_store(
+      {0, 0, 0, 0, 0, 0, 0}, base_rvv.compute_cycles, slow);
+  require_eq(zero_traffic.read_cycles, 0,
+             "zero-byte reads with zero batches incur no transfer or setup");
+  require_eq(zero_traffic.write_cycles, 0,
+             "zero-byte writes with zero batches incur no transfer or setup");
 }
 
 void test_repeatability() {
