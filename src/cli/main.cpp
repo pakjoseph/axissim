@@ -26,6 +26,7 @@
 #include "profile.hpp"
 #include "simulation.hpp"
 #include "study_contract.hpp"
+#include "gemm_study_contract.hpp"
 
 namespace axissim {
 
@@ -573,6 +574,34 @@ int main(int argc, char** argv) {
         return 2;
       }
       return run_study_evaluate(*request_path,*result_path,argv[0],study_trace_path);
+    }
+    if (argc >= 2 && std::string(argv[1]) == "study-gemm-pair") {
+      std::optional<std::string> request_path;
+      std::optional<std::string> result_path;
+      for (int argument = 2; argument < argc; ++argument) {
+        const std::string option = argv[argument];
+        if (option == "--request") {
+          if (++argument >= argc || request_path) {
+            std::cerr << "Usage: axissim study-gemm-pair --request <pair-request.json> --result <pair-result.json>\n";
+            return 2;
+          }
+          request_path = argv[argument];
+        } else if (option == "--result") {
+          if (++argument >= argc || result_path) {
+            std::cerr << "Usage: axissim study-gemm-pair --request <pair-request.json> --result <pair-result.json>\n";
+            return 2;
+          }
+          result_path = argv[argument];
+        } else {
+          std::cerr << "Usage: axissim study-gemm-pair --request <pair-request.json> --result <pair-result.json>\n";
+          return 2;
+        }
+      }
+      if (!request_path || !result_path) {
+        std::cerr << "Usage: axissim study-gemm-pair --request <pair-request.json> --result <pair-result.json>\n";
+        return 2;
+      }
+      return run_study_gemm_pair(*request_path, *result_path, argv[0]);
     }
     if ((argc == 3 || argc == 4) && std::string(argv[1]) == "profile-validate") {
       const WorkloadProfile profile = load_workload_profile(argv[2]);
