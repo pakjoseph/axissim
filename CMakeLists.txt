@@ -17,6 +17,7 @@ endfunction()
 # tool and direct model tests consume the same parsing and validation path.
 add_library(axissim-core STATIC
   src/config.cpp
+  src/gemm_mapping.cpp
   src/metrics.cpp
   src/profile.cpp
   src/study_contract.cpp)
@@ -123,6 +124,11 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+  add_executable(axissim-gemm-mapping-tests tests/gemm_mapping_tests.cpp)
+  target_link_libraries(axissim-gemm-mapping-tests PRIVATE axissim-core)
+  target_include_directories(axissim-gemm-mapping-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  axissim_enable_strict_warnings(axissim-gemm-mapping-tests)
+  add_test(NAME gemm_mapping_cpp_contract COMMAND axissim-gemm-mapping-tests)
   add_executable(axissim-core-model-tests tests/core_model_tests.cpp)
   target_link_libraries(axissim-core-model-tests PRIVATE axissim-core)
   target_include_directories(axissim-core-model-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
