@@ -87,20 +87,24 @@ def main() -> int:
         one_bytes = one.read_bytes()
         assert one_bytes.endswith(b"\n") and one_bytes.count(b"\n") == 1
         assert one_bytes == two.read_bytes(), "identical request did not produce identical record bytes"
-        path_result_path = root / "path-invocation.result.json"
-        path_environment = os.environ.copy()
-        path_environment["PATH"] = str(binary.parent) + os.pathsep + path_environment.get("PATH", "")
-        path_invocation = subprocess.run(
-            [binary.name, "study-gemm-pair", "--request", str(one.with_suffix(".request.json")),
-             "--result", str(path_result_path)],
-            cwd=root, env=path_environment, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, check=False,
-        )
-        assert path_invocation.returncode == 0, path_invocation.stderr.decode(errors="replace")
-        assert path_result_path.read_bytes() == one_bytes, (
-            "PATH invocation from another working directory changed the result"
-        )
         if os.name == "posix":
+            # POSIX execvp searches PATH for a bare executable. This Python
+            # test uses an explicit binary path on Windows; its hash assertion
+            # below verifies the loaded-image lookup there.
+            path_result_path = root / "path-invocation.result.json"
+            path_environment = os.environ.copy()
+            path_environment["PATH"] = str(binary.parent) + os.pathsep + path_environment.get("PATH", "")
+            path_invocation = subprocess.run(
+                [binary.name, "study-gemm-pair", "--request", str(one.with_suffix(".request.json")),
+                 "--result", str(path_result_path)],
+                cwd=root, env=path_environment, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, check=False,
+            )
+            assert path_invocation.returncode == 0, path_invocation.stderr.decode(errors="replace")
+            assert path_result_path.read_bytes() == one_bytes, (
+                "PATH invocation from another working directory changed the result"
+            )
+
             shadow_directory = root / "path-shadow"
             shadow_directory.mkdir()
             (shadow_directory / binary.name).write_bytes(b"not an executable")
