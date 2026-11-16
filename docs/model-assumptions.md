@@ -18,6 +18,8 @@ RVV-style stages have an explicitly modeled element count and operations per ele
 
 Energy is accumulated as configured activity counts times pJ/action. `npu_arithmetic_energy_scale` affects only NPU arithmetic energy. It must not be interpreted as a whole-system power reduction.
 
+See [power and energy cost coverage](power-cost-coverage.md) for the current equations, units, coefficient provenance, omitted costs, and comparison limits, and [power accounting verification](power-accounting-verification.md) for the source-to-test map.
+
 `rvv_memory_accounting=pipeline_dma` is the default for the Physical AI pipeline: its DMA stages already own modeled DRAM traffic. `extra_traffic` adds `rvv_memory_bytes_per_element` once for every RVV preprocess, postprocess, or standalone stream element. This is an energy/traffic ledger choice; it does not add a second scheduled DMA transfer or DRAM-contention delay.
 
 `arithmetic_voltage_ratio` is an optional voltage-inspired NPU arithmetic-energy sensitivity: AxisSim multiplies NPU arithmetic energy by the square of this ratio. It does not alter frequency, latency, yield, soft-error behavior, timing closure, or reliability, and is not a low-voltage circuit model.

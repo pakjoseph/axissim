@@ -226,6 +226,10 @@ class CandidateApiTests(unittest.TestCase):
         self.assertEqual(factors["npu_macs"]["power_coverage"], "complete")
         self.assertEqual(factors["dram_bandwidth_gbps"]["power_coverage"], "partial")
         self.assertEqual(factors["sram_capacity_bytes"]["power_coverage"], "partial")
+        self.assertIn("missing.static.dram_interface_w_per_gbps",
+                      factors["dram_bandwidth_gbps"]["omitted_terms"])
+        self.assertIn("missing.dynamic.sram_access_j_per_byte",
+                      factors["sram_capacity_bytes"]["omitted_terms"])
 
     def test_deterministic_scheduler_policy_is_in_candidate_provenance(self) -> None:
         request = self.request(frames=2)
