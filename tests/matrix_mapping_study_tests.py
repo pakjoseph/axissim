@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import importlib.util
 import io
@@ -250,7 +251,12 @@ class RunnerContractTests(unittest.TestCase):
             request.write_bytes(b"{}\n")
             for interrupt in (False, True):
                 child = Child(interrupt)
-                with mock.patch.object(r.subprocess, "Popen", return_value=child), mock.patch.object(r.os, "killpg") as killpg:
+                killpg_context = (
+                    mock.patch.object(r.os, "killpg")
+                    if r.os.name == "posix"
+                    else contextlib.nullcontext(mock.Mock())
+                )
+                with mock.patch.object(r.subprocess, "Popen", return_value=child), killpg_context as killpg:
                     proc = r.invoke_evaluator(self.binary, request, result, 0.01)
                 self.assertEqual(proc["timed_out"], not interrupt)
                 self.assertEqual(proc["cancelled"], interrupt)
@@ -266,7 +272,12 @@ class RunnerContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="axissim-m63c-zero-timeout-") as temp:
             request = Path(temp) / "request.json"
             request.write_bytes(b"{}\n")
-            with mock.patch.object(r.subprocess, "Popen", return_value=child), mock.patch.object(r.os, "killpg"):
+            killpg_context = (
+                mock.patch.object(r.os, "killpg")
+                if r.os.name == "posix"
+                else contextlib.nullcontext(mock.Mock())
+            )
+            with mock.patch.object(r.subprocess, "Popen", return_value=child), killpg_context:
                 proc = r.invoke_evaluator(self.binary, request, Path(temp) / "result.json", 0)
         self.assertTrue(proc["timed_out"])
         self.assertEqual(child.wait_timeouts[0], 0)
