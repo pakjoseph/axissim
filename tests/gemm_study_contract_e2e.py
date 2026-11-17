@@ -163,6 +163,44 @@ def main() -> int:
         }
         assert result["model_assumptions_sha256"] == digest(assumptions)
 
+        sensitivity_results = []
+        for bandwidth, setup in (
+            (1_000_000_000, 0), (64_000_000_000, 0),
+            (1_000_000_000, 1), (64_000_000_000, 1),
+        ):
+            request = json.loads(json.dumps(REQUEST))
+            request["measurement"]["backing_store_sensitivity"] = {
+                "bandwidth_bytes_per_second": bandwidth,
+                "batch_setup_cycles": setup,
+            }
+            encoded_sensitivity = canonical(request)
+            result_path = root / f"sensitivity-{bandwidth}-{setup}.result.json"
+            first_run = invoke(binary, encoded_sensitivity, result_path)
+            assert first_run.returncode == 0, first_run.stderr.decode(errors="replace")
+            first_bytes = result_path.read_bytes()
+            repeat_path = root / f"sensitivity-repeat-{bandwidth}-{setup}.result.json"
+            repeat_run = invoke(binary, encoded_sensitivity, repeat_path)
+            assert repeat_run.returncode == 0, repeat_run.stderr.decode(errors="replace")
+            assert repeat_path.read_bytes() == first_bytes, "identical sensitivity request was not byte-reproducible"
+            sensitivity_result = json.loads(first_bytes)
+            assert sensitivity_result["measurement_protocol"]["backing_store_sensitivity"] == request["measurement"]["backing_store_sensitivity"]
+            assert sensitivity_result["model_coverage"]["memory_service"] == "serialized_sensitivity_only"
+            for mapping in ("rvv", "matrix"):
+                baseline_arm = result["arms"][mapping]
+                sensitivity_arm = sensitivity_result["arms"][mapping]
+                assert "serialized_backing_store" in sensitivity_arm
+                assert sensitivity_arm["compute_cycles_per_unit"] == baseline_arm["compute_cycles_per_unit"]
+                assert sensitivity_arm["compute_cycles_total"] == baseline_arm["compute_cycles_total"]
+                assert sensitivity_arm["workload_counts"] == baseline_arm["workload_counts"]
+                assert sensitivity_arm["logical_traffic"] == baseline_arm["logical_traffic"]
+                assert sensitivity_arm["serialized_backing_store"]["compute_cycles_per_unit"] == sensitivity_arm["compute_cycles_per_unit"]
+                serial = sensitivity_arm["serialized_backing_store"]
+                assert serial["total_cycles_per_unit"] == serial["read_cycles_per_unit"] + serial["compute_cycles_per_unit"] + serial["write_cycles_per_unit"]
+            sensitivity_results.append(sensitivity_result)
+        assert len({item["candidate_pair_id"] for item in sensitivity_results}) == 4
+        assert len({item["request_sha256"] for item in sensitivity_results}) == 4
+        assert len({item["model_assumptions_sha256"] for item in sensitivity_results}) == 4
+
         for label, mutate in (
             ("workload", lambda request: request["workload"].update(m=3)),
             ("mapping", lambda request: request["mappings"]["rvv"].update(lanes=8)),

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import csv
 import hashlib
 import importlib.util
 import io
@@ -40,6 +41,595 @@ class RunnerContractTests(unittest.TestCase):
         cls.manifest_path = cls.source_root / "experiments/matrix_mapping_study/manifest.v1.json"
         cls.manifest, cls.manifest_raw, cls.manifest_id = cls.runner._load_runner_manifest(cls.manifest_path)
         cls.rows = cls.runner.expand_candidates(cls.manifest, cls.manifest_id)
+        cls.manifest_v2_path = cls.source_root / "experiments/matrix_mapping_study/manifest.v2.serialized-sensitivity.json"
+        cls.manifest_v2, cls.manifest_v2_raw, cls.manifest_v2_id = cls.runner._load_runner_manifest(cls.manifest_v2_path)
+        cls.rows_v2 = cls.runner.expand_candidates(cls.manifest_v2, cls.manifest_v2_id)
+
+    def test_v2_manifest_expands_exact_24_ordered_candidates_and_twelve_pilots(self) -> None:
+        r = self.runner
+        self.assertEqual(r.sha256_bytes(self.manifest_raw), r.M63C_V1_MANIFEST_SHA256)
+        self.assertEqual(self.manifest_v2["schema_version"], 2)
+        self.assertEqual(len(self.rows_v2), 24)
+        self.assertEqual(len({row["request_bytes"] for row in self.rows_v2}), 24)
+        self.assertEqual(len({row["candidate_pair_id"] for row in self.rows_v2}), 24)
+        sensitivity_order = [case["sensitivity_case_id"] for case in r.V2_SENSITIVITY_CASES]
+        expected_bases = ["tiny_p4", "tiny_p8", "aligned_p4", "aligned_p8", "partial_p4", "partial_p8"]
+        self.assertEqual([row["base_case_id"] for row in self.rows_v2], [base for base in expected_bases for _ in sensitivity_order])
+        self.assertEqual([row["sensitivity_case_id"] for row in self.rows_v2[:4]], sensitivity_order)
+        pilots = r._pilot_candidates(self.rows_v2, self.manifest_v2)
+        self.assertEqual(len(pilots), 12)
+        self.assertEqual([row["capacity_level_id"] for row in pilots], ["p4"] * 12)
+        self.assertEqual([row["source_row_index"] for row in pilots], [0, 1, 2, 3, 8, 9, 10, 11, 16, 17, 18, 19])
+        for base in expected_bases:
+            variants = [row for row in self.rows_v2 if row["base_case_id"] == base]
+            stripped = []
+            for row in variants:
+                request = json.loads(row["request_bytes"])
+                del request["measurement"]["backing_store_sensitivity"]
+                stripped.append(r.canonical_bytes(request))
+            self.assertEqual(len(set(stripped)), 1, base)
+            self.assertEqual(len({row["ids"]["request_sha256"] for row in variants}), 4)
+            self.assertEqual(len({row["ids"]["model_assumptions_sha256"] for row in variants}), 4)
+
+    def test_v2_manifest_rejects_sensitivity_and_resource_limit_mutations(self) -> None:
+        r = self.runner
+        for mutate in (
+            lambda value: value["sensitivity_cases"][0].__setitem__("bandwidth_bytes_per_second", 2_000_000_000),
+            lambda value: value["sensitivity_cases"].reverse(),
+            lambda value: value["limits"].__setitem__("max_result_payload_bytes", 65536),
+            lambda value: value["baseline_reference"].__setitem__("study_run_id", "0" * 64),
+            lambda value: value["shapes"][0].__setitem__("m", 3),
+            lambda value: value["workload"].__setitem__("batch_count", True),
+            lambda value: value["measurement"].__setitem__("repeat_count", True),
+            lambda value: value["mapping_constants"]["matrix"].__setitem__("kernel_setup_cycles", False),
+        ):
+            changed = json.loads(json.dumps(self.manifest_v2))
+            mutate(changed)
+            with self.assertRaises(r.RunnerError):
+                r.validate_manifest(changed)
+
+    def test_v2_cxx_result_identity_and_compute_only_parity_across_sensitivities(self) -> None:
+        r = self.runner
+        variants = [row for row in self.rows_v2 if row["base_case_id"] == "partial_p8"]
+        records = []
+        with tempfile.TemporaryDirectory(prefix="axissim-m63d-identity-") as temp:
+            root = Path(temp)
+            for index, row in enumerate(variants):
+                request = root / f"request-{index}.json"
+                result_path = root / f"result-{index}.json"
+                request.write_bytes(row["request_bytes"])
+                proc = r.invoke_evaluator(self.binary, request, result_path, 10)
+                self.assertEqual(proc["process_exit_code"], 0)
+                result, raw, error = r._cpp_response(result_path, 8192)
+                self.assertIsNone(error)
+                self.assertLessEqual(len(raw), 8193)
+                valid, reason = r.validate_candidate_result(result, row, r._file_hash(self.binary))
+                self.assertTrue(valid, reason)
+                records.append(result)
+            self.assertEqual(len({item["candidate_pair_id"] for item in records}), 4)
+            self.assertEqual(len({item["request_sha256"] for item in records}), 4)
+            self.assertEqual(len({item["model_assumptions_sha256"] for item in records}), 4)
+            first = records[0]
+            for record in records[1:]:
+                self.assertEqual(record["workload_id"], first["workload_id"])
+                for mapping in ("rvv", "matrix"):
+                    for field in ("mapping_id", "mapping_kind", "workload_counts", "logical_traffic", "compute_cycles_per_unit", "compute_cycles_total"):
+                        self.assertEqual(record["arms"][mapping][field], first["arms"][mapping][field])
+                    serial = record["arms"][mapping]["serialized_backing_store"]
+                    self.assertEqual(serial["compute_cycles_per_unit"], record["arms"][mapping]["compute_cycles_per_unit"])
+                    self.assertEqual(serial["total_cycles_per_unit"], sum(serial[key] for key in ("read_cycles_per_unit", "compute_cycles_per_unit", "write_cycles_per_unit")))
+            bad = json.loads(json.dumps(first))
+            bad["measurement_protocol"]["backing_store_sensitivity"]["bandwidth_bytes_per_second"] += 1
+            self.assertEqual(r.validate_candidate_result(bad, variants[0], r._file_hash(self.binary)), (False, "result_schema_error"))
+            bad = json.loads(json.dumps(first))
+            del bad["arms"]["rvv"]["serialized_backing_store"]["read_cycles_per_unit"]
+            self.assertEqual(r.validate_candidate_result(bad, variants[0], r._file_hash(self.binary)), (False, "result_schema_error"))
+
+            # The v2 result contract must reject malformed serial objects and
+            # identity/status corruption independently of the v1 mutation suite.
+            invalid_cases = (
+                (lambda value: value["arms"]["rvv"]["serialized_backing_store"].__setitem__("unexpected", 0), "result_schema_error"),
+                (lambda value: value["arms"]["rvv"]["serialized_backing_store"].__setitem__("read_cycles_per_unit", True), "result_schema_error"),
+                (lambda value: value.__setitem__("candidate_pair_id", "0" * 64), "identity_mismatch"),
+                (lambda value: value.__setitem__("workload_id", "0" * 64), "identity_mismatch"),
+                (lambda value: value["arms"]["rvv"].__setitem__("mapping_id", "0" * 64), "identity_mismatch"),
+                (lambda value: value["arms"]["matrix"].__setitem__("mapping_id", "0" * 64), "identity_mismatch"),
+                (lambda value: value["measurement_protocol"]["backing_store_sensitivity"].__setitem__("batch_setup_cycles", True), "result_schema_error"),
+                (lambda value: value.__setitem__("status", "partial"), "result_schema_error"),
+                (lambda value: value["arms"]["matrix"].__setitem__("arm_status", "failed"), "result_schema_error"),
+            )
+            for mutate, expected_reason in invalid_cases:
+                bad = json.loads(json.dumps(first))
+                mutate(bad)
+                self.assertEqual(r.validate_candidate_result(bad, variants[0], r._file_hash(self.binary)), (False, expected_reason))
+
+            ledger = {
+                "process_exit_code": 0, "candidate_pair_id": variants[0]["candidate_pair_id"],
+                "cpp_status": "complete", "rvv_arm_status": "complete", "matrix_arm_status": "complete",
+                "error_codes": [], "error_paths": [], "execution_order": 0,
+            }
+            r._verify_result_ledger_consistency("complete", ledger, first, variants[0])
+            corrupt_ledger = dict(ledger, error_codes=["tampered"])
+            with self.assertRaises(r.RunnerError):
+                r._verify_result_ledger_consistency("complete", corrupt_ledger, first, variants[0])
+
+            # The aligned fixture can have equal compute counts while the two
+            # mappings still produce different logical payload and service.
+            aligned = next(row for row in self.rows_v2 if row["base_case_id"] == "aligned_p4" and
+                           row["sensitivity_case_id"] == "bw_1e9_bytes_per_second_setup_0")
+            request = root / "request-aligned.json"
+            result_path = root / "result-aligned.json"
+            request.write_bytes(aligned["request_bytes"])
+            proc = r.invoke_evaluator(self.binary, request, result_path, 10)
+            self.assertEqual(proc["process_exit_code"], 0)
+            aligned_record, _, error = r._cpp_response(result_path, 8192)
+            self.assertIsNone(error)
+            valid, reason = r.validate_candidate_result(aligned_record, aligned, r._file_hash(self.binary))
+            self.assertTrue(valid, reason)
+            aligned_rvv, aligned_matrix = aligned_record["arms"]["rvv"], aligned_record["arms"]["matrix"]
+            self.assertEqual(aligned_rvv["compute_cycles_per_unit"], aligned_matrix["compute_cycles_per_unit"])
+            self.assertNotEqual(aligned_rvv["logical_traffic"], aligned_matrix["logical_traffic"])
+            self.assertNotEqual(
+                aligned_rvv["serialized_backing_store"]["read_cycles_per_unit"] + aligned_rvv["serialized_backing_store"]["write_cycles_per_unit"],
+                aligned_matrix["serialized_backing_store"]["read_cycles_per_unit"] + aligned_matrix["serialized_backing_store"]["write_cycles_per_unit"],
+            )
+
+    def test_v2_hypothesis_rules_use_only_complete_pairs(self) -> None:
+        r = self.runner
+        synthetic: dict[int, dict[str, Any]] = {}
+        for row in self.rows_v2:
+            request = row["request"]
+            sensitivity = request["measurement"]["backing_store_sensitivity"]
+            setup = sensitivity["batch_setup_cycles"]
+            high_bandwidth = sensitivity["bandwidth_bytes_per_second"] == 64_000_000_000
+            arms = {}
+            for mapping, compute, traffic, read0, write0 in (
+                ("rvv", 10 if row["capacity_level_id"] == "p4" else 6,
+                 {"read_a_bytes_per_unit": 12, "read_b_bytes_per_unit": 60, "write_c_bytes_per_unit": 60,
+                  "total_bytes_per_unit": 132, "read_a_batches_per_unit": 6, "read_b_batches_per_unit": 6, "write_c_batches_per_unit": 3}, 10, 5),
+                ("matrix", 12 if row["capacity_level_id"] == "p4" else 8,
+                 {"read_a_bytes_per_unit": 24, "read_b_bytes_per_unit": 40, "write_c_bytes_per_unit": 60,
+                  "total_bytes_per_unit": 124, "read_a_batches_per_unit": 4, "read_b_batches_per_unit": 4, "write_c_batches_per_unit": 4}, 2, 1),
+            ):
+                read = (read0 // 3 if high_bandwidth else read0) + setup * (traffic["read_a_batches_per_unit"] + traffic["read_b_batches_per_unit"])
+                write = (write0 // 2 if high_bandwidth else write0) + setup * traffic["write_c_batches_per_unit"]
+                arms[mapping] = {
+                    "compute_cycles_per_unit": compute,
+                    "logical_traffic": traffic,
+                    "serialized_backing_store": {
+                        "read_cycles_per_unit": read, "compute_cycles_per_unit": compute,
+                        "write_cycles_per_unit": write, "total_cycles_per_unit": read + compute + write,
+                    },
+                }
+            synthetic[row["source_row_index"]] = {"runner_status": "complete", "record": {"arms": arms}}
+        outcomes = {item["hypothesis_id"]: item for item in r._hypothesis_results_v2(self.manifest_v2, self.rows_v2, synthetic)}
+        self.assertTrue(all(outcomes[key]["status"] == "criterion_met" for key in ("H1", "H2", "H3", "H4", "H5")))
+        findings = "\n".join(r._v2_observed_findings(self.manifest_v2, self.rows_v2, synthetic))
+        for label in ("H1 — mapping traffic and service", "H2 — P4 to P8", "H3 — declared bandwidth",
+                      "H4 — setup cycles", "H5 — ranking changes"):
+            self.assertIn(label, findings)
+        self.assertIn("serialized", findings.lower())
+        incomplete = dict(synthetic)
+        incomplete.pop(23)
+        outcomes = {item["hypothesis_id"]: item for item in r._hypothesis_results_v2(self.manifest_v2, self.rows_v2, incomplete)}
+        self.assertEqual(outcomes["H3"]["status"], "inconclusive")
+        self.assertEqual(outcomes["H4"]["status"], "inconclusive")
+        incomplete[0] = {"runner_status": "partial", "record": synthetic[0]["record"]}
+        self.assertEqual(r._v2_complete_record(self.rows_v2[0], incomplete), None)
+
+    def test_v2_pilot_gate_runs_all_p4_then_prevents_any_p8_on_failure(self) -> None:
+        r = self.runner
+        with tempfile.TemporaryDirectory(prefix="axissim-m63d-pilot-gate-") as temp:
+            root = Path(temp) / "bundle"
+            args = argparse.Namespace(manifest=str(self.manifest_v2_path), binary=str(self.binary), output_dir=str(root))
+            self.assertEqual(r.command_plan(args), 0)
+            launched = []
+
+            def failed_evaluator(binary, request_path, result_path, timeout):
+                request = r.parse_json(request_path.read_bytes().rstrip(b"\n"))
+                launched.append(request)
+                return {"process_exit_code": 1, "timed_out": False, "cancelled": False, "launch_error": False,
+                        "elapsed_ns": 100, "stdout_bytes": 0, "stdout_sha256": r.sha256_bytes(b""),
+                        "stderr_bytes": 0, "stderr_sha256": r.sha256_bytes(b"")}
+
+            with mock.patch.object(r, "invoke_evaluator", side_effect=failed_evaluator):
+                self.assertEqual(r.command_preflight(args), 3)
+            self.assertEqual(len(launched), 12)
+            self.assertTrue(all(request["mappings"]["matrix"]["mac_slots_per_cycle"] == 4 for request in launched))
+            self.assertEqual(r.verify_bundle(root)["status"], "verified")
+            preflight, _ = r.read_json(root / "preflight.json")
+            self.assertEqual(preflight["status"], "pilot_failed")
+            ledger, _ = r.read_jsonl(root / "runner-ledger.jsonl")
+            self.assertEqual(sum("execution_order" in row for row in ledger), 12)
+            self.assertTrue(all(row["runner_status"] == "not_started_due_to_preflight_failure" for row in ledger if row["base_case_id"].endswith("_p8")))
+
+    def test_v2_bundle_launch_order_must_be_the_exact_planned_prefix(self) -> None:
+        r = self.runner
+        pilots = [row for row in self.rows_v2 if row["capacity_level_id"] == "p4"]
+        p8 = [row for row in self.rows_v2 if row["capacity_level_id"] == "p8"]
+        expected = pilots + p8
+        # Build a row-aligned ledger whose order maps to the first 12 P4 rows,
+        # then the first 3 P8 rows as allowed after a successful pilot gate.
+        launch_ids = [row["source_row_index"] for row in expected[:15]]
+        aligned = [{} for _ in self.rows_v2]
+        for order, row_index in enumerate(launch_ids):
+            aligned[row_index]["execution_order"] = order
+        self.assertTrue(r._v2_launch_order_matches(self.rows_v2, aligned))
+        aligned[4]["execution_order"], aligned[6]["execution_order"] = 14, 12
+        self.assertFalse(r._v2_launch_order_matches(self.rows_v2, aligned))
+
+    def test_v2_active_budget_includes_candidate_orchestration_and_publication(self) -> None:
+        r = self.runner
+        with tempfile.TemporaryDirectory(prefix="axissim-m63d-active-budget-") as temp:
+            root = Path(temp) / "bundle"
+            args = argparse.Namespace(manifest=str(self.manifest_v2_path), binary=str(self.binary), output_dir=str(root))
+            self.assertEqual(r.command_plan(args), 0)
+            self.assertEqual(r.command_preflight(args), 0)
+            diagnostics, _ = r.read_jsonl(root / "host-diagnostics.jsonl")
+            phase = next(item for item in diagnostics if item.get("record_type") == "phase" and item.get("phase") == "preflight")
+            phase["phase_elapsed_ns"] = 899_000_000_000
+            (root / "host-diagnostics.jsonl").write_bytes(r._jsonl_bytes(diagnostics))
+
+            now = [0]
+            def tick() -> int:
+                now[0] += 100_000_000
+                return now[0]
+
+            real_invoke = r._invoke_candidate
+            def costly_invoke(*call_args):
+                result = real_invoke(*call_args)
+                now[0] += 300_000_000
+                return result
+
+            with mock.patch.object(r.time, "monotonic_ns", side_effect=tick), \
+                 mock.patch.object(r, "_invoke_candidate", side_effect=costly_invoke) as invoke:
+                code = r.command_execute(args)
+            self.assertEqual(code, 3)
+            self.assertGreater(invoke.call_count, 0)
+            self.assertLess(invoke.call_count, 12)
+            verified = r.verify_bundle(root)
+            self.assertEqual(verified["status"], "verified")
+            summary, _ = r.read_json(root / "summary.json")
+            self.assertEqual(summary["study_status"], "limit_reached")
+            host, _ = r.read_jsonl(root / "host-diagnostics.jsonl")
+            recorded = sum(item.get("phase_elapsed_ns", 0) for item in host if item.get("record_type") == "phase")
+            self.assertGreater(recorded, r.V2_LIMITS["max_active_seconds"] * 1_000_000_000)
+
+    def test_v2_post_report_publication_overrun_marks_completed_study_limited(self) -> None:
+        r = self.runner
+        with tempfile.TemporaryDirectory(prefix="axissim-m63d-publication-overrun-") as temp:
+            root = Path(temp) / "bundle"
+            cache = Path(temp) / "cache"
+            cache.mkdir()
+            args = argparse.Namespace(manifest=str(self.manifest_v2_path), binary=str(self.binary), output_dir=str(root))
+            self.assertEqual(r.command_plan(args), 0)
+            self.assertEqual(r.command_preflight(args), 0)
+            p8_rows = [row for row in self.rows_v2 if row["capacity_level_id"] == "p8"]
+            result_by_request: dict[str, bytes] = {}
+            for index, row in enumerate(p8_rows):
+                result_path = cache / f"p8-{index}.json"
+                proc = r.invoke_evaluator(self.binary, root / row["request_path"], result_path, 10)
+                self.assertEqual(proc["process_exit_code"], 0)
+                result, raw, error = r._cpp_response(result_path, 8192)
+                self.assertIsNone(error)
+                valid, reason = r.validate_candidate_result(result, row, r._file_hash(self.binary))
+                self.assertTrue(valid, reason)
+                result_by_request[row["request_sha256"]] = raw
+
+            diagnostics, _ = r.read_jsonl(root / "host-diagnostics.jsonl")
+            phase = next(item for item in diagnostics if item.get("record_type") == "phase" and item.get("phase") == "preflight")
+            phase["phase_elapsed_ns"] = 899_000_000_000
+            (root / "host-diagnostics.jsonl").write_bytes(r._jsonl_bytes(diagnostics))
+
+            def cached_evaluate(binary, request_root, row, timeout):
+                raw = result_by_request[row["request_sha256"]]
+                temp_name = r.hashlib.sha256(("cpp-result:" + row["study_row_id"]).encode("ascii")).hexdigest() + ".json"
+                staged = request_root / ".staging" / temp_name
+                staged.write_bytes(raw)
+                response, parsed_raw, parse_error = r._cpp_response(staged, 8192)
+                staged.unlink()
+                return ({"process_exit_code": 0, "timed_out": False, "cancelled": False,
+                         "launch_error": False, "elapsed_ns": 0, "stdout_bytes": 0,
+                         "stdout_sha256": r.sha256_bytes(b""), "stderr_bytes": 0,
+                         "stderr_sha256": r.sha256_bytes(b"")}, response, parsed_raw, parse_error)
+
+            ticks = [0] + [0] * 12 + [900_000_000, 1_100_000_000, 1_100_000_000, 1_200_000_000]
+            tick_index = [0]
+            def clock_tick() -> int:
+                value = ticks[min(tick_index[0], len(ticks) - 1)]
+                tick_index[0] += 1
+                return value
+
+            with mock.patch.object(r.time, "monotonic_ns", side_effect=clock_tick), \
+                 mock.patch.object(r, "_invoke_candidate", side_effect=cached_evaluate) as invoke:
+                code = r.command_execute(args)
+            self.assertEqual(code, 3)
+            self.assertEqual(invoke.call_count, 12)
+            self.assertEqual(r.verify_bundle(root)["status"], "verified")
+            summary, _ = r.read_json(root / "summary.json")
+            self.assertEqual(summary["study_status"], "limit_reached")
+            self.assertEqual(summary["counts"]["complete"], 24)
+
+    def test_v2_final_seal_overrun_marks_completed_study_limited(self) -> None:
+        r = self.runner
+        with tempfile.TemporaryDirectory(prefix="axissim-m63d-final-seal-overrun-") as temp:
+            root = Path(temp) / "bundle"
+            cache = Path(temp) / "cache"
+            cache.mkdir()
+            args = argparse.Namespace(manifest=str(self.manifest_v2_path), binary=str(self.binary), output_dir=str(root))
+            self.assertEqual(r.command_plan(args), 0)
+            self.assertEqual(r.command_preflight(args), 0)
+            p8_rows = [row for row in self.rows_v2 if row["capacity_level_id"] == "p8"]
+            result_by_request: dict[str, bytes] = {}
+            for index, row in enumerate(p8_rows):
+                result_path = cache / f"p8-{index}.json"
+                proc = r.invoke_evaluator(self.binary, root / row["request_path"], result_path, 10)
+                self.assertEqual(proc["process_exit_code"], 0)
+                result, raw, error = r._cpp_response(result_path, 8192)
+                self.assertIsNone(error)
+                valid, reason = r.validate_candidate_result(result, row, r._file_hash(self.binary))
+                self.assertTrue(valid, reason)
+                result_by_request[row["request_sha256"]] = raw
+
+            diagnostics, _ = r.read_jsonl(root / "host-diagnostics.jsonl")
+            phase = next(item for item in diagnostics if item.get("record_type") == "phase" and item.get("phase") == "preflight")
+            phase["phase_elapsed_ns"] = 899_900_000_000
+            store = r.ArtifactStore(root)
+            r._append_host_diagnostics(store, root, diagnostics[:-1], [diagnostics[-1]])
+
+            now = [0]
+            def clock_tick() -> int:
+                return now[0]
+
+            def cached_evaluate(binary, request_root, row, timeout):
+                raw = result_by_request[row["request_sha256"]]
+                temp_name = r.hashlib.sha256(("cpp-result:" + row["study_row_id"]).encode("ascii")).hexdigest() + ".json"
+                staged = request_root / ".staging" / temp_name
+                staged.write_bytes(raw)
+                response, parsed_raw, parse_error = r._cpp_response(staged, 8192)
+                staged.unlink()
+                return ({"process_exit_code": 0, "timed_out": False, "cancelled": False,
+                         "launch_error": False, "elapsed_ns": 0, "stdout_bytes": 0,
+                         "stdout_sha256": r.sha256_bytes(b""), "stderr_bytes": 0,
+                         "stderr_sha256": r.sha256_bytes(b"")}, response, parsed_raw, parse_error)
+
+            real_verify = r.verify_bundle
+            verify_calls = [0]
+            def verify_with_final_tail(root_path):
+                verify_calls[0] += 1
+                if verify_calls[0] == 2:
+                    now[0] = 200_000_000
+                return real_verify(root_path)
+
+            with mock.patch.object(r.time, "monotonic_ns", side_effect=clock_tick), \
+                 mock.patch.object(r, "_invoke_candidate", side_effect=cached_evaluate) as invoke, \
+                 mock.patch.object(r, "verify_bundle", side_effect=verify_with_final_tail):
+                code = r.command_execute(args)
+            self.assertEqual(code, 3)
+            self.assertEqual(invoke.call_count, 12)
+            self.assertGreaterEqual(verify_calls[0], 3)
+            verified = real_verify(root)
+            self.assertEqual(verified["status"], "verified")
+            summary, _ = r.read_json(root / "summary.json")
+            self.assertEqual(summary["study_status"], "limit_reached")
+            self.assertEqual(summary["counts"]["complete"], 24)
+
+    def test_v2_invalid_cpp_pilot_envelopes_are_retained_and_verified(self) -> None:
+        r = self.runner
+        with tempfile.TemporaryDirectory(prefix="axissim-m63d-invalid-pilot-") as temp:
+            root = Path(temp) / "bundle"
+            args = argparse.Namespace(manifest=str(self.manifest_v2_path), binary=str(self.binary), output_dir=str(root))
+            self.assertEqual(r.command_plan(args), 0)
+            error = {
+                "schema_id": "axissim.gemm-pair.error", "schema_version": 1,
+                "status": "invalid_request", "errors": [
+                    {"scope": "request", "code": "invalid_value", "path": "/workload/m"}
+                ],
+            }
+            raw = r.canonical_bytes(error) + b"\n"
+            launched: list[dict[str, object]] = []
+
+            def invalid_evaluator(binary, request_path, result_path, timeout):
+                request = r.parse_json(Path(request_path).read_bytes().rstrip(b"\n"))
+                launched.append(request)
+                Path(result_path).write_bytes(raw)
+                return {"process_exit_code": 2, "timed_out": False, "cancelled": False, "launch_error": False,
+                        "elapsed_ns": 100, "stdout_bytes": 0, "stdout_sha256": r.sha256_bytes(b""),
+                        "stderr_bytes": 0, "stderr_sha256": r.sha256_bytes(b"")}
+
+            with mock.patch.object(r, "invoke_evaluator", side_effect=invalid_evaluator):
+                self.assertEqual(r.command_preflight(args), 3)
+            self.assertEqual(len(launched), 12)
+            self.assertTrue(all(request["mappings"]["matrix"]["mac_slots_per_cycle"] == 4 for request in launched))
+            self.assertEqual(r.verify_bundle(root)["status"], "verified")
+            preflight, _ = r.read_json(root / "preflight.json")
+            ledger, _ = r.read_jsonl(root / "runner-ledger.jsonl")
+            self.assertEqual(preflight["status"], "pilot_failed")
+            p4 = [item for item in ledger if item["base_case_id"].endswith("_p4")]
+            p8 = [item for item in ledger if item["base_case_id"].endswith("_p8")]
+            self.assertEqual(len(p4), 12)
+            self.assertTrue(all(item["runner_status"] == "invalid" for item in p4))
+            self.assertTrue(all(item["runner_status"] == "not_started_due_to_preflight_failure" for item in p8))
+            for item in p4:
+                error_path = Path(root / item["artifact_paths"][-1])
+                self.assertEqual(error_path.read_bytes(), raw)
+
+    def test_v2_terminal_preflight_publication_overrun_is_recorded_and_rehashed(self) -> None:
+        r = self.runner
+        with tempfile.TemporaryDirectory(prefix="axissim-m63d-preflight-overrun-") as temp:
+            root = Path(temp) / "bundle"
+            args = argparse.Namespace(manifest=str(self.manifest_v2_path), binary=str(self.binary), output_dir=str(root))
+            self.assertEqual(r.command_plan(args), 0)
+            error = {
+                "schema_id": "axissim.gemm-pair.error", "schema_version": 1,
+                "status": "invalid_request", "errors": [
+                    {"scope": "request", "code": "controlled_invalid", "path": "/workload/m"}
+                ],
+            }
+            error_bytes = r.canonical_bytes(error) + b"\n"
+            launched = []
+
+            def invalid_evaluator(binary, request_path, result_path, timeout):
+                launched.append(Path(request_path).read_bytes())
+                Path(result_path).write_bytes(error_bytes)
+                return {"process_exit_code": 2, "timed_out": False, "cancelled": False,
+                        "launch_error": False, "elapsed_ns": 1, "stdout_bytes": 0,
+                        "stdout_sha256": r.sha256_bytes(b""), "stderr_bytes": 0,
+                        "stderr_sha256": r.sha256_bytes(b"")}
+
+            ticks = [0] * 14 + [901_000_000_000, 902_000_000_000]
+            tick_index = [0]
+            def clock_tick() -> int:
+                value = ticks[min(tick_index[0], len(ticks) - 1)]
+                tick_index[0] += 1
+                return value
+
+            with mock.patch.object(r.time, "monotonic_ns", side_effect=clock_tick), \
+                 mock.patch.object(r, "invoke_evaluator", side_effect=invalid_evaluator):
+                self.assertEqual(r.command_preflight(args), 3)
+            self.assertEqual(len(launched), 12)
+            self.assertTrue(all(r.parse_json(raw.rstrip(b"\n"))["mappings"]["matrix"]["mac_slots_per_cycle"] == 4 for raw in launched))
+            self.assertEqual(r.verify_bundle(root)["status"], "verified")
+            preflight, _ = r.read_json(root / "preflight.json")
+            summary, _ = r.read_json(root / "summary.json")
+            self.assertEqual(preflight["status"], "limit_reached")
+            self.assertEqual(summary["study_status"], "limit_reached")
+            ledger, _ = r.read_jsonl(root / "runner-ledger.jsonl")
+            self.assertTrue(all(row["runner_status"] == "not_started_due_to_limit" for row in ledger if row["base_case_id"].endswith("_p8")))
+
+    def test_v2_terminal_partial_failed_timeout_and_output_limit_bundles_verify(self) -> None:
+        r = self.runner
+        target = self.rows_v2[0]
+        real_invoke = r.invoke_evaluator
+        cases = (
+            ("partial", "partial", 3),
+            ("failed", "failed", 4),
+            ("timeout", "timeout", 143),
+            ("output_limit", "output_limit", 5),
+        )
+        for mode, expected_status, exit_code in cases:
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory(prefix=f"axissim-m63d-terminal-{mode}-") as temp:
+                root = Path(temp) / "bundle"
+                args = argparse.Namespace(manifest=str(self.manifest_v2_path), binary=str(self.binary), output_dir=str(root))
+                self.assertEqual(r.command_plan(args), 0)
+
+                def controlled(binary, request_path, result_path, timeout):
+                    request_raw = Path(request_path).read_bytes().rstrip(b"\n")
+                    request_hash = r.sha256_bytes(request_raw)
+                    if request_hash == target["request_sha256"] and mode == "timeout":
+                        return {"process_exit_code": exit_code, "timed_out": True, "cancelled": False,
+                                "launch_error": False, "elapsed_ns": 1, "stdout_bytes": 0,
+                                "stdout_sha256": r.sha256_bytes(b""), "stderr_bytes": 0,
+                                "stderr_sha256": r.sha256_bytes(b"")}
+                    if request_hash == target["request_sha256"] and mode == "output_limit":
+                        Path(result_path).write_bytes(b"x" * 8194)
+                        return {"process_exit_code": exit_code, "timed_out": False, "cancelled": False,
+                                "launch_error": False, "elapsed_ns": 1, "stdout_bytes": 0,
+                                "stdout_sha256": r.sha256_bytes(b""), "stderr_bytes": 0,
+                                "stderr_sha256": r.sha256_bytes(b"")}
+                    proc = real_invoke(binary, request_path, result_path, timeout)
+                    if request_hash == target["request_sha256"] and mode in {"partial", "failed"}:
+                        record, _, error = r._cpp_response(Path(result_path))
+                        if error:
+                            return proc
+                        if mode == "partial":
+                            record["status"] = "partial"
+                            record["arms"]["matrix"] = {"arm_status": "not_run"}
+                            record["errors"] = [{"scope": "matrix", "code": "controlled_partial", "path": "/arms/matrix"}]
+                        else:
+                            record["status"] = "failed"
+                            record["arms"] = {"rvv": {"arm_status": "failed"}, "matrix": {"arm_status": "failed"}}
+                            record["errors"] = [{"scope": "global", "code": "controlled_failure", "path": ""}]
+                        Path(result_path).write_bytes(r.canonical_bytes(record) + b"\n")
+                        proc["process_exit_code"] = exit_code
+                    return proc
+
+                with mock.patch.object(r, "invoke_evaluator", side_effect=controlled):
+                    self.assertEqual(r.command_preflight(args), 3)
+                verified = r.verify_bundle(root)
+                self.assertEqual(verified["status"], "verified")
+                ledger, _ = r.read_jsonl(root / "runner-ledger.jsonl")
+                first = next(item for item in ledger if item["study_row_id"] == target["study_row_id"])
+                self.assertEqual(first["runner_status"], expected_status)
+                summary, _ = r.read_json(root / "summary.json")
+                self.assertEqual(summary["study_status"], "pilot_failed")
+                self.assertEqual(sum(row["runner_status"] == "not_started_due_to_preflight_failure" for row in summary["rows"]), 12)
+
+    def test_v2_cpp_error_envelopes_and_eight_kib_result_cap_are_strict(self) -> None:
+        r = self.runner
+        row = self.rows_v2[0]
+        invalid = {
+            "schema_id": "axissim.gemm-pair.error", "schema_version": 1,
+            "status": "invalid_request", "errors": [
+                {"scope": "request", "code": "invalid_value", "path": "/workload/m"}
+            ],
+        }
+        self.assertEqual(r._verify_cpp_error_envelope(invalid, "invalid_request", row)["code"], "invalid_value")
+        internal = {
+            "schema_id": "axissim.gemm-pair.error", "schema_version": 1,
+            "status": "internal_error", "errors": [
+                {"scope": "global", "code": "internal_error", "path": ""}
+            ],
+        }
+        r._verify_cpp_error_envelope(internal, "internal_error", row)
+        output_limit = {
+            "schema_id": "axissim.gemm-pair.error", "schema_version": 1,
+            "status": "output_limit", "candidate_pair_id": row["ids"]["candidate_pair_id"],
+            "request_sha256": row["ids"]["request_sha256"],
+            "model_assumptions_sha256": row["ids"]["model_assumptions_sha256"],
+            "errors": [{"scope": "global", "code": "output_limit", "path": ""}],
+        }
+        r._verify_cpp_error_envelope(output_limit, "output_limit", row)
+        bad = json.loads(json.dumps(output_limit))
+        bad["model_assumptions_sha256"] = "0" * 64
+        with self.assertRaises(r.RunnerError):
+            r._verify_cpp_error_envelope(bad, "output_limit", row)
+        with tempfile.TemporaryDirectory(prefix="axissim-m63d-8k-cap-") as temp:
+            path = Path(temp) / "result.json"
+            path.write_bytes(b"{}" + b" " * (8192 - 2) + b"\n")
+            parsed, raw, error = r._cpp_response(path, 8192)
+            self.assertEqual(parsed, {})
+            self.assertEqual(len(raw), 8193)
+            self.assertIsNone(error)
+            path.write_bytes(b"{}" + b" " * (8193 - 2) + b"\n")
+            parsed, raw, error = r._cpp_response(path, 8192)
+            self.assertIsNone(parsed)
+            self.assertIsNone(raw)
+            self.assertEqual(error, "result_output_limit")
+
+    def test_v2_preflight_storage_and_result_caps_are_stricter_than_m63c(self) -> None:
+        r = self.runner
+        with tempfile.TemporaryDirectory(prefix="axissim-m63d-preflight-") as temp:
+            root = Path(temp)
+            (root / "manifest.json").write_bytes(r.canonical_bytes(self.manifest_v2) + b"\n")
+            for row in self.rows_v2:
+                (root / row["request_path"]).parent.mkdir(parents=True, exist_ok=True)
+                (root / row["request_path"]).write_bytes(row["request_bytes"])
+            request_bytes, final_bytes, peak_bytes = r._compute_storage_bound(root, self.rows_v2, 24)
+            self.assertEqual(request_bytes, sum(len(row["request_bytes"]) for row in self.rows_v2))
+            self.assertLess(peak_bytes, r.V2_LIMITS["max_bundle_bytes"])
+            self.assertEqual(r.V2_LIMITS["max_result_payload_bytes"], 8192)
+            self.assertEqual(final_bytes + r.MAX_STAGING, peak_bytes)
+
+    def test_v2_plots_and_csv_are_deterministic_and_scientifically_labeled(self) -> None:
+        r = self.runner
+        synthetic = {}
+        for row in self.rows_v2:
+            synthetic[row["source_row_index"]] = {"runner_status": "failed", "error_codes": ["test_failed"], "artifact_paths": []}
+        plots = r._make_v2_plots(self.rows_v2, synthetic)
+        self.assertEqual(set(plots), set(r.V2_FILE_CAPS) & {"plots/compute-cycles.svg", "plots/logical-payload-bytes.svg", "plots/serialized-total-cycles.svg", "plots/serialized-cycle-breakdown.svg"})
+        for data in plots.values():
+            ET.fromstring(data)
+            self.assertLessEqual(len(data), 65536)
+        self.assertIn(b"modeled serial cycles", plots["plots/serialized-total-cycles.svg"])
+        self.assertIn(b"modeled serial cycles", plots["plots/serialized-cycle-breakdown.svg"].lower())
+        self.assertNotIn(b"measured speedup", plots["plots/serialized-total-cycles.svg"].lower())
+        summary_rows = [r._summary_row_v2(row, {"runner_status": "not_started_due_to_limit", "error_codes": ["active_time_limit"]}) for row in self.rows_v2]
+        csv_data = r._summary_csv(self.rows_v2, {}, summary_rows).encode("ascii")
+        self.assertEqual(csv_data, r._summary_csv(self.rows_v2, {}, summary_rows).encode("ascii"))
+        header = csv_data.splitlines()[0].decode("ascii").split(",")
+        self.assertEqual(header, r.CSV_COLUMNS_V2)
+        self.assertEqual(len(list(csv.DictReader(io.StringIO(csv_data.decode("ascii"))))), 24)
 
     def test_locked_manifest_expands_to_six_stable_requests(self) -> None:
         r = self.runner

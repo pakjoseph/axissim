@@ -183,6 +183,69 @@ int main() {
   require(number(get(get(sensitive_rvv, "serialized_backing_store"),
                      "finite_makespan_cycles")) > 2,
           "serialized sensitivity did not include transfers");
+  const auto sensitive_matrix = get(get(sensitive, "arms"), "matrix");
+  require(get(sensitive_matrix, "serialized_backing_store").is_object(),
+          "serialized sensitivity was not returned for both complete arms");
+  const auto &echoed_sensitivity =
+      get(get(sensitive, "measurement_protocol"), "backing_store_sensitivity");
+  require(number(get(echoed_sensitivity, "bandwidth_bytes_per_second")) ==
+                  1'000'000'000 &&
+              number(get(echoed_sensitivity, "batch_setup_cycles")) == 0,
+          "result did not echo the request's serialized sensitivity");
+  const auto high_bandwidth = gemm_json::parse(evaluate_study_gemm_pair(
+      replace_once(sensitive_request,
+                   "\"bandwidth_bytes_per_second\":1000000000",
+                   "\"bandwidth_bytes_per_second\":64000000000"))
+                                                    .json);
+  const auto positive_setup = gemm_json::parse(evaluate_study_gemm_pair(
+      replace_once(sensitive_request, "\"batch_setup_cycles\":0",
+                   "\"batch_setup_cycles\":1"))
+                                                   .json);
+  for (const auto *changed_result : {&high_bandwidth, &positive_setup}) {
+    require(string(get(*changed_result, "status")) == "complete",
+            "valid serialized sensitivity variant did not complete");
+    require(string(get(*changed_result, "candidate_pair_id")) !=
+                    string(get(sensitive, "candidate_pair_id")) &&
+                string(get(*changed_result, "request_sha256")) !=
+                    string(get(sensitive, "request_sha256")) &&
+                string(get(*changed_result, "model_assumptions_sha256")) !=
+                    string(get(sensitive, "model_assumptions_sha256")),
+            "sensitivity change did not bind into all C++ identities");
+    require(string(get(*changed_result, "workload_id")) ==
+                string(get(sensitive, "workload_id")),
+            "sensitivity change unexpectedly changed workload identity");
+    for (const auto *mapping : {"rvv", "matrix"}) {
+      const auto &baseline_arm = get(get(sensitive, "arms"), mapping);
+      const auto &actual_variant_arm = get(get(*changed_result, "arms"), mapping);
+      require(get(actual_variant_arm, "serialized_backing_store").is_object(),
+              "sensitivity variant omitted a complete arm's serial estimate");
+      require(number(get(actual_variant_arm, "compute_cycles_per_unit")) ==
+                  number(get(baseline_arm, "compute_cycles_per_unit")) &&
+                  number(get(actual_variant_arm, "compute_cycles_total")) ==
+                      number(get(baseline_arm, "compute_cycles_total")) &&
+                  string(get(actual_variant_arm, "mapping_id")) ==
+                      string(get(baseline_arm, "mapping_id")),
+              "sensitivity variant changed compute-only work or timing");
+      for (const auto *field : {"useful_macs_per_unit", "useful_macs_total",
+                                "conventional_ops_per_unit", "conventional_ops_total"}) {
+        require(number(get(get(actual_variant_arm, "workload_counts"), field)) ==
+                    number(get(get(baseline_arm, "workload_counts"), field)),
+                "sensitivity variant changed mathematical operation counts");
+      }
+      for (const auto *field : {"read_a_bytes_per_unit", "read_b_bytes_per_unit",
+                                "write_c_bytes_per_unit", "read_a_batches_per_unit",
+                                "read_b_batches_per_unit", "write_c_batches_per_unit",
+                                "total_bytes_per_unit", "total_bytes_total"}) {
+        require(number(get(get(actual_variant_arm, "logical_traffic"), field)) ==
+                    number(get(get(baseline_arm, "logical_traffic"), field)),
+                "sensitivity variant changed mapping-derived logical traffic");
+      }
+      require(number(get(get(actual_variant_arm, "serialized_backing_store"),
+                         "compute_cycles_per_unit")) ==
+                  number(get(actual_variant_arm, "compute_cycles_per_unit")),
+              "serialized estimate changed its compute-only component");
+    }
+  }
 
   const auto fractional =
       evaluate_study_gemm_pair(replace_once(kRequest, "\"m\":1", "\"m\":1.0"));

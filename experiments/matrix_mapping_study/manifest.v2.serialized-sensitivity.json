@@ -1,0 +1,186 @@
+{
+  "canonicalization_id": "axissim-json-canonical-v1",
+  "capacity_levels": [
+    {
+      "level_id": "p4",
+      "mac_slots_per_cycle": 4
+    },
+    {
+      "level_id": "p8",
+      "mac_slots_per_cycle": 8
+    }
+  ],
+  "comparison_groups": [
+    {
+      "group_id": "tiny_capacity",
+      "shape_id": "tiny",
+      "capacity_level_ids": [
+        "p4",
+        "p8"
+      ],
+      "pilot_level_id": "p4"
+    },
+    {
+      "group_id": "aligned_capacity",
+      "shape_id": "aligned",
+      "capacity_level_ids": [
+        "p4",
+        "p8"
+      ],
+      "pilot_level_id": "p4"
+    },
+    {
+      "group_id": "partial_capacity",
+      "shape_id": "partial",
+      "capacity_level_ids": [
+        "p4",
+        "p8"
+      ],
+      "pilot_level_id": "p4"
+    }
+  ],
+  "evaluator": {
+    "command": "study-gemm-pair",
+    "request_schema_id": "axissim.gemm-pair.request",
+    "request_schema_version": 1,
+    "result_schema_id": "axissim.gemm-pair.result",
+    "result_schema_version": 1
+  },
+  "hypotheses": [
+    {
+      "hypothesis_id": "H1",
+      "statement": "For at least one fixed base case and sensitivity point, RVV and matrix report different serialized read-plus-write service cycles because their logical payload or batch counts differ."
+    },
+    {
+      "hypothesis_id": "H2",
+      "statement": "Moving from P4 to P8 reduces the same mapping's compute-only cycles and serialized total cycles for at least one fixed shape and sensitivity setting."
+    },
+    {
+      "hypothesis_id": "H3",
+      "statement": "At fixed shape, capacity, setup, and mapping, higher declared bandwidth never increases read service, write service, or total serialized cycles; at least one service result decreases strictly."
+    },
+    {
+      "hypothesis_id": "H4",
+      "statement": "At fixed shape, capacity, bandwidth, and mapping, increasing setup from zero to one cycle per batch never decreases total cycles, and increases totals wherever returned A/B/C batch counts are nonzero."
+    },
+    {
+      "hypothesis_id": "H5",
+      "statement": "At least one selected case has a strict compute-cycle winner that is not the strict serialized-total winner."
+    }
+  ],
+  "limits": {
+    "max_active_seconds": 900,
+    "max_bundle_bytes": 2097152,
+    "max_diagnostics_bytes_per_invocation": 4096,
+    "max_evaluator_seconds": 30,
+    "max_manifest_bytes": 65536,
+    "max_request_file_bytes": 65536,
+    "max_result_payload_bytes": 8192,
+    "max_source_rows": 48,
+    "max_unique_candidates": 24
+  },
+  "mapping_constants": {
+    "matrix": {
+      "accumulator_recurrence_cycles": 1,
+      "kernel_setup_cycles": 0,
+      "kind": "tiled_matrix_output_stationary_v1",
+      "tile_setup_cycles": 0
+    },
+    "rvv": {
+      "accumulator_recurrence_cycles": 1,
+      "chunk_setup_cycles": 0,
+      "kernel_setup_cycles": 0,
+      "kind": "rvv_row_v1",
+      "lmul": 1,
+      "macs_per_lane_cycle": 1,
+      "sew_bits": 16,
+      "vlen_bits": 128
+    }
+  },
+  "measurement": {
+    "clock_hz": 1000000000,
+    "protocol": "finite_serial_batch_v1",
+    "release_policy": "all_at_zero",
+    "repeat_count": 1,
+    "unit_order": "ascending_index_no_overlap"
+  },
+  "purpose": "Compare RVV and tiled-matrix GEMM mappings under shape-only assumptions.",
+  "schema_id": "axissim.gemm-pair-study.manifest",
+  "schema_version": 2,
+  "shapes": [
+    {
+      "shape_id": "tiny",
+      "m": 2,
+      "n": 2,
+      "k": 3,
+      "tile_m": 2,
+      "tile_n": 2,
+      "tile_k": 2,
+      "local_capacity_bytes": 32
+    },
+    {
+      "shape_id": "aligned",
+      "m": 4,
+      "n": 4,
+      "k": 4,
+      "tile_m": 2,
+      "tile_n": 2,
+      "tile_k": 2,
+      "local_capacity_bytes": 32
+    },
+    {
+      "shape_id": "partial",
+      "m": 3,
+      "n": 5,
+      "k": 2,
+      "tile_m": 2,
+      "tile_n": 3,
+      "tile_k": 2,
+      "local_capacity_bytes": 44
+    }
+  ],
+  "study_label": "paired-gemm-serial-sensitivity-v1",
+  "workload": {
+    "accumulator_output_format": "signed_i32_twos_complement",
+    "batch_count": 1,
+    "input_format": "signed_i16_twos_complement",
+    "initial_c": "zero",
+    "layout": "row_major_contiguous",
+    "operand_data_identity": "shape_only_no_values_v1",
+    "operation": "gemm",
+    "overflow": "wrap_mod_2pow32",
+    "rounding": "none",
+    "transpose_a": false,
+    "transpose_b": false
+  },
+  "sensitivity_cases": [
+    {
+      "sensitivity_case_id": "bw_1e9_bytes_per_second_setup_0",
+      "bandwidth_bytes_per_second": 1000000000,
+      "batch_setup_cycles": 0
+    },
+    {
+      "sensitivity_case_id": "bw_64e9_bytes_per_second_setup_0",
+      "bandwidth_bytes_per_second": 64000000000,
+      "batch_setup_cycles": 0
+    },
+    {
+      "sensitivity_case_id": "bw_1e9_bytes_per_second_setup_1",
+      "bandwidth_bytes_per_second": 1000000000,
+      "batch_setup_cycles": 1
+    },
+    {
+      "sensitivity_case_id": "bw_64e9_bytes_per_second_setup_1",
+      "bandwidth_bytes_per_second": 64000000000,
+      "batch_setup_cycles": 1
+    }
+  ],
+  "baseline_reference": {
+    "study_label": "paired-gemm-v1",
+    "manifest_id": "d570caccdfc4f7b0136fe6b1ab7db512c00b182a80fe8b5b4a16353675754b07",
+    "canonical_artifact_manifest_sha256": "490c6623867b7adf9c3f0e3db7ff5d7a78341e24286eab06e572ccac6b7c0401",
+    "source_revision": "b7ce0edfa2775487275abeff8e3db18fa52d97cf",
+    "study_run_id": "308735741148488aa92cee059d241aa6430ff292d8ed385c3f23c59a05e31f0e",
+    "bundle_tar_sha256": "6e7c5733ce069de7d169ad3cc0ffdbcf86fea458325efab69a345ec232281f42"
+  }
+}
