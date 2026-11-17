@@ -195,6 +195,14 @@ if(BUILD_TESTING)
       add_test(NAME gemm_pair_cli_contract
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/gemm_study_contract_e2e.py
                        --binary $<TARGET_FILE:axissim>)
+      add_test(NAME matrix_mapping_study_contract
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/matrix_mapping_study_tests.py
+                       --source-root ${CMAKE_SOURCE_DIR}
+                       --binary $<TARGET_FILE:axissim>)
+      add_test(NAME matrix_mapping_study_e2e
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/matrix_mapping_study_e2e.py
+                       --source-root ${CMAKE_SOURCE_DIR}
+                       --binary $<TARGET_FILE:axissim>)
       add_test(NAME study_m5_execution_pareto_contract
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/study_m5_tests.py
                        --source-root ${CMAKE_SOURCE_DIR}

@@ -24,7 +24,7 @@ jobs:
       - name: Run coverage documentation, candidate, study, and scheduler contracts
         run: |
           python tools/verify_m5_study_replay.py --help
-          ctest --test-dir build --output-on-failure -R "(power_cost_coverage_documentation|m5_replay_verifier)_contract|study_(manifest_preflight|candidate_cli|m5_execution_pareto)_contract|scheduler_ordering_deterministic_contract|gemm_pair_cli_contract"
+          ctest --test-dir build --output-on-failure -R "(power_cost_coverage_documentation|m5_replay_verifier)_contract|study_(manifest_preflight|candidate_cli|m5_execution_pareto)_contract|scheduler_ordering_deterministic_contract|gemm_pair_cli_contract|matrix_mapping_study_(contract|e2e)"
 
   build-and-test:
     name: ${{ matrix.os }} ${{ matrix.gui == 'true' && 'desktop' || 'core' }}
@@ -68,10 +68,10 @@ jobs:
         run: ctest --test-dir build -C Release --output-on-failure -R "scheduler_ordering_cpp_contract|scheduler_ordering_deterministic_contract|legacy_study_baselines_repeat_per_platform"
       - name: Run paired GEMM and M5 contract portability tests
         if: matrix.os == 'windows-latest'
-        run: ctest --test-dir build -C Release --output-on-failure -R "sha256_cpp_contract|gemm_(json_cpp_contract|study_contract_cpp|mapping_cpp_contract)|gemm_pair_cli_contract|study_candidate_cli_contract"
+        run: ctest --test-dir build -C Release --output-on-failure -R "sha256_cpp_contract|gemm_(json_cpp_contract|study_contract_cpp|mapping_cpp_contract)|gemm_pair_cli_contract|study_candidate_cli_contract|matrix_mapping_study_(contract|e2e)"
       - name: Run historical and deterministic scheduler contracts
         if: matrix.os == 'macos-latest'
         run: ctest --test-dir build -C Release --output-on-failure -R "legacy_study_baselines_(reproduce|repeat_per_platform)|scheduler_ordering_cpp_contract|scheduler_ordering_deterministic_contract"
       - name: Run paired GEMM and M5 contract portability tests
         if: matrix.os == 'macos-latest'
-        run: ctest --test-dir build -C Release --output-on-failure -R "sha256_cpp_contract|gemm_(json_cpp_contract|study_contract_cpp|mapping_cpp_contract)|gemm_pair_cli_contract|study_candidate_cli_contract|m5_replay_verifier_contract"
+        run: ctest --test-dir build -C Release --output-on-failure -R "sha256_cpp_contract|gemm_(json_cpp_contract|study_contract_cpp|mapping_cpp_contract)|gemm_pair_cli_contract|study_candidate_cli_contract|matrix_mapping_study_(contract|e2e)|m5_replay_verifier_contract"
