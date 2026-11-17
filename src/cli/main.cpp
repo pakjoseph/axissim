@@ -19,15 +19,73 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
+
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#elif defined(__linux__)
+#include <unistd.h>
+#endif
 
 #include "config.hpp"
 #include "metrics.hpp"
 #include "profile.hpp"
 #include "simulation.hpp"
 #include "study_contract.hpp"
+#include "gemm_study_contract.hpp"
 
 namespace axissim {
+
+[[nodiscard]] std::filesystem::path running_executable_path(
+    std::string_view argv0) {
+#if defined(_WIN32)
+  std::vector<wchar_t> buffer(32768);
+  const DWORD length = GetModuleFileNameW(
+      nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+  if (length > 0 && static_cast<std::size_t>(length) < buffer.size())
+    return std::filesystem::path(
+        std::wstring(buffer.data(), static_cast<std::size_t>(length)));
+#elif defined(__APPLE__)
+  std::uint32_t required = 0;
+  (void)_NSGetExecutablePath(nullptr, &required);
+  if (required > 0) {
+    std::vector<char> buffer(required);
+    if (_NSGetExecutablePath(buffer.data(), &required) == 0) {
+      std::error_code error;
+      const auto canonical =
+          std::filesystem::canonical(buffer.data(), error);
+      return error ? std::filesystem::path(buffer.data()) : canonical;
+    }
+  }
+#elif defined(__linux__)
+  std::size_t capacity = 256;
+  while (capacity <= 1024 * 1024) {
+    std::vector<char> buffer(capacity);
+    const auto length = ::readlink("/proc/self/exe", buffer.data(),
+                                   buffer.size());
+    if (length < 0)
+      break;
+    if (static_cast<std::size_t>(length) < buffer.size())
+      return std::filesystem::path(
+          std::string(buffer.data(), static_cast<std::size_t>(length)));
+    capacity *= 2;
+  }
+#endif
+
+  const std::filesystem::path invoked_path(argv0);
+  if (invoked_path.has_parent_path() || invoked_path.is_absolute()) {
+    std::error_code error;
+    const auto canonical = std::filesystem::canonical(invoked_path, error);
+    return error ? invoked_path : canonical;
+  }
+  return {};
+}
 
 [[nodiscard]] std::string trim(std::string value) {
   const auto first = value.find_first_not_of(" \t\r\n");
@@ -573,6 +631,35 @@ int main(int argc, char** argv) {
         return 2;
       }
       return run_study_evaluate(*request_path,*result_path,argv[0],study_trace_path);
+    }
+    if (argc >= 2 && std::string(argv[1]) == "study-gemm-pair") {
+      std::optional<std::string> request_path;
+      std::optional<std::string> result_path;
+      for (int argument = 2; argument < argc; ++argument) {
+        const std::string option = argv[argument];
+        if (option == "--request") {
+          if (++argument >= argc || request_path) {
+            std::cerr << "Usage: axissim study-gemm-pair --request <pair-request.json> --result <pair-result.json>\n";
+            return 2;
+          }
+          request_path = argv[argument];
+        } else if (option == "--result") {
+          if (++argument >= argc || result_path) {
+            std::cerr << "Usage: axissim study-gemm-pair --request <pair-request.json> --result <pair-result.json>\n";
+            return 2;
+          }
+          result_path = argv[argument];
+        } else {
+          std::cerr << "Usage: axissim study-gemm-pair --request <pair-request.json> --result <pair-result.json>\n";
+          return 2;
+        }
+      }
+      if (!request_path || !result_path) {
+        std::cerr << "Usage: axissim study-gemm-pair --request <pair-request.json> --result <pair-result.json>\n";
+        return 2;
+      }
+      return run_study_gemm_pair(*request_path, *result_path,
+                                 running_executable_path(argv[0]));
     }
     if ((argc == 3 || argc == 4) && std::string(argv[1]) == "profile-validate") {
       const WorkloadProfile profile = load_workload_profile(argv[2]);

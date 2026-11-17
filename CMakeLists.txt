@@ -17,9 +17,12 @@ endfunction()
 # tool and direct model tests consume the same parsing and validation path.
 add_library(axissim-core STATIC
   src/config.cpp
+  src/gemm_json.cpp
   src/gemm_mapping.cpp
+  src/gemm_study_contract.cpp
   src/metrics.cpp
   src/profile.cpp
+  src/sha256.cpp
   src/study_contract.cpp)
 target_include_directories(axissim-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 axissim_enable_strict_warnings(axissim-core)
@@ -124,6 +127,21 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+  add_executable(axissim-sha256-tests tests/sha256_tests.cpp)
+  target_link_libraries(axissim-sha256-tests PRIVATE axissim-core)
+  target_include_directories(axissim-sha256-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  axissim_enable_strict_warnings(axissim-sha256-tests)
+  add_test(NAME sha256_cpp_contract COMMAND axissim-sha256-tests)
+  add_executable(axissim-gemm-json-tests tests/gemm_json_tests.cpp)
+  target_link_libraries(axissim-gemm-json-tests PRIVATE axissim-core)
+  target_include_directories(axissim-gemm-json-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  axissim_enable_strict_warnings(axissim-gemm-json-tests)
+  add_test(NAME gemm_json_cpp_contract COMMAND axissim-gemm-json-tests)
+  add_executable(axissim-gemm-study-contract-tests tests/gemm_study_contract_tests.cpp)
+  target_link_libraries(axissim-gemm-study-contract-tests PRIVATE axissim-core)
+  target_include_directories(axissim-gemm-study-contract-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  axissim_enable_strict_warnings(axissim-gemm-study-contract-tests)
+  add_test(NAME gemm_study_contract_cpp COMMAND axissim-gemm-study-contract-tests)
   add_executable(axissim-gemm-mapping-tests tests/gemm_mapping_tests.cpp)
   target_link_libraries(axissim-gemm-mapping-tests PRIVATE axissim-core)
   target_include_directories(axissim-gemm-mapping-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -173,6 +191,9 @@ if(BUILD_TESTING)
       add_test(NAME study_candidate_cli_contract
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/study_contract_e2e.py
                        --source-root ${CMAKE_SOURCE_DIR}
+                       --binary $<TARGET_FILE:axissim>)
+      add_test(NAME gemm_pair_cli_contract
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/gemm_study_contract_e2e.py
                        --binary $<TARGET_FILE:axissim>)
       add_test(NAME study_m5_execution_pareto_contract
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/study_m5_tests.py
