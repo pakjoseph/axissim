@@ -1,0 +1,3 @@
+# Preserve byte-pinned study manifests across Windows autocrlf checkouts.
+/experiments/matrix_mapping_study/manifest.v1.json text eol=lf
+/experiments/matrix_mapping_study/manifest.v2.serialized-sensitivity.json text eol=lf
