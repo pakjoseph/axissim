@@ -68,10 +68,10 @@ jobs:
         run: ctest --test-dir build -C Release --output-on-failure -R "scheduler_ordering_cpp_contract|scheduler_ordering_deterministic_contract|legacy_study_baselines_repeat_per_platform"
       - name: Run paired GEMM and M5 contract portability tests
         if: matrix.os == 'windows-latest'
-        run: ctest --test-dir build -C Release --output-on-failure -R "sha256_cpp_contract|gemm_(json_cpp_contract|study_contract_cpp|mapping_cpp_contract)|gemm_pair_cli_contract|study_candidate_cli_contract|matrix_mapping_study_(contract|e2e)"
+        run: ctest --test-dir build -C Release --output-on-failure -R "sha256_cpp_contract|gemm_(json_cpp_contract|study_contract_cpp|mapping_cpp_contract)|matrix_architecture_cpp_contract|gemm_pair_cli_contract|study_candidate_cli_contract|matrix_mapping_study_(contract|e2e)"
       - name: Run historical and deterministic scheduler contracts
         if: matrix.os == 'macos-latest'
         run: ctest --test-dir build -C Release --output-on-failure -R "legacy_study_baselines_(reproduce|repeat_per_platform)|scheduler_ordering_cpp_contract|scheduler_ordering_deterministic_contract"
       - name: Run paired GEMM and M5 contract portability tests
         if: matrix.os == 'macos-latest'
-        run: ctest --test-dir build -C Release --output-on-failure -R "sha256_cpp_contract|gemm_(json_cpp_contract|study_contract_cpp|mapping_cpp_contract)|gemm_pair_cli_contract|study_candidate_cli_contract|matrix_mapping_study_(contract|e2e)|m5_replay_verifier_contract"
+        run: ctest --test-dir build -C Release --output-on-failure -R "sha256_cpp_contract|gemm_(json_cpp_contract|study_contract_cpp|mapping_cpp_contract)|matrix_architecture_cpp_contract|gemm_pair_cli_contract|study_candidate_cli_contract|matrix_mapping_study_(contract|e2e)|m5_replay_verifier_contract"
