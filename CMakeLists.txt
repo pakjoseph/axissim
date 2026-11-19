@@ -20,6 +20,7 @@ add_library(axissim-core STATIC
   src/gemm_json.cpp
   src/gemm_mapping.cpp
   src/gemm_study_contract.cpp
+  src/matrix_architecture.cpp
   src/metrics.cpp
   src/profile.cpp
   src/sha256.cpp
@@ -147,6 +148,11 @@ if(BUILD_TESTING)
   target_include_directories(axissim-gemm-mapping-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
   axissim_enable_strict_warnings(axissim-gemm-mapping-tests)
   add_test(NAME gemm_mapping_cpp_contract COMMAND axissim-gemm-mapping-tests)
+  add_executable(axissim-matrix-architecture-tests tests/matrix_architecture_tests.cpp)
+  target_link_libraries(axissim-matrix-architecture-tests PRIVATE axissim-core)
+  target_include_directories(axissim-matrix-architecture-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  axissim_enable_strict_warnings(axissim-matrix-architecture-tests)
+  add_test(NAME matrix_architecture_cpp_contract COMMAND axissim-matrix-architecture-tests)
   add_executable(axissim-core-model-tests tests/core_model_tests.cpp)
   target_link_libraries(axissim-core-model-tests PRIVATE axissim-core)
   target_include_directories(axissim-core-model-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
