@@ -13,7 +13,7 @@ fi
 stage="$build_dir/portable"
 archive="$build_dir/AxisSim-linux-$(uname -m).tar.gz"
 
-cmake -S "$root" -B "$build_dir" -DCMAKE_BUILD_TYPE=Release -DAXISSIM_BUILD_GUI=ON "-DAXISSIM_RELEASE_TAG=$release_tag"
+cmake -S "$root" -B "$build_dir" -DCMAKE_BUILD_TYPE=Release -DAXISSIM_BUILD_GUI=ON -DAXISSIM_PACKAGE_BUILD=ON "-DAXISSIM_RELEASE_TAG=$release_tag"
 cmake --build "$build_dir" --target axissim-gui --parallel
 test -x "$stage/AxisSim"
 test -x "$stage/axissim-cli"

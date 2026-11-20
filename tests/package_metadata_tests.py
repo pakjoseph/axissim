@@ -65,6 +65,7 @@ def main() -> int:
     import sys
     sys.path.insert(0, str(root / "tools"))
     from verify_extracted_package import (
+        is_application_pe_for_arch_check,
         is_msvc_runtime_dll,
         package_inventory_root,
         package_member_path,
@@ -144,6 +145,9 @@ def main() -> int:
             raise AssertionError("Windows inventory must bind the packaged VC redist prerequisite by SHA-256")
         if verify_windows_vc_redist(fixture, inventory) != redist_installer.resolve():
             raise AssertionError("Windows verifier must resolve the inventoried VC redist within package root")
+        if (is_application_pe_for_arch_check(redist_installer, redist_installer) or
+                not is_application_pe_for_arch_check(fixture / "Qt6Core.dll", redist_installer)):
+            raise AssertionError("only the exact inventoried VC bootstrapper may bypass app PE architecture checks")
         redist_installer.write_bytes(b"modified VC redistributable installer")
         try:
             verify_windows_vc_redist(fixture, inventory)
@@ -233,6 +237,9 @@ def main() -> int:
         raise AssertionError("Windows package build must stay under the ignored build directory")
     if "      - 'src/**'" not in workflow:
         raise AssertionError("native package verification must run when any packaged C++ source changes")
+    for input_prefix in ("configs", "reference_data", "resources"):
+        if f"      - '{input_prefix}/**'" not in workflow:
+            raise AssertionError(f"native package validation must run when shipped {input_prefix} inputs change")
     if "VsDevCmd.bat" not in workflow or "VCINSTALLDIR" not in workflow:
         raise AssertionError("Windows package validation must run windeployqt in a C++ developer environment")
     if "InstallVcRuntimeForValidation" not in workflow:
@@ -242,6 +249,10 @@ def main() -> int:
         raise AssertionError("Windows package script must reject a missing Visual Studio runtime source")
     if "vc_redist.x64.exe" not in windows_script:
         raise AssertionError("Windows package script must require the bundled VC redistributable installer")
+        for script_name in ("package_linux.sh", "package_macos.sh", "package_windows.ps1"):
+            script_text = (root / "scripts" / script_name).read_text(encoding="utf-8")
+            if "AXISSIM_PACKAGE_BUILD=ON" not in script_text:
+                raise AssertionError(f"{script_name} must enable strict package-input verification")
     if "runs-on: macos-15" not in workflow:
         raise AssertionError("Qt 6.8.3 package validation must avoid the incompatible macOS 26 SDK")
     if "upload-artifact" in workflow or "create-release" in workflow:
@@ -249,6 +260,14 @@ def main() -> int:
     readme = (root / "README.md").read_text(encoding="utf-8")
     if "does not retain them as downloadable Actions artifacts" not in readme:
         raise AssertionError("README must distinguish in-run package files from retained Actions artifacts")
+    package_docs = " ".join(
+        (root / "docs/package-provenance-and-licensing.md").read_text(encoding="utf-8").split()
+    )
+    if ("does not verify imported symbol exports" not in package_docs or
+            "smoke tests cover only the dependency paths they exercise" not in package_docs):
+        raise AssertionError("Windows dependency verification limitations must be explicit")
+    if "rejects modified, untracked, or ignored files beneath `configs/` and `reference_data/`" not in package_docs:
+        raise AssertionError("package input provenance guard must be documented")
 
     with tempfile.TemporaryDirectory(prefix="axissim-tag-mismatch-") as temporary:
         temporary_root = pathlib.Path(temporary)
@@ -330,6 +349,52 @@ def main() -> int:
         if untracked_release.returncode == 0 or "clean source tree" not in (untracked_release.stdout + untracked_release.stderr):
             raise AssertionError("an untracked configuration that would ship in the package was accepted")
         untracked_input.unlink()
+        ignored_input = clean_source / "configs" / "workloads" / "ignored-package-input.csv"
+        ignored_input.parent.mkdir(parents=True, exist_ok=True)
+        ignored_input.write_text("untracked ignored package input\n", encoding="utf-8")
+        ignored_check = subprocess.run(
+            ["git", "-C", str(clean_source), "check-ignore", "-q", "configs/workloads/ignored-package-input.csv"],
+            capture_output=True,
+            text=True,
+        )
+        if ignored_check.returncode != 0:
+            raise AssertionError("ignored package-input fixture is not covered by the repository ignore rules")
+        ignored_package_build = subprocess.run(
+            [
+                "cmake",
+                "-S",
+                str(clean_source),
+                "-B",
+                str(temporary_root / "ignored-package-build"),
+                "-DAXISSIM_BUILD_GUI=OFF",
+                "-DAXISSIM_PACKAGE_BUILD=ON",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        ignored_output = ignored_package_build.stdout + ignored_package_build.stderr
+        if (ignored_package_build.returncode == 0 or
+                "Package builds reject modified, untracked, or ignored files" not in ignored_output or
+                "ignored-package-input.csv" not in ignored_output):
+            raise AssertionError(f"package build did not reject an ignored file under configs/: {ignored_output}")
+        ignored_developer_build = subprocess.run(
+            [
+                "cmake",
+                "-S",
+                str(clean_source),
+                "-B",
+                str(temporary_root / "ignored-developer-build"),
+                "-DAXISSIM_BUILD_GUI=OFF",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if ignored_developer_build.returncode != 0:
+            raise AssertionError(
+                "ordinary developer configuration was blocked by the package-only input guard: "
+                f"{ignored_developer_build.stdout}{ignored_developer_build.stderr}"
+            )
+        ignored_input.unlink()
         (clean_source / "tag-fixture.txt").write_text("second revision\n", encoding="utf-8")
         subprocess.run(["git", "-C", str(clean_source), "add", "tag-fixture.txt"], check=True)
         subprocess.run(["git", "-C", str(clean_source), "commit", "-qm", "second fixture"], check=True)

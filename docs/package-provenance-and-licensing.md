@@ -16,8 +16,11 @@ with `VCINSTALLDIR` set. `windeployqt --compiler-runtime` stages
 ZIP does not contain app-local MSVC DLLs: install the bundled Microsoft Visual
 C++ Redistributable (x64, 14.x) if the target system does not already have it.
 The verifier requires the installer record and hash and confirms the declared
-runtime DLL imports resolve on the validation host. It does not count a
-host-installed runtime as evidence that the package is self-contained.
+runtime DLL imports resolve on the validation host. The vendor installer may
+itself be a 32-bit bootstrapper even though it installs the x64 runtime; the
+verified installer is therefore excluded from the x64 application-image scan.
+It does not count a host-installed runtime as evidence that the package is
+self-contained.
 Linux packages intentionally use system Qt libraries and platform plugins;
 the portable tarball documents that dependency, and the Debian package uses
 the shared-library dependency scan plus explicit dependencies for every
@@ -43,6 +46,10 @@ runtime file has a resolved license mapping. Do not publish a release until the
 project owner has reviewed the exact runtime inventory and SBOM catalog,
 completed the applicable attribution/source review, and arranged any required
 source or written-offer delivery and relinking information.
+
+Package scripts enable a strict check that rejects modified, untracked, or
+ignored files beneath `configs/` and `reference_data/`, which are copied into
+the package. Ordinary developer builds leave this check disabled.
 
 No signing credentials or notarization are configured. The macOS bundle is
 ad-hoc signed for local validation. Windows/Linux/macOS validation artifacts
@@ -75,12 +82,14 @@ bundle Qt dynamically. Linux needs Qt development/runtime packages, `dpkg-dev`,
 and the QPA plugins installed on the host. macOS packaging needs Qt 6,
 `macdeployqt`, `codesign`, `hdiutil`, and a working Cocoa session for the
 native GUI smoke test. The Windows static dependency check covers normal PE
-imports; delay-load imports and dependencies opened through runtime
-`LoadLibrary` calls still need separate analysis. The package-validation job
-installs the included Windows redistributable in its ephemeral runner before
-the extracted-package smoke tests. Package-validation files are checked and
-then discarded with their native CI runner workspaces; they are not retained as
-downloadable workflow artifacts.
+imports. The package-validation job installs the included Windows
+redistributable in its ephemeral runner before the extracted-package smoke
+tests. The static Windows PE check verifies AMD64 machine type and normal
+imported DLL names; it does not verify imported symbol exports, delay-load
+imports, or dependencies opened through `LoadLibrary`.
+Native CLI and GUI smoke tests cover only the dependency paths they exercise.
+Package-validation files are checked and then discarded with their native CI
+runner workspaces; they are not retained as downloadable workflow artifacts.
 
 ## Qt references
 

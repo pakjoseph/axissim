@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 option(AXISSIM_BUILD_GUI "Build the Qt 6 desktop explorer when Qt Widgets is available" ON)
+option(AXISSIM_PACKAGE_BUILD "Reject untracked, ignored, or modified packaged scenario/data inputs" OFF)
 message(STATUS "AxisSim requires CMake 3.20+ and a compiler with C++20 support; using ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
 
 set(AXISSIM_RELEASE_TAG "" CACHE STRING "Optional Git tag identity for a release-labeled package; must resolve to this exact source revision")
@@ -27,6 +28,19 @@ if(Git_FOUND)
     else()
       set(AXISSIM_SOURCE_TREE_STATE "modified")
       message(STATUS "AxisSim source tree was not clean at configure time; provenance will be marked modified")
+    endif()
+    if(AXISSIM_PACKAGE_BUILD)
+      execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} status --porcelain --untracked-files=all --ignored=matching -- configs reference_data
+                      RESULT_VARIABLE AXISSIM_PACKAGE_INPUT_STATUS_RESULT
+                      OUTPUT_VARIABLE AXISSIM_PACKAGE_INPUT_STATUS
+                      OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+      if(NOT AXISSIM_PACKAGE_INPUT_STATUS_RESULT EQUAL 0)
+        message(FATAL_ERROR "Cannot verify package scenario/data inputs with Git")
+      endif()
+      if(NOT AXISSIM_PACKAGE_INPUT_STATUS STREQUAL "")
+        message(FATAL_ERROR
+          "Package builds reject modified, untracked, or ignored files beneath configs/ and reference_data/:\n${AXISSIM_PACKAGE_INPUT_STATUS}")
+      endif()
     endif()
     # Regenerate the embedded build identity when any tracked source input
     # changes after the initial configure. Package scripts also reconfigure

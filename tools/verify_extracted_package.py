@@ -120,8 +120,13 @@ def verify_windows_vc_redist(root: pathlib.Path, inventory: dict) -> pathlib.Pat
     return installer
 
 
+def is_application_pe_for_arch_check(path: pathlib.Path, vc_redist_installer: pathlib.Path) -> bool:
+    """Exclude only the hash-verified VC installer bootstrapper from app PE checks."""
+    return path.resolve() != vc_redist_installer.resolve()
+
+
 def check_windows_package_dependencies(root: pathlib.Path, inventory: dict) -> str:
-    verify_windows_vc_redist(root, inventory)
+    vc_redist_installer = verify_windows_vc_redist(root, inventory)
 
     system_root = pathlib.Path(os.environ.get("SystemRoot", r"C:\Windows"))
     # The portable package is x64, so imports must resolve from the native x64
@@ -132,6 +137,11 @@ def check_windows_package_dependencies(root: pathlib.Path, inventory: dict) -> s
     binaries = []
     for path in packaged_files:
         if path.suffix.lower() not in (".exe", ".dll"):
+            continue
+        if not is_application_pe_for_arch_check(path, vc_redist_installer):
+            # The vendor's x64 redistributable installer can use a 32-bit
+            # bootstrapper. It is hash-verified and executed during package
+            # validation, but is not an AxisSim/Qt application image.
             continue
         try:
             pe_bytes = path.read_bytes()
@@ -174,10 +184,10 @@ def check_windows_package_dependencies(root: pathlib.Path, inventory: dict) -> s
     if not (root / "platforms/qwindows.dll").is_file():
         raise AssertionError("Windows package is missing the Qt qwindows platform plugin")
     return (
-        f"Normal PE import closure verified for {len(binaries)} package executables/DLLs; "
-        "the packaged VC redistributable installer and installed system runtime satisfy MSVC imports; "
-        "other OS imports resolve from the package or Windows. "
-        "Delay-load imports and runtime LoadLibrary calls are outside this static check."
+        f"AMD64 PE images and normal import DLL names checked for {len(binaries)} package executables/DLLs; "
+        "the packaged VC redistributable installer and installed system runtime satisfy observed MSVC DLL names. "
+        "This static check does not validate imported symbol exports, delay-load imports, or runtime LoadLibrary calls; "
+        "the extracted CLI and GUI smoke tests cover only their exercised dependency paths."
     )
 
 

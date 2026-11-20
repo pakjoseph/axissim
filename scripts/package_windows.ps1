@@ -16,7 +16,7 @@ if ([string]::IsNullOrWhiteSpace($env:VCINSTALLDIR) -or -not (Test-Path $env:VCI
 }
 Write-Output "Using Visual Studio C++ runtime source: $env:VCINSTALLDIR"
 
-cmake -S $Root -B $BuildDir -DCMAKE_BUILD_TYPE=Release -DAXISSIM_BUILD_GUI=ON "-DAXISSIM_RELEASE_TAG=$ReleaseTag"
+cmake -S $Root -B $BuildDir -DCMAKE_BUILD_TYPE=Release -DAXISSIM_BUILD_GUI=ON -DAXISSIM_PACKAGE_BUILD=ON "-DAXISSIM_RELEASE_TAG=$ReleaseTag"
 if ($LASTEXITCODE -ne 0) { throw "CMake configure failed with exit code $LASTEXITCODE" }
 cmake --build $BuildDir --target axissim-gui --config Release --parallel
 if ($LASTEXITCODE -ne 0) { throw "CMake build failed with exit code $LASTEXITCODE" }

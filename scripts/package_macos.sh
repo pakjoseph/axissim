@@ -14,7 +14,7 @@ if ! command -v macdeployqt >/dev/null 2>&1; then
   exit 1
 fi
 
-cmake -S "$project_root" -B "$build_dir" -DAXISSIM_BUILD_GUI=ON -DCMAKE_BUILD_TYPE=Release "-DAXISSIM_RELEASE_TAG=$release_tag"
+cmake -S "$project_root" -B "$build_dir" -DAXISSIM_BUILD_GUI=ON -DAXISSIM_PACKAGE_BUILD=ON -DCMAKE_BUILD_TYPE=Release "-DAXISSIM_RELEASE_TAG=$release_tag"
 cmake -E remove_directory "$app"
 cmake --build "$build_dir" --target axissim-gui --parallel
 
