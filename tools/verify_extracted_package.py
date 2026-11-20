@@ -31,7 +31,13 @@ def require_file(path: pathlib.Path, description: str) -> pathlib.Path:
     return path
 
 
-def package_member_path(root: pathlib.Path, relative: str, description: str) -> pathlib.Path:
+def package_member_path(
+    root: pathlib.Path,
+    relative: str,
+    description: str,
+    *,
+    extraction_root: pathlib.Path | None = None,
+) -> pathlib.Path:
     """Resolve a POSIX package-relative inventory path without escaping root."""
     if (not isinstance(relative, str) or not relative or "\\" in relative or ":" in relative or
             posixpath.isabs(relative)):
@@ -42,9 +48,14 @@ def package_member_path(root: pathlib.Path, relative: str, description: str) -> 
             any(part in ("", ".", "..") for part in parts)):
         raise AssertionError(f"invalid package-relative {description} path")
     base = root.resolve()
+    allowed_root = (extraction_root or root).resolve()
+    try:
+        base.relative_to(allowed_root)
+    except ValueError as error:
+        raise AssertionError(f"{description} inventory base escapes extracted package root") from error
     candidate = (base.joinpath(*parts)).resolve()
     try:
-        candidate.relative_to(base)
+        candidate.relative_to(allowed_root)
     except ValueError as error:
         raise AssertionError(f"{description} path escapes extracted package root") from error
     return candidate
@@ -231,7 +242,12 @@ def main() -> int:
         for item in sbom_files:
             if not isinstance(item, dict):
                 raise AssertionError("malformed Qt installation SBOM inventory entry")
-            sbom_path = package_member_path(sbom_root, item.get("path"), "Qt installation SBOM catalog file")
+            sbom_path = package_member_path(
+                sbom_root,
+                item.get("path"),
+                "Qt installation SBOM catalog file",
+                extraction_root=root,
+            )
             sbom = require_file(sbom_path, "Qt installation SBOM catalog file")
             if sha256(sbom) != item.get("sha256"):
                 raise AssertionError(f"Qt installation SBOM hash mismatch: {item['path']}")

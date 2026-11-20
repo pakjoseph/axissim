@@ -120,10 +120,43 @@ def main() -> int:
             package_inventory_root(deb_root, deb_docs, "deb"),
             "third-party/qt-installation-sboms/share/qt/sbom/qtbase.spdx",
             "Debian SBOM fixture",
+            extraction_root=deb_root,
         ) != deb_sbom.resolve():
             raise AssertionError("Debian package verifier resolved an SBOM against the wrong extraction root")
         if package_inventory_root(deb_root, deb_docs, "macos") != deb_root:
             raise AssertionError("macOS inventory paths must remain relative to app Contents")
+        outside_root = fixture / "outside-package"
+        outside_root.mkdir()
+        (outside_root / "external.spdx").write_text("external file\n", encoding="utf-8")
+        try:
+            package_member_path(
+                outside_root, "external.spdx", "Debian SBOM fixture", extraction_root=deb_root
+            )
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("Debian inventory verifier accepted a base outside the extracted package")
+        symlink_root = fixture / "symlink-package-root"
+        symlink_docs = symlink_root / "usr/share/doc/axissim"
+        symlink_docs.parent.mkdir(parents=True)
+        try:
+            symlink_docs.symlink_to(outside_root, target_is_directory=True)
+        except OSError:
+            # Some Windows environments do not grant symlink creation rights;
+            # the direct outside-base check above still covers containment.
+            pass
+        else:
+            try:
+                package_member_path(
+                    package_inventory_root(symlink_root, symlink_docs, "deb"),
+                    "external.spdx",
+                    "Debian SBOM fixture",
+                    extraction_root=symlink_root,
+                )
+            except AssertionError:
+                pass
+            else:
+                raise AssertionError("Debian inventory verifier followed a documentation symlink outside the package")
         for unsafe_path in ("../outside.spdx", "sub/../../outside.spdx", "/outside.spdx", "C:/outside.spdx"):
             try:
                 package_member_path(fixture, unsafe_path, "synthetic inventory item")
