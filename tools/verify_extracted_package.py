@@ -213,12 +213,15 @@ def main() -> int:
         raise AssertionError("runtime inventory schema is unsupported")
     if inventory.get("platform") != args.platform:
         raise AssertionError("runtime inventory platform does not match package platform")
-    if metadata["build"]["qt_runtime_mode"] == "bundled-dynamic":
-        if inventory.get("qt_installation_sbom_status") != "included_installation_catalog_not_runtime_mapping":
-            raise AssertionError("bundled Qt package omitted its declared installation SBOM catalog")
-        sbom_files = inventory.get("qt_installation_sboms", [])
+    sbom_status = inventory.get("qt_installation_sbom_status")
+    sbom_files = inventory.get("qt_installation_sboms", [])
+    if sbom_status != metadata.get("build", {}).get("qt_installation_sbom_status"):
+        raise AssertionError("Qt SBOM inventory status differs from package build provenance")
+    if not isinstance(sbom_files, list):
+        raise AssertionError("Qt installation SBOM inventory must be a list")
+    if sbom_status == "included_installation_catalog_not_runtime_mapping":
         if not sbom_files:
-            raise AssertionError("bundled Qt package has no installation SBOM catalog entries")
+            raise AssertionError("runtime inventory declares an empty Qt installation SBOM catalog")
         for item in sbom_files:
             if not isinstance(item, dict):
                 raise AssertionError("malformed Qt installation SBOM inventory entry")
@@ -226,6 +229,12 @@ def main() -> int:
             sbom = require_file(sbom_path, "Qt installation SBOM catalog file")
             if sha256(sbom) != item.get("sha256"):
                 raise AssertionError(f"Qt installation SBOM hash mismatch: {item['path']}")
+    elif sbom_status != "unavailable" or sbom_files:
+        raise AssertionError("Qt installation SBOM status and inventory are inconsistent")
+
+    if metadata["build"]["qt_runtime_mode"] == "bundled-dynamic":
+        if sbom_status != "included_installation_catalog_not_runtime_mapping":
+            raise AssertionError("bundled Qt package omitted its declared installation SBOM catalog")
         for item in inventory.get("runtime_files", []):
             if not isinstance(item, dict):
                 raise AssertionError("malformed native runtime inventory entry")

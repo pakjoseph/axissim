@@ -94,6 +94,21 @@ def main() -> int:
                 raise AssertionError("runtime inventory SBOM path must exist in the package root")
         if len(inventory.get("runtime_files", [])) != 1:
             raise AssertionError("runtime inventory must retain the exact native package file list")
+        (fixture / "Qt6Core.dll").unlink()
+        system_output = fixture / "system-inventory-output"
+        subprocess.run(
+            [
+                sys.executable, str(root / "tools/generate_package_runtime_inventory.py"),
+                "--root", str(fixture), "--platform", "linux", "--qt-version", "6.8.3",
+                "--runtime-mode", "system-dynamic", "--output-dir", str(system_output),
+            ],
+            check=True, capture_output=True, text=True,
+        )
+        system_inventory = json.loads((system_output / "qt-runtime-inventory.json").read_text(encoding="utf-8"))
+        if ({item.get("path") for item in system_inventory.get("qt_installation_sboms", [])} != expected_sbom_paths or
+                system_inventory.get("qt_installation_sbom_status") != "included_installation_catalog_not_runtime_mapping" or
+                system_inventory.get("runtime_files") != []):
+            raise AssertionError("system-Qt package assets must retain available SBOM hashes without inventing bundled libraries")
         for unsafe_path in ("../outside.spdx", "sub/../../outside.spdx", "/outside.spdx", "C:/outside.spdx"):
             try:
                 package_member_path(fixture, unsafe_path, "synthetic inventory item")

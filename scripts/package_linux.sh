@@ -19,7 +19,7 @@ test -x "$stage/AxisSim"
 test -x "$stage/axissim-cli"
 revision=$(git -C "$root" rev-parse HEAD)
 python3 "$root/tools/generate_package_runtime_inventory.py" \
-  --root "$stage" --platform linux --qt-version "$(python3 -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); print(json.loads(p.read_text()).get("build",{}).get("qt_version","unknown"))' "$build_dir/package-assets/package-provenance.json")" \
+  --root "$build_dir/package-assets" --platform linux --qt-version "$(python3 -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); print(json.loads(p.read_text()).get("build",{}).get("qt_version","unknown"))' "$build_dir/package-assets/package-provenance.json")" \
   --runtime-mode system-dynamic --output-dir "$build_dir/package-assets/third-party"
 cmake -E copy_directory "$build_dir/package-assets" "$stage"
 verify_tar="$build_dir/verify-tar"
