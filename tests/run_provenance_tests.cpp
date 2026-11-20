@@ -6,6 +6,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 #include "build_info.hpp"
 #include "gemm_json.hpp"
@@ -25,8 +26,11 @@ void write(const std::filesystem::path& path, const std::string& bytes) {
 }
 
 const axissim::gemm_json::Value& field(const axissim::gemm_json::Value& value,
-                                       const std::string& key) {
-  return value.object().at(key);
+                                       std::string_view key) {
+  const auto& object = value.object();
+  const auto found = object.find(std::string(key));
+  if (found == object.end()) throw std::out_of_range("missing JSON test field");
+  return found->second;
 }
 
 }  // namespace
