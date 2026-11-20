@@ -1,5 +1,8 @@
 #include "charts.hpp"
 #include "config.hpp"
+#include "gemm_json.hpp"
+#include "run_provenance.hpp"
+#include "sha256.hpp"
 #include "theme.hpp"
 
 #include <QAbstractButton>
@@ -58,6 +61,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <stdexcept>
 #include <exception>
 #include <memory>
 #include <map>
@@ -1642,7 +1646,15 @@ class AxisSimWindow final : public QMainWindow {
     }
     output.write(last_result_json_);
     output.close();
-    statusBar()->showMessage("Exported result to " + path, 8'000);
+    const QString provenance_path = path + ".provenance.json";
+    QFile provenance_output(provenance_path);
+    if (last_result_provenance_.isEmpty() ||
+        !provenance_output.open(QIODevice::WriteOnly | QIODevice::Truncate) ||
+        provenance_output.write(last_result_provenance_) != last_result_provenance_.size()) {
+      showError("Result provenance unavailable", "The result JSON was exported, but its run provenance sidecar could not be exported.\n\nExpected sidecar: " + provenance_path);
+      return;
+    }
+    statusBar()->showMessage("Exported result and provenance to " + path, 8'000);
   }
 
   bool ensureSaved() {
@@ -2360,6 +2372,43 @@ class AxisSimWindow final : public QMainWindow {
       showError("AxisSim result is incomplete", contract_issue);
       return;
     }
+    QFile provenance_file(json_path + ".provenance.json");
+    if (!provenance_file.open(QIODevice::ReadOnly)) {
+      finishProcess(false, "Run provenance missing");
+      showError("Run provenance unavailable", "The CLI completed without the required provenance sidecar.");
+      return;
+    }
+    last_result_provenance_ = provenance_file.readAll();
+    QJsonParseError provenance_error;
+    const auto provenance_document = QJsonDocument::fromJson(last_result_provenance_, &provenance_error);
+    if (provenance_error.error != QJsonParseError::NoError || !provenance_document.isObject() ||
+        provenance_document.object().value("provenance").toObject().value("schema_version").toString() != "axissim.run-provenance.v1") {
+      finishProcess(false, "Run provenance invalid");
+      showError("Run provenance invalid", "The provenance sidecar is malformed or uses an unsupported schema.");
+      last_result_provenance_.clear();
+      return;
+    }
+    try {
+      const auto provenance_record = axissim::gemm_json::parse(last_result_provenance_.toStdString());
+      const auto& record = provenance_record.object();
+      const auto status_it = record.find("identity_status");
+      const auto identity_it = record.find("identity_sha256");
+      const auto payload_it = record.find("provenance");
+      if (status_it == record.end() || !status_it->second.is_string() ||
+          (status_it->second.string() != "complete" && status_it->second.string() != "incomplete") ||
+          identity_it == record.end() || !identity_it->second.is_string() ||
+          payload_it == record.end() || !payload_it->second.is_object() ||
+          axissim::sha256_hex(axissim::canonical_provenance_value(payload_it->second)) != identity_it->second.string()) {
+        throw std::runtime_error("run provenance identity status or hash is invalid");
+      }
+      last_run_identity_status_ = QString::fromStdString(status_it->second.string());
+    } catch (const std::exception& error) {
+      finishProcess(false, "Run provenance invalid");
+      showError("Run provenance invalid", QString("The provenance sidecar failed its identity check: %1").arg(error.what()));
+      last_result_provenance_.clear();
+      last_run_identity_status_.clear();
+      return;
+    }
     last_result_json_ = result_json;
     refreshTutorialEntry();
     displayed_run_config_ = pending_run_config_;
@@ -2618,9 +2667,10 @@ class AxisSimWindow final : public QMainWindow {
           .arg(QFileInfo(displayed_run_config_path_).fileName())
           .arg(displayed_run_config_source_count_)
           .arg(displayed_run_config_override_count_)
-          .arg(displayed_run_config_override_count_ == 1 ? "" : "s"));
+          .arg(displayed_run_config_override_count_ == 1 ? "" : "s") +
+          QString("\nRun identity: %1").arg(last_run_identity_status_ == "complete" ? "complete" : "incomplete (not fully identified)"));
       run_source_label_->setToolTip(displayed_run_config_path_ + "\nResolved files:\n" + displayed_run_source_names_.join("\n"));
-      run_source_label_->setAccessibleDescription("Manifest path " + displayed_run_config_path_ + ". Resolved configuration files: " + displayed_run_source_names_.join(", ") + ". Run-only overrides: " + QString::number(displayed_run_config_override_count_));
+      run_source_label_->setAccessibleDescription("Manifest path " + displayed_run_config_path_ + ". Resolved configuration files: " + displayed_run_source_names_.join(", ") + ". Run-only overrides: " + QString::number(displayed_run_config_override_count_) + ". Run identity is " + (last_run_identity_status_ == "complete" ? "complete" : "incomplete and not fully identified"));
     } else {
       run_config_label_->setText("Resolved architecture inputs are unavailable in this view. The C++ result remains authoritative; configuration parsing failed: " + displayed_run_config_error_);
       run_source_label_->setText("Manifest path: " + displayed_run_config_path_ + "\nConfiguration inputs could not be resolved by the shared parser.");
@@ -2683,6 +2733,10 @@ class AxisSimWindow final : public QMainWindow {
     }
     if (!run_config_label_->text().contains("schema 1.2") || !run_config_label_->accessibleDescription().contains("RVV 8 lanes × 256-bit")) {
       issues << "Configuration and schema summary is incomplete";
+    }
+    if (!run_source_label_->text().contains("Run identity: complete") &&
+        !run_source_label_->text().contains("Run identity: incomplete (not fully identified)")) {
+      issues << "Run identity completeness is not shown in the provenance inspector";
     }
     if (trace_->rowCount() == 0 || !trace_summary_label_->text().contains("Longest recorded task")) {
       issues << "Real frame-zero trace evidence is missing";
@@ -2964,6 +3018,8 @@ class AxisSimWindow final : public QMainWindow {
   int previous_scenario_index_ = 0;
   QString scenario_path_;
   QByteArray last_result_json_;
+  QByteArray last_result_provenance_;
+  QString last_run_identity_status_;
   std::optional<axissim::Config> pending_run_config_;
   std::optional<axissim::Config> displayed_run_config_;
   QString pending_run_config_error_;

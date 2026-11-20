@@ -1,0 +1,20 @@
+{
+  "schema_version": "axissim.package-provenance.v1",
+  "artifact_kind": "@AXISSIM_PACKAGE_KIND@",
+  "package_id": "@AXISSIM_PACKAGE_ID@",
+  "release_tag": "@AXISSIM_PACKAGE_RELEASE_TAG@",
+  "source_revision": "@AXISSIM_SOURCE_REVISION@",
+  "source_tree_state": "@AXISSIM_SOURCE_TREE_STATE@",
+  "build": {
+    "cmake_version": "@CMAKE_VERSION@",
+    "compiler_id": "@AXISSIM_COMPILER_ID@",
+    "compiler_version": "@AXISSIM_COMPILER_VERSION@",
+    "cxx_standard": "@AXISSIM_CXX_STANDARD@",
+    "build_type": "@CMAKE_BUILD_TYPE@",
+    "target_platform": "@AXISSIM_TARGET_PLATFORM@",
+    "qt_version": "@AXISSIM_QT_VERSION@",
+    "qt_runtime_mode": "@AXISSIM_QT_RUNTIME_MODE@",
+    "qt_installation_sbom_status": "@AXISSIM_PACKAGE_SBOM_STATUS@"
+  },
+  "release_claim": "@AXISSIM_PACKAGE_KIND@"
+}

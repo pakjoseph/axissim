@@ -129,7 +129,8 @@ ConfigLoadResult load_config_with_sources(const std::string& path, const std::ma
   AXISSIM_LOAD(static_power_w); AXISSIM_LOAD(npu_static_power_per_mac_w); AXISSIM_LOAD(rvv_static_power_per_lane_w); AXISSIM_LOAD(sram_static_power_per_kib_w); AXISSIM_LOAD(dram_interface_static_power_w); AXISSIM_LOAD(it_power_budget_w); AXISSIM_LOAD(pue); AXISSIM_LOAD(electricity_cost_per_kwh); AXISSIM_LOAD(deployment_xpu_count); AXISSIM_LOAD(deployment_hours);
   AXISSIM_LOAD(base_area_mm2); AXISSIM_LOAD(npu_area_per_mac_mm2); AXISSIM_LOAD(rvv_area_per_lane_mm2); AXISSIM_LOAD(sram_area_per_kib_mm2); AXISSIM_LOAD(max_area_mm2); AXISSIM_LOAD(ambient_temp_c); AXISSIM_LOAD(thermal_resistance_c_per_w); AXISSIM_LOAD(thermal_capacitance_j_per_c); AXISSIM_LOAD(max_junction_temp_c); AXISSIM_LOAD(reliability_fit_rate); AXISSIM_LOAD(reliability_voltage_fit_multiplier);
 #undef AXISSIM_LOAD
-  return {std::move(c), std::move(source_files), std::move(source_contents)};
+  return {std::move(c), std::move(source_files), std::move(source_contents),
+          std::move(values), overrides};
 }
 
 Config load_config(const std::string& path, const std::map<std::string, std::string>& overrides) {

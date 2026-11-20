@@ -36,6 +36,7 @@
 #include "config.hpp"
 #include "metrics.hpp"
 #include "profile.hpp"
+#include "run_provenance.hpp"
 #include "simulation.hpp"
 #include "study_contract.hpp"
 #include "gemm_study_contract.hpp"
@@ -762,13 +763,21 @@ int main(int argc, char** argv) {
       return 0;
     }
     if (output_path || sweep_assignment || reference_path || ranges_path) throw std::runtime_error("--csv, --sweep, --reference, and --ranges are only valid with their matching commands");
-    const Config config = load_config(argv[2], overrides);
+    const auto loaded_config = load_config_with_sources(argv[2], overrides);
+    const Config& config = loaded_config.config;
     validate(config);
     if (command == "validate") {
       std::cout << "Config is valid: " << argv[2] << '\n';
       return 0;
     }
     if (command != "run") throw std::runtime_error("Unknown command: " + command);
+    std::optional<gemm_json::Value> run_provenance_snapshot;
+    if (json_path) {
+      // Bind referenced input hashes immediately before simulation starts;
+      // serialize the frozen record only after the numeric result is complete.
+      run_provenance_snapshot = make_run_provenance(
+          loaded_config, argv[2], running_executable_path(argv[0]));
+    }
     Simulator simulator(config);
     simulator.run();
     print_results(simulator, config);
@@ -778,6 +787,7 @@ int main(int argc, char** argv) {
     }
     if (json_path) {
       write_result_json(*json_path, simulator, config);
+      write_run_provenance_record(*json_path, *run_provenance_snapshot);
       std::cout << "  result JSON:         " << *json_path << '\n';
     }
     return 0;

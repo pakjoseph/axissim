@@ -1,43 +1,92 @@
-name: Release packages
+name: Package validation
 
 on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Release tag recorded in package provenance
-        required: true
+        description: Optional existing tag that must resolve to the exact packaged commit; leave empty for a validation build
+        required: false
+        default: ''
         type: string
+  pull_request:
+    paths:
+      - '.github/workflows/release-packages.yml'
+      - 'CMakeLists.txt'
+      - 'LICENSE'
+      - 'docs/THIRD_PARTY_NOTICES.md'
+      - 'docs/licenses/**'
+      - 'resources/package-provenance.json.in'
+      - 'scripts/package_*.sh'
+      - 'scripts/package_*.ps1'
+      - 'tools/generate_package_runtime_inventory.py'
+      - 'tools/provenance_contract.py'
+      - 'tools/verify_extracted_package.py'
+      - 'tools/verify_macos_bundle.py'
+      - 'src/build_info.hpp.in'
+      - 'src/cli/main.cpp'
+      - 'src/config.*'
+      - 'src/gui/main.cpp'
+      - 'src/run_provenance.*'
+      - 'tests/package_metadata_tests.py'
+      - 'tests/run_provenance*'
+      - 'tests/cmake_python_registration_tests.cmake'
+      - 'README.md'
+      - 'docs/run-provenance.md'
+      - 'docs/package-provenance-and-licensing.md'
 
 jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.release_tag != '' && inputs.release_tag || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.10'
       - uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.3'
           arch: win64_msvc2022_64
-      - name: Build portable Windows application
+      - name: Build, extract, and verify the Windows portable ZIP
         shell: pwsh
-        run: ./scripts/package_windows.ps1 -BuildDir build-release
-      - uses: actions/upload-artifact@v4
-        with:
-          name: AxisSim-windows-x64
-          path: build-release/AxisSim-windows-x64.zip
-          if-no-files-found: error
+        env:
+          AXISSIM_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: ./scripts/package_windows.ps1 -BuildDir build-release -ReleaseTag $env:AXISSIM_RELEASE_TAG
 
   linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Install Qt and Debian packaging tools
-        run: sudo env DEBIAN_FRONTEND=noninteractive apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends qt6-base-dev dpkg-dev
-      - name: Build Linux application packages
-        run: ./scripts/package_linux.sh build-release
-      - uses: actions/upload-artifact@v4
+      - uses: actions/checkout@v7
         with:
-          name: AxisSim-linux-x64
-          path: |
-            build-release/*.deb
-            build-release/AxisSim-linux-*.tar.gz
-          if-no-files-found: error
+          ref: ${{ inputs.release_tag != '' && inputs.release_tag || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.10'
+      - name: Install Qt and Debian packaging tools
+        run: sudo env DEBIAN_FRONTEND=noninteractive apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends qt6-base-dev qt6-qpa-plugins dpkg-dev
+      - name: Build and verify extracted Linux packages
+        env:
+          AXISSIM_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: ./scripts/package_linux.sh build-release "$AXISSIM_RELEASE_TAG"
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.release_tag != '' && inputs.release_tag || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.10'
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          arch: clang_64
+      - name: Build, relocate, and verify the native macOS application
+        env:
+          AXISSIM_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: ./scripts/package_macos.sh build-release "$AXISSIM_RELEASE_TAG"

@@ -102,6 +102,11 @@ struct ConfigLoadResult {
   std::vector<std::filesystem::path> source_files;
   // Exact bytes parsed for each source, keyed by its absolute normalized path.
   std::map<std::filesystem::path, std::string> source_contents;
+  // Merged, validated textual values after explicit CLI overrides. Paths that
+  // are interpreted relative to the root manifest remain in their authored
+  // form here; the typed Config above is the resolved model configuration.
+  std::map<std::string, std::string> resolved_values;
+  std::map<std::string, std::string> explicit_overrides;
 };
 
 Config load_config(const std::string& path, const std::map<std::string, std::string>& overrides = {});
