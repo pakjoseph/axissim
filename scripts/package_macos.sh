@@ -25,11 +25,16 @@ macdeployqt "$app" -always-overwrite 2>&1 | tee "$build_dir/macdeployqt.log"
 for plugin_dir in iconengines imageformats platforminputcontexts; do
   cmake -E remove_directory "$app/Contents/PlugIns/$plugin_dir"
 done
+python3 "$project_root/tools/verify_macos_bundle.py" --contents "$app/Contents"
+codesign --force --deep --sign - "$app"
+codesign --verify --deep --strict "$app"
+# Inventory the final signed runtime bytes. Then refresh the outer app signature
+# so it seals the inventory without re-signing nested frameworks and changing
+# the hashes just recorded for them.
 python3 "$project_root/tools/generate_package_runtime_inventory.py" \
   --root "$app/Contents" --platform macos --qt-version "$(python3 -c 'import json,pathlib,sys; print(json.loads(pathlib.Path(sys.argv[1]).read_text()).get("build",{}).get("qt_version","unknown"))' "$build_dir/package-assets/package-provenance.json")" \
   --runtime-mode bundled-dynamic --output-dir "$app/Contents/Resources/axissim-package/third-party"
-python3 "$project_root/tools/verify_macos_bundle.py" --contents "$app/Contents"
-codesign --force --deep --sign - "$app"
+codesign --force --sign - "$app"
 codesign --verify --deep --strict "$app"
 
 cmake -E remove_directory "$staging"
