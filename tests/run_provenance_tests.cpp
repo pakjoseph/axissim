@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -145,6 +146,96 @@ int main() {
     require(field(field(finalized_payload, "input_verification"), "status").string() ==
                 "exact_bytes_captured_and_used",
             "provenance must state that exact captured bytes were passed to execution");
+
+    auto make_complete_fixture = [](gemm_json::Value record) {
+      auto& top = std::get<gemm_json::Object>(record.storage);
+      top["identity_status"] = gemm_json::Value("complete");
+      auto& payload = std::get<gemm_json::Object>(top.at("provenance").storage);
+      auto& source = std::get<gemm_json::Object>(payload.at("source").storage);
+      source["revision"] = gemm_json::Value(std::string(40, 'a'));
+      source["tree_state"] = gemm_json::Value("clean");
+      auto& build = std::get<gemm_json::Object>(payload.at("build").storage);
+      build["compiler_id"] = gemm_json::Value("fixture-compiler");
+      build["compiler_version"] = gemm_json::Value("1.0");
+      build["cxx_standard"] = gemm_json::Value("20");
+      build["build_type"] = gemm_json::Value("Release");
+      build["platform"] = gemm_json::Value("fixture-platform");
+      build["cmake_version"] = gemm_json::Value("3.30");
+      auto& executable_record = std::get<gemm_json::Object>(payload.at("executable").storage);
+      executable_record["status"] = gemm_json::Value("hashed");
+      executable_record["sha256"] = gemm_json::Value(std::string(64, 'b'));
+      auto& manifest_record = std::get<gemm_json::Object>(payload.at("manifest").storage);
+      auto& manifest_identity = std::get<gemm_json::Object>(manifest_record.at("identity").storage);
+      manifest_identity["status"] = gemm_json::Value("hashed");
+      auto& files = std::get<gemm_json::Array>(payload.at("configuration_files").storage);
+      for (auto& file : files)
+        std::get<gemm_json::Object>(file.storage)["status"] = gemm_json::Value("hashed");
+      auto& input_verification = std::get<gemm_json::Object>(payload.at("input_verification").storage);
+      input_verification["status"] = gemm_json::Value("exact_bytes_captured_and_used");
+      auto& package = std::get<gemm_json::Object>(payload.at("package").storage);
+      package["kind"] = gemm_json::Value("validation");
+      package["id"] = gemm_json::Value("validation-fixture");
+      package["release_tag"] = gemm_json::Value("unknown");
+      payload["result"] = gemm_json::Value(gemm_json::Object{
+          {"sha256", gemm_json::Value(std::string(64, 'c'))}, {"status", gemm_json::Value("hashed")}});
+      return record;
+    };
+    const auto complete_trace_fixture = make_complete_fixture(arrival_record);
+    require(!run_provenance_completeness_issue(complete_trace_fixture),
+            "a complete trace-run provenance fixture with resolved runtime inputs must pass structural validation");
+    auto fractional_frame_fixture = complete_trace_fixture;
+    auto& fractional_payload = std::get<gemm_json::Object>(
+        std::get<gemm_json::Object>(fractional_frame_fixture.storage).at("provenance").storage);
+    auto& fractional_config = std::get<gemm_json::Object>(fractional_payload.at("configuration").storage);
+    fractional_config["frames"] = gemm_json::Value(gemm_json::Number{"1.5"});
+    const auto fractional_issue = run_provenance_completeness_issue(fractional_frame_fixture);
+    require(fractional_issue && fractional_issue->find("signed integer") != std::string::npos,
+            "a complete claim with a fractional integer configuration value must be rejected");
+    auto nonfinite_fixture = complete_trace_fixture;
+    auto& nonfinite_payload = std::get<gemm_json::Object>(
+        std::get<gemm_json::Object>(nonfinite_fixture.storage).at("provenance").storage);
+    auto& nonfinite_config = std::get<gemm_json::Object>(nonfinite_payload.at("configuration").storage);
+    nonfinite_config["frame_period_us"] = gemm_json::Value(gemm_json::Number{"1e999"});
+    const auto nonfinite_issue = run_provenance_completeness_issue(nonfinite_fixture);
+    require(nonfinite_issue && nonfinite_issue->find("non-finite") != std::string::npos,
+            "a complete claim with an out-of-range numeric configuration value must be rejected");
+    auto cxx_standard_fixture = complete_trace_fixture;
+    auto& cxx_payload = std::get<gemm_json::Object>(
+        std::get<gemm_json::Object>(cxx_standard_fixture.storage).at("provenance").storage);
+    auto& cxx_build = std::get<gemm_json::Object>(cxx_payload.at("build").storage);
+    cxx_build["cxx_standard"] = gemm_json::Value("17");
+    const auto cxx_issue = run_provenance_completeness_issue(cxx_standard_fixture);
+    require(cxx_issue && cxx_issue->find("C++ standard") != std::string::npos,
+            "a complete claim with an unsupported C++ standard must be rejected consistently");
+    auto missing_override_fixture = complete_trace_fixture;
+    auto& missing_override_payload = std::get<gemm_json::Object>(
+        std::get<gemm_json::Object>(missing_override_fixture.storage).at("provenance").storage);
+    missing_override_payload.erase("explicit_cli_overrides");
+    const auto missing_override_issue = run_provenance_completeness_issue(missing_override_fixture);
+    require(missing_override_issue && missing_override_issue->find("overrides") != std::string::npos,
+            "a complete claim must include the explicit override and authored-value maps");
+    auto wrong_trace_fixture = complete_trace_fixture;
+    auto& wrong_trace_payload = std::get<gemm_json::Object>(
+        std::get<gemm_json::Object>(wrong_trace_fixture.storage).at("provenance").storage);
+    auto& wrong_trace_files = std::get<gemm_json::Array>(wrong_trace_payload.at("configuration_files").storage);
+    const auto trace_file = std::find_if(wrong_trace_files.begin(), wrong_trace_files.end(), [](const auto& item) {
+      return item.object().at("role").string() == "frame_arrival_trace";
+    });
+    require(trace_file != wrong_trace_files.end(), "trace fixture must contain its declared trace input");
+    std::get<gemm_json::Object>(trace_file->storage)["path"] = gemm_json::Value("substituted.csv");
+    const auto wrong_trace_issue = run_provenance_completeness_issue(wrong_trace_fixture);
+    require(wrong_trace_issue && wrong_trace_issue->find("frame-arrival inputs") != std::string::npos,
+            "a complete claim must reject a trace path that differs from the resolved configuration");
+    auto missing_trace_fixture = complete_trace_fixture;
+    auto& missing_trace_payload = std::get<gemm_json::Object>(
+        std::get<gemm_json::Object>(missing_trace_fixture.storage).at("provenance").storage);
+    auto& missing_trace_files = std::get<gemm_json::Array>(missing_trace_payload.at("configuration_files").storage);
+    missing_trace_files.erase(std::remove_if(missing_trace_files.begin(), missing_trace_files.end(), [](const auto& item) {
+      return item.object().at("role").string() == "frame_arrival_trace";
+    }), missing_trace_files.end());
+    const auto missing_trace_issue = run_provenance_completeness_issue(missing_trace_fixture);
+    require(missing_trace_issue && missing_trace_issue->find("frame-arrival inputs") != std::string::npos,
+            "a complete claim must reject a configured trace with no hashed input record");
     write(arrival_trace, "frame,release_us\n0,9\n");
     validate(arrival_loaded.config,
              *captured_runtime_input(arrival_captured, "frame_arrival_trace"),
@@ -230,6 +321,36 @@ int main() {
             }),
             "the simulator must execute the parsed captured profile after its files change");
     const auto graph_record = make_run_provenance(graph_loaded, graph_manifest, executable, graph_capture);
+    const auto complete_graph_fixture = make_complete_fixture(graph_record);
+    require(!run_provenance_completeness_issue(complete_graph_fixture),
+            "a complete profiled-graph record with its captured inputs must pass structural validation");
+    auto changed_profile_path = complete_graph_fixture;
+    auto& changed_profile_payload = std::get<gemm_json::Object>(
+        std::get<gemm_json::Object>(changed_profile_path.storage).at("provenance").storage);
+    auto& changed_profile_config = std::get<gemm_json::Object>(changed_profile_payload.at("configuration").storage);
+    changed_profile_config["workload_profile"] = gemm_json::Value("substituted-profile.json");
+    const auto changed_profile_issue = run_provenance_completeness_issue(changed_profile_path);
+    require(changed_profile_issue && changed_profile_issue->find("profiled-workload inputs") != std::string::npos,
+            "a complete claim must reject a profile path that differs from the resolved configuration");
+    auto omitted_evidence_record = graph_record;
+    auto& omitted_evidence_payload = std::get<gemm_json::Object>(
+        std::get<gemm_json::Object>(omitted_evidence_record.storage).at("provenance").storage);
+    auto& omitted_evidence_files = std::get<gemm_json::Array>(
+        omitted_evidence_payload.at("configuration_files").storage);
+    omitted_evidence_files.erase(std::remove_if(omitted_evidence_files.begin(), omitted_evidence_files.end(), [](const auto& item) {
+      return item.object().at("role").string() == "mapping_accuracy_evidence";
+    }), omitted_evidence_files.end());
+    const auto omitted_evidence_issue = run_provenance_completeness_issue(make_complete_fixture(omitted_evidence_record));
+    require(omitted_evidence_issue && omitted_evidence_issue->find("runtime-input") != std::string::npos,
+            "a complete claim must reject an omitted nested mapping-evidence record");
+    std::vector<CapturedRuntimeInput> missing_evidence_capture;
+    std::copy_if(graph_capture.begin(), graph_capture.end(), std::back_inserter(missing_evidence_capture), [](const auto& input) {
+      return input.role != "mapping_accuracy_evidence";
+    });
+    const auto producer_omitted_evidence = make_run_provenance(
+        graph_loaded, graph_manifest, executable, missing_evidence_capture);
+    require(field(producer_omitted_evidence, "identity_status").string() == "incomplete",
+            "the simulator must not create a complete identity when nested mapping evidence is not captured");
     const auto& graph_files = field(field(graph_record, "provenance"), "configuration_files").array();
     const auto evidence_item = std::find_if(graph_files.begin(), graph_files.end(), [](const auto& item) {
       return item.object().at("role").string() == "mapping_accuracy_evidence";

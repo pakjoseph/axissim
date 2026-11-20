@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from typing import Any
 
@@ -126,6 +127,8 @@ def _complete_identity_issue(payload: dict[str, Any], schema: str) -> str | None
         for field in ("compiler_id", "compiler_version", "cxx_standard", "build_type", "platform", "cmake_version")
     ):
         return "complete run provenance has incomplete build/toolchain identity"
+    if build.get("cxx_standard") != "20":
+        return "complete run provenance has an unsupported C++ standard identity"
     executable = payload.get("executable")
     if (not isinstance(executable, dict) or executable.get("status") != "hashed" or
             not _valid_sha256(executable.get("sha256"))):
@@ -144,6 +147,11 @@ def _complete_identity_issue(payload: dict[str, Any], schema: str) -> str | None
     if not isinstance(files, list) or not files:
         return "complete run provenance has no configuration file inventory"
     root_records = []
+    runtime_records: dict[str, list[dict[str, Any]]] = {}
+    runtime_roles = {
+        "frame_arrival_trace", "frame_arrival_provenance", "workload_profile",
+        "mapping_plan", "mapping_accuracy_evidence",
+    }
     for item in files:
         if (not isinstance(item, dict) or not _known_identity_string(item.get("role")) or
                 not _known_identity_string(item.get("path")) or item.get("status") != "hashed" or
@@ -151,6 +159,10 @@ def _complete_identity_issue(payload: dict[str, Any], schema: str) -> str | None
             return "complete run provenance has an unavailable or malformed input hash"
         if item.get("role") == "root_configuration":
             root_records.append(item)
+        elif item.get("role") in runtime_roles:
+            runtime_records.setdefault(item["role"], []).append(item)
+        elif item.get("role") != "included_configuration":
+            return "complete run provenance has an unsupported input role"
     if (len(root_records) != 1 or
             root_records[0].get("path") != manifest_identity.get("path") or
             root_records[0].get("sha256") != manifest_identity.get("sha256")):
@@ -169,14 +181,56 @@ def _complete_identity_issue(payload: dict[str, Any], schema: str) -> str | None
            re.fullmatch(r"(?:0|[1-9][0-9]*)", config[field]) is None
            for field in _CONFIG_UNSIGNED_INTEGER_FIELDS):
         return "complete run provenance has invalid resolved configuration unsigned fields"
+    if any(int(config[field]) > (2**64 - 1) for field in _CONFIG_UNSIGNED_INTEGER_FIELDS):
+        return "complete run provenance has an out-of-range resolved configuration unsigned field"
+    if any(int(config[field]) < -(2**31) or int(config[field]) > (2**31 - 1)
+           for field in _CONFIG_SIGNED_INTEGER_FIELDS):
+        return "complete run provenance has an out-of-range resolved configuration signed field"
     if any(not isinstance(config.get(field), RawNumber) for field in _CONFIG_FLOAT_FIELDS):
         return "complete run provenance has invalid resolved configuration numeric fields"
+    if any(not math.isfinite(float(config[field])) for field in _CONFIG_FLOAT_FIELDS):
+        return "complete run provenance has non-finite or out-of-range resolved configuration numeric fields"
 
     scenario = payload.get("scenario")
     if (not isinstance(scenario, dict) or
             scenario.get("name") != config.get("scenario_name") or
             scenario.get("model_version") != config.get("model_version")):
         return "complete run provenance scenario does not match the resolved configuration"
+
+    def runtime_path_matches(role: str, path: str, required: bool) -> bool:
+        records = runtime_records.get(role, [])
+        if not required:
+            return not records
+        return len(records) == 1 and records[0].get("path") == path
+
+    if config.get("frame_arrival_mode") == "trace":
+        trace_path = config.get("frame_arrival_trace")
+        provenance_path = config.get("frame_arrival_provenance")
+        if (not trace_path or not provenance_path or
+                not runtime_path_matches("frame_arrival_trace", trace_path, True) or
+                not runtime_path_matches("frame_arrival_provenance", provenance_path, True)):
+            return "complete run provenance does not match configured frame-arrival inputs"
+    elif (not runtime_path_matches("frame_arrival_trace", "", False) or
+          not runtime_path_matches("frame_arrival_provenance", "", False)):
+        return "complete run provenance lists unused frame-arrival inputs"
+
+    if config.get("workload_mode") == "profiled_graph":
+        profile_path = config.get("workload_profile")
+        mapping_path = config.get("mapping_plan")
+        if (not profile_path or not runtime_path_matches("workload_profile", profile_path, True) or
+                not runtime_path_matches("mapping_plan", mapping_path, bool(mapping_path))):
+            return "complete run provenance does not match configured profiled-workload inputs"
+    elif (not runtime_path_matches("workload_profile", "", False) or
+          not runtime_path_matches("mapping_plan", "", False)):
+        return "complete run provenance lists unused profiled-workload inputs"
+
+    overrides = payload.get("explicit_cli_overrides")
+    authored_values = payload.get("authored_values_after_overrides")
+    if not isinstance(overrides, dict) or not isinstance(authored_values, dict):
+        return "complete run provenance omits explicit overrides or authored configuration values"
+    if any(not isinstance(value, str) or authored_values.get(key) != value
+           for key, value in overrides.items()):
+        return "complete run provenance CLI overrides do not match authored resolved values"
     package = payload.get("package")
     if (not isinstance(package, dict) or package.get("kind") not in ("validation", "release") or
             not _known_identity_string(package.get("id"))):
@@ -189,6 +243,24 @@ def _complete_identity_issue(payload: dict[str, Any], schema: str) -> str | None
     input_verification = payload.get("input_verification")
     if not isinstance(input_verification, dict) or input_verification.get("status") != expected_input_status:
         return "complete run provenance does not prove input stability"
+    if schema == "axissim.run-provenance.v2":
+        requirements = payload.get("required_runtime_inputs")
+        if not isinstance(requirements, list):
+            return "complete run provenance has no required runtime-input inventory"
+        required_set: set[tuple[str, str]] = set()
+        for requirement in requirements:
+            if not isinstance(requirement, dict):
+                return "complete run provenance has a malformed runtime-input requirement"
+            role = requirement.get("role")
+            path = requirement.get("path")
+            records = runtime_records.get(role, []) if isinstance(role, str) else []
+            if (not isinstance(path, str) or len(records) != 1 or records[0].get("path") != path or
+                    (role, path) in required_set):
+                return "complete run provenance runtime-input requirements do not match its file inventory"
+            required_set.add((role, path))
+        if any(len(records) != 1 or (role, records[0].get("path")) not in required_set
+               for role, records in runtime_records.items()):
+            return "complete run provenance omits a captured runtime input from its required-input inventory"
     result = payload.get("result")
     if not isinstance(result, dict) or result.get("status") != "hashed" or not _valid_sha256(result.get("sha256")):
         return "complete run provenance has no hashed result"

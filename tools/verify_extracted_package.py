@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import pathlib
+import posixpath
 import re
 import subprocess
 import tempfile
@@ -28,6 +29,25 @@ def require_file(path: pathlib.Path, description: str) -> pathlib.Path:
     if not path.is_file():
         raise AssertionError(f"missing {description}: {path}")
     return path
+
+
+def package_member_path(root: pathlib.Path, relative: str, description: str) -> pathlib.Path:
+    """Resolve a POSIX package-relative inventory path without escaping root."""
+    if (not isinstance(relative, str) or not relative or "\\" in relative or ":" in relative or
+            posixpath.isabs(relative)):
+        raise AssertionError(f"invalid package-relative {description} path")
+    pure_path = pathlib.PurePosixPath(relative)
+    parts = pure_path.parts
+    if (not parts or pure_path.as_posix() != relative or
+            any(part in ("", ".", "..") for part in parts)):
+        raise AssertionError(f"invalid package-relative {description} path")
+    base = root.resolve()
+    candidate = (base.joinpath(*parts)).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError as error:
+        raise AssertionError(f"{description} path escapes extracted package root") from error
+    return candidate
 
 
 def check_windows_package_dependencies(root: pathlib.Path) -> str:
@@ -194,11 +214,24 @@ def main() -> int:
     if inventory.get("platform") != args.platform:
         raise AssertionError("runtime inventory platform does not match package platform")
     if metadata["build"]["qt_runtime_mode"] == "bundled-dynamic":
-        if inventory.get("qt_installation_sbom_status") != "included":
-            raise AssertionError("bundled Qt package omitted its installation SBOM")
+        if inventory.get("qt_installation_sbom_status") != "included_installation_catalog_not_runtime_mapping":
+            raise AssertionError("bundled Qt package omitted its declared installation SBOM catalog")
+        sbom_files = inventory.get("qt_installation_sboms", [])
+        if not sbom_files:
+            raise AssertionError("bundled Qt package has no installation SBOM catalog entries")
+        for item in sbom_files:
+            if not isinstance(item, dict):
+                raise AssertionError("malformed Qt installation SBOM inventory entry")
+            sbom_path = package_member_path(root, item.get("path"), "Qt installation SBOM catalog file")
+            sbom = require_file(sbom_path, "Qt installation SBOM catalog file")
+            if sha256(sbom) != item.get("sha256"):
+                raise AssertionError(f"Qt installation SBOM hash mismatch: {item['path']}")
         for item in inventory.get("runtime_files", []):
-            require_file(root / item["path"], "inventoried runtime library")
-            if sha256(root / item["path"]) != item["sha256"]:
+            if not isinstance(item, dict):
+                raise AssertionError("malformed native runtime inventory entry")
+            runtime_path = package_member_path(root, item.get("path"), "inventoried runtime library")
+            require_file(runtime_path, "inventoried runtime library")
+            if sha256(runtime_path) != item["sha256"]:
                 raise AssertionError(f"runtime library hash mismatch: {item['path']}")
         if not inventory.get("runtime_files"):
             raise AssertionError("bundled Qt package has an empty runtime inventory")

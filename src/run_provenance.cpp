@@ -9,6 +9,7 @@
 #include <iterator>
 #include <limits>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <system_error>
 
@@ -292,6 +293,15 @@ struct InputRecord {
       {"authored_values_after_overrides", Value(std::move(authored_values))},
       {"configuration", config_json(loaded.config, config_root)},
       {"configuration_files", Value(std::move(input_array))},
+      {"required_runtime_inputs", [&captured_inputs, &config_root]() {
+        Array requirements;
+        for (const auto& input : captured_inputs) {
+          requirements.emplace_back(Object{
+              {"path", Value(relative_identity_path(input.path, config_root))},
+              {"role", Value(input.role)}});
+        }
+        return Value(std::move(requirements));
+      }()},
       {"input_verification", Object{{"status", Value("exact_bytes_captured_and_used")}}},
       {"explicit_cli_overrides", Value(std::move(overrides))},
       {"executable", Object{{"sha256", Value(executable_hash)}, {"status", Value(executable_status)}}},
@@ -390,11 +400,12 @@ std::optional<std::string> run_provenance_completeness_issue(const Value& proven
   const auto* build = object_field(payload, "build");
   if (build == nullptr || !known(string_field(*build, "compiler_id")) ||
       !known(string_field(*build, "compiler_version")) ||
-      string_field(*build, "cxx_standard") != "20" ||
       !known(string_field(*build, "build_type")) ||
       !known(string_field(*build, "platform")) ||
       !known(string_field(*build, "cmake_version")))
     return "complete run provenance has incomplete build/toolchain identity";
+  if (string_field(*build, "cxx_standard") != "20")
+    return "complete run provenance has an unsupported C++ standard identity";
 
   const auto* executable = object_field(payload, "executable");
   if (executable == nullptr || string_field(*executable, "status") != "hashed" ||
@@ -413,6 +424,7 @@ std::optional<std::string> run_provenance_completeness_issue(const Value& proven
   if (files_value == nullptr || !files_value->is_array() || files_value->array().empty())
     return "complete run provenance has no configuration file inventory";
   const Object* root_file = nullptr;
+  std::map<std::string, std::vector<std::pair<std::string, std::string>>> runtime_files;
   for (const auto& item : files_value->array()) {
     if (!item.is_object()) return "complete run provenance has a malformed input record";
     const auto& entry = item.object();
@@ -422,6 +434,15 @@ std::optional<std::string> run_provenance_completeness_issue(const Value& proven
     if (string_field(entry, "role") == "root_configuration") {
       if (root_file != nullptr) return "complete run provenance has multiple root configuration records";
       root_file = &entry;
+    } else if (string_field(entry, "role") == "frame_arrival_trace" ||
+               string_field(entry, "role") == "frame_arrival_provenance" ||
+               string_field(entry, "role") == "workload_profile" ||
+               string_field(entry, "role") == "mapping_plan" ||
+               string_field(entry, "role") == "mapping_accuracy_evidence") {
+      runtime_files[string_field(entry, "role")].emplace_back(
+          string_field(entry, "path"), string_field(entry, "sha256"));
+    } else if (string_field(entry, "role") != "included_configuration") {
+      return "complete run provenance has an unsupported input role";
     }
   }
   if (root_file == nullptr || string_field(*root_file, "path") != string_field(*manifest_identity, "path") ||
@@ -429,6 +450,7 @@ std::optional<std::string> run_provenance_completeness_issue(const Value& proven
     return "complete run provenance root manifest does not match its input inventory";
 
   const auto* config = object_field(payload, "configuration");
+  const auto schema = string_field(payload, "schema_version");
   constexpr std::string_view required_config_fields[] = {
       "ambient_temp_c", "arithmetic_voltage_ratio", "base_area_mm2", "control_deadline_us",
       "control_ops", "control_period_us", "deadline_us", "deployment_hours", "deployment_xpu_count",
@@ -461,17 +483,132 @@ std::optional<std::string> run_provenance_completeness_issue(const Value& proven
     if (value == nullptr || !value->is_string())
       return "complete run provenance has invalid resolved configuration string fields";
   }
+  constexpr std::string_view config_signed_integer_fields[] = {
+      "frames", "rvv_vlen_bits", "rvv_sew_bits", "rvv_lmul", "rvv_lanes", "rvv_ops_per_lane_cycle",
+      "npu_macs", "preprocess_ops_per_element", "gemm_m", "gemm_n", "gemm_k", "npu_tile_m",
+      "npu_tile_n", "npu_tile_k", "npu_element_bytes", "npu_accumulator_bytes", "npu_weights_resident",
+      "dma_double_buffering", "rvv_memory_bytes_per_element", "postprocess_ops_per_element",
+      "deployment_xpu_count"};
+  constexpr std::string_view config_unsigned_integer_fields[] = {
+      "control_ops", "rvv_chunk_elements", "input_bytes", "preprocess_elements",
+      "preprocess_output_bytes", "sram_capacity_bytes", "weight_sram_capacity_bytes",
+      "postprocess_elements", "postprocess_bytes"};
+  const auto integer_lexeme_is = [&field](const Object& object, std::string_view key, bool unsigned_only) {
+    const auto* value = field(object, std::string(key));
+    if (value == nullptr || !value->is_number()) return false;
+    const auto& lexeme = std::get<gemm_json::Number>(value->storage).lexeme;
+    if (unsigned_only) {
+      std::uint64_t parsed = 0;
+      const auto [end, error] = std::from_chars(lexeme.data(), lexeme.data() + lexeme.size(), parsed);
+      return error == std::errc{} && end == lexeme.data() + lexeme.size();
+    }
+    int parsed = 0;
+    const auto [end, error] = std::from_chars(lexeme.data(), lexeme.data() + lexeme.size(), parsed);
+    return error == std::errc{} && end == lexeme.data() + lexeme.size();
+  };
+  for (const auto key : config_signed_integer_fields) {
+    if (!integer_lexeme_is(*config, key, false))
+      return "complete run provenance has invalid resolved configuration signed integer fields";
+  }
+  for (const auto key : config_unsigned_integer_fields) {
+    if (!integer_lexeme_is(*config, key, true))
+      return "complete run provenance has invalid resolved configuration unsigned integer fields";
+  }
+  const auto finite_number_is = [&field](const Object& object, std::string_view key) {
+    const auto* value = field(object, std::string(key));
+    if (value == nullptr || !value->is_number()) return false;
+    const auto& lexeme = std::get<gemm_json::Number>(value->storage).lexeme;
+    double parsed = 0.0;
+    const auto [end, error] = std::from_chars(
+        lexeme.data(), lexeme.data() + lexeme.size(), parsed, std::chars_format::general);
+    return error == std::errc{} && end == lexeme.data() + lexeme.size() && std::isfinite(parsed);
+  };
   for (const auto key : required_config_fields) {
     bool is_string_field = false;
     for (const auto string_key : config_string_fields) is_string_field = is_string_field || key == string_key;
     const auto* value = field(*config, std::string(key));
     if (!is_string_field && (value == nullptr || !value->is_number()))
       return "complete run provenance has invalid resolved configuration numeric fields";
+    if (!is_string_field && !finite_number_is(*config, key))
+      return "complete run provenance has non-finite or out-of-range resolved configuration numeric fields";
   }
   const auto* scenario = object_field(payload, "scenario");
   if (scenario == nullptr || string_field(*scenario, "name") != string_field(*config, "scenario_name") ||
       string_field(*scenario, "model_version") != string_field(*config, "model_version"))
     return "complete run provenance scenario does not match the resolved configuration";
+
+  const auto config_string = [&string_field](const Object& object, std::string_view key) {
+    return string_field(object, std::string(key));
+  };
+  const auto verify_runtime_input = [&runtime_files](std::string_view role,
+                                                       const std::string& expected_path,
+                                                       bool required) -> bool {
+    const auto found = runtime_files.find(std::string(role));
+    if (!required) return found == runtime_files.end();
+    return found != runtime_files.end() && found->second.size() == 1 &&
+           found->second.front().first == expected_path;
+  };
+  const auto& config_object = *config;
+  const auto frame_mode = config_string(config_object, "frame_arrival_mode");
+  if (frame_mode == "trace") {
+    const auto trace_path = config_string(config_object, "frame_arrival_trace");
+    const auto provenance_path = config_string(config_object, "frame_arrival_provenance");
+    if (trace_path.empty() || provenance_path.empty() ||
+        !verify_runtime_input("frame_arrival_trace", trace_path, true) ||
+        !verify_runtime_input("frame_arrival_provenance", provenance_path, true))
+      return "complete run provenance does not match configured frame-arrival inputs";
+  } else if (!verify_runtime_input("frame_arrival_trace", "", false) ||
+             !verify_runtime_input("frame_arrival_provenance", "", false)) {
+    return "complete run provenance lists unused frame-arrival inputs";
+  }
+  if (config_string(config_object, "workload_mode") == "profiled_graph") {
+    const auto profile_path = config_string(config_object, "workload_profile");
+    const auto mapping_path = config_string(config_object, "mapping_plan");
+    if (profile_path.empty() || !verify_runtime_input("workload_profile", profile_path, true) ||
+        !verify_runtime_input("mapping_plan", mapping_path, !mapping_path.empty()))
+      return "complete run provenance does not match configured profiled-workload inputs";
+  } else if (!verify_runtime_input("workload_profile", "", false) ||
+             !verify_runtime_input("mapping_plan", "", false)) {
+    return "complete run provenance lists unused profiled-workload inputs";
+  }
+
+  const auto* overrides = object_field(payload, "explicit_cli_overrides");
+  const auto* authored_values = object_field(payload, "authored_values_after_overrides");
+  if (overrides == nullptr || authored_values == nullptr)
+    return "complete run provenance omits explicit overrides or authored configuration values";
+  for (const auto& [key, value] : *overrides) {
+    if (!value.is_string()) return "complete run provenance has malformed CLI override values";
+    const auto authored = authored_values->find(key);
+    if (authored == authored_values->end() || !authored->second.is_string() ||
+        authored->second.string() != value.string())
+      return "complete run provenance CLI overrides do not match authored resolved values";
+  }
+
+  if (schema == "axissim.run-provenance.v2") {
+    const auto* requirements = field(payload, "required_runtime_inputs");
+    if (requirements == nullptr || !requirements->is_array())
+      return "complete run provenance has no required runtime-input inventory";
+    std::set<std::pair<std::string, std::string>> required_set;
+    for (const auto& requirement : requirements->array()) {
+      if (!requirement.is_object()) return "complete run provenance has a malformed runtime-input requirement";
+      const auto& entry = requirement.object();
+      const auto role = string_field(entry, "role");
+      const auto path = string_field(entry, "path");
+      const auto found = runtime_files.find(role);
+      if (found == runtime_files.end() || found->second.size() != 1 || found->second.front().first != path ||
+          !required_set.emplace(role, path).second)
+        return "complete run provenance runtime-input requirements do not match its file inventory";
+    }
+    std::size_t runtime_count = 0;
+    for (const auto& [role, records] : runtime_files) {
+      if (records.size() != 1) return "complete run provenance has duplicate runtime-input roles";
+      ++runtime_count;
+      if (!required_set.contains({role, records.front().first}))
+        return "complete run provenance omits a captured runtime input from its required-input inventory";
+    }
+    if (required_set.size() != runtime_count)
+      return "complete run provenance required runtime-input inventory is inconsistent";
+  }
 
   const auto* package = object_field(payload, "package");
   const auto package_kind = package == nullptr ? std::string{} : string_field(*package, "kind");
@@ -482,7 +619,6 @@ std::optional<std::string> run_provenance_completeness_issue(const Value& proven
       (!known(string_field(*package, "release_tag")) || package_id != string_field(*package, "release_tag")))
     return "complete run provenance release identity is inconsistent";
 
-  const auto schema = string_field(payload, "schema_version");
   const auto* input_verification = object_field(payload, "input_verification");
   const auto expected_input_status = schema == "axissim.run-provenance.v1"
       ? "unchanged" : "exact_bytes_captured_and_used";

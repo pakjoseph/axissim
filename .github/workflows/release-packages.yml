@@ -53,7 +53,10 @@ jobs:
           arch: win64_msvc2022_64
       - name: Verify clean source checkout
         shell: pwsh
-        run: git status --short --untracked-files=all
+        run: |
+          # install-qt-action writes this diagnostic log into the current directory.
+          Remove-Item -LiteralPath aqtinstall.log -ErrorAction SilentlyContinue
+          git status --short --untracked-files=all
       - name: Build, extract, and verify the Windows portable ZIP
         shell: pwsh
         env:
@@ -103,7 +106,10 @@ jobs:
           version: '6.8.3'
           arch: clang_64
       - name: Verify clean source checkout
-        run: git status --short --untracked-files=all
+        run: |
+          # install-qt-action writes this diagnostic log into the current directory.
+          rm -f aqtinstall.log
+          git status --short --untracked-files=all
       - name: Build, relocate, and verify the native macOS application
         env:
           AXISSIM_RELEASE_TAG: ${{ inputs.release_tag }}

@@ -13,20 +13,21 @@ packages rely on system Qt runtime libraries; the package metadata and native
 package dependency list identify that distinction. The exact files found in a
 particular package are listed in `third-party/qt-runtime-inventory.json`.
 
-The Qt installation SBOM used by the package build is included, when supplied
-by the Qt installation, as `third-party/qt-installation-sbom.spdx`. It records
-Qt and third-party package versions, copyright holders, license expressions,
-and source references. It may describe components installed in the SDK that
-are not shipped; consult the runtime inventory to identify the Qt binaries
-actually included in that package. Qt documents that only third-party
-components actually shipped with an application are relevant to its component
-attribution list.
+The Qt installation SBOM files available to the package build are copied under
+`third-party/qt-installation-sboms/`. The adjacent
+`third-party/qt-runtime-inventory.json` hashes that catalog and separately
+lists the exact native runtime files in the package. The SBOMs describe Qt
+installation components and may include modules that are not shipped; they are
+not asserted to map one-to-one to the runtime files. Review both inventories
+before making a release attribution or licensing conclusion. Qt documents that
+only third-party components actually shipped with an application are relevant
+to its component attribution list.
 
 The bundled Qt runtime is dynamically linked and uses the open-source Qt
 distribution. `licenses/LGPL-3.0.txt` is included for Qt components under
-LGPLv3. The exact licenses of the Qt and third-party components must be read
-from the package's Qt SBOM and the notices applicable to the platform bundle.
-Do not infer a Qt license choice from the AxisSim MIT license.
+LGPLv3. The SBOM catalog and the exact native-file inventory provide evidence
+for review, but this package does not yet prove a complete per-runtime-file
+license mapping. Do not infer a Qt license choice from the AxisSim MIT license.
 
 ## Distribution boundary
 

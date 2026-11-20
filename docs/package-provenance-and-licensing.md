@@ -16,24 +16,25 @@ the shared-library dependency scan plus explicit dependencies for every
 Qt runtime package resolved from the extracted binaries and the Qt QPA plugin package. The Linux
 tarball is not a self-contained application bundle.
 
-`third-party/qt-runtime-inventory.json` identifies the shared native libraries
-and Qt framework/plugin files actually present in a package. When available,
-`third-party/qt-installation-sbom.spdx` carries the SPDX SBOM from the build's
-Qt installation. That SBOM can describe installed SDK packages not copied into
-the app; use the runtime inventory to locate what the package actually ships.
-The Windows and macOS native packaging tests verify the inventory hashes.
-Linux system libraries remain owned by the host distribution and are not
-represented as bundled files.
+`third-party/qt-runtime-inventory.json` identifies and hashes the shared native
+libraries and Qt framework/plugin files actually present in a package. When
+available, the package includes the SBOM files exposed by the Qt installation
+under `third-party/qt-installation-sboms/`, and the runtime inventory records
+their hashes. This is an installation-level catalog, not a per-file mapping to
+the shipped runtime. The Windows and macOS native packaging tests verify the
+inventory and SBOM hashes. Linux system libraries remain owned by the host
+distribution and are not represented as bundled files.
 
 AxisSim's MIT license does not cover Qt or the Qt installation's third-party
 components. The build environment uses the open-source Qt distribution and
 the package includes the LGPLv3 text. Qt's own guidance describes
 corresponding-source delivery or a written offer and, for dynamic linking,
 relinking/install-information duties. The current package metadata and notices
-do **not** claim those obligations are fully satisfied. Do not publish a
-release until the project owner has reviewed the exact Qt SBOM/runtime
-inventory and arranged any required source or written-offer delivery and
-relinking information.
+do **not** claim those obligations are fully satisfied or that every shipped
+runtime file has a resolved license mapping. Do not publish a release until the
+project owner has reviewed the exact runtime inventory and SBOM catalog,
+completed the applicable attribution/source review, and arranged any required
+source or written-offer delivery and relinking information.
 
 No signing credentials or notarization are configured. The macOS bundle is
 ad-hoc signed for local validation. Windows/Linux/macOS validation artifacts

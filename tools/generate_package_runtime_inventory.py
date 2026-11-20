@@ -43,26 +43,41 @@ def main() -> int:
             continue
         relative = path.relative_to(root).as_posix()
         libraries.append({"path": relative, "sha256": digest(path)})
-    sbom_path = root / "third-party/qt-installation-sbom.spdx"
-    if not sbom_path.is_file():
+    sbom_dir = root / "third-party/qt-installation-sboms"
+    if not sbom_dir.is_dir():
         # macOS package assets live under Resources/axissim-package.
-        candidate = root / "Resources/axissim-package/third-party/qt-installation-sbom.spdx"
-        if candidate.is_file():
-            sbom_path = candidate
+        candidate = root / "Resources/axissim-package/third-party/qt-installation-sboms"
+        if candidate.is_dir():
+            sbom_dir = candidate
+    sbom_files = []
+    if sbom_dir.is_dir():
+        for path in sorted(sbom_dir.rglob("*"), key=lambda item: item.as_posix().lower()):
+            if path.is_file() and path.suffix.lower() in (".spdx", ".json"):
+                sbom_files.append({
+                    "path": path.relative_to(root).as_posix(),
+                    "sha256": digest(path),
+                })
 
     if args.runtime_mode == "bundled-dynamic" and not libraries:
         raise SystemExit("bundled Qt runtime was selected but no native shared libraries were found")
-    if args.runtime_mode == "bundled-dynamic" and not sbom_path.is_file():
-        raise SystemExit("bundled Qt runtime requires its installation SBOM in third-party/qt-installation-sbom.spdx")
+    if args.runtime_mode == "bundled-dynamic" and not sbom_files:
+        raise SystemExit("bundled Qt runtime requires Qt installation SBOM files under third-party/qt-installation-sboms/")
 
     record = {
         "schema_version": "axissim.package-runtime-inventory.v1",
         "platform": args.platform,
         "qt_version": args.qt_version,
         "qt_runtime_mode": args.runtime_mode,
-        "qt_installation_sbom_status": "included" if sbom_path.is_file() else "not-included-system-runtime",
+        "qt_installation_sbom_status": (
+            "included_installation_catalog_not_runtime_mapping" if sbom_files else "unavailable"
+        ),
+        "qt_installation_sboms": sbom_files,
         "runtime_files": libraries,
-        "interpretation": "File inventory only; it is not a complete license conclusion or a physical measurement.",
+        "interpretation": (
+            "runtime_files is the exact shipped native-file inventory. qt_installation_sboms are an installation-level "
+            "license catalog and are not asserted to map one-to-one to runtime_files. This record is not a complete "
+            "license conclusion or a physical measurement."
+        ),
     }
     target = output_dir / "qt-runtime-inventory.json"
     target.write_text(json.dumps(record, sort_keys=True, indent=2) + "\n", encoding="utf-8")

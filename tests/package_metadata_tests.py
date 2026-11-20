@@ -53,8 +53,54 @@ def main() -> int:
     if (build / "package-assets/licenses/LGPL-3.0.txt").stat().st_size < 7000:
         raise AssertionError("Qt LGPL license text is missing or truncated")
     notices = (build / "package-assets/THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
-    if "source-code" not in notices or "validation artifacts only" not in notices:
+    normalized_notices = " ".join(notices.split())
+    if "source-code" not in normalized_notices or "validation artifacts only" not in normalized_notices:
         raise AssertionError("package notices must preserve Qt redistribution limitations")
+    if "not yet prove a complete per-runtime-file license mapping" not in normalized_notices:
+        raise AssertionError("package notices must not overstate the installation SBOM as a runtime license map")
+    import sys
+    sys.path.insert(0, str(root / "tools"))
+    from verify_extracted_package import package_member_path
+    with tempfile.TemporaryDirectory(prefix="axissim-qt-inventory-") as temporary:
+        fixture = pathlib.Path(temporary)
+        sbom_root = fixture / "third-party/qt-installation-sboms/share/qt/sbom"
+        sbom_root.mkdir(parents=True)
+        (sbom_root / "qtbase.spdx").write_text("SPDXVersion: SPDX-2.3\n", encoding="utf-8")
+        (sbom_root / "qtgui.spdx.json").write_text('{"spdxVersion":"SPDX-2.3"}\n', encoding="utf-8")
+        (fixture / "Qt6Core.dll").write_bytes(b"synthetic runtime file")
+        output_dir = fixture / "inventory-output"
+        subprocess.run(
+            [
+                sys.executable, str(root / "tools/generate_package_runtime_inventory.py"),
+                "--root", str(fixture), "--platform", "windows", "--qt-version", "6.8.3",
+                "--runtime-mode", "bundled-dynamic", "--output-dir", str(output_dir),
+            ],
+            check=True, capture_output=True, text=True,
+        )
+        inventory = json.loads((output_dir / "qt-runtime-inventory.json").read_text(encoding="utf-8"))
+        if inventory.get("qt_installation_sbom_status") != "included_installation_catalog_not_runtime_mapping":
+            raise AssertionError("runtime inventory must label the SBOMs as a catalog, not a file mapping")
+        sboms = inventory.get("qt_installation_sboms", [])
+        expected_sbom_paths = {
+            "third-party/qt-installation-sboms/share/qt/sbom/qtbase.spdx",
+            "third-party/qt-installation-sboms/share/qt/sbom/qtgui.spdx.json",
+        }
+        if {item.get("path") for item in sboms} != expected_sbom_paths:
+            raise AssertionError("runtime inventory must retain every SBOM path without basename collisions")
+        for item in sboms:
+            if not re.fullmatch(r"[0-9a-f]{64}", item.get("sha256", "")):
+                raise AssertionError("runtime inventory must hash every installation SBOM")
+            if not (fixture / item["path"]).is_file():
+                raise AssertionError("runtime inventory SBOM path must exist in the package root")
+        if len(inventory.get("runtime_files", [])) != 1:
+            raise AssertionError("runtime inventory must retain the exact native package file list")
+        for unsafe_path in ("../outside.spdx", "sub/../../outside.spdx", "/outside.spdx", "C:/outside.spdx"):
+            try:
+                package_member_path(fixture, unsafe_path, "synthetic inventory item")
+            except AssertionError:
+                pass
+            else:
+                raise AssertionError(f"package verifier accepted path outside its extraction root: {unsafe_path}")
     workflow = (root / ".github/workflows/release-packages.yml").read_text(encoding="utf-8")
     if 'run: ./scripts/package_linux.sh build/package-linux-release "$AXISSIM_RELEASE_TAG"' not in workflow:
         raise AssertionError("Linux release tag must enter the shell through an environment variable")

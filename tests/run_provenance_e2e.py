@@ -42,6 +42,32 @@ def run(binary: pathlib.Path, config: pathlib.Path, output: pathlib.Path, *overr
     }
 
 
+def seal_identity(record: dict) -> str:
+    payload = record["provenance"]
+    record["identity_sha256"] = hashlib.sha256(canonical_json({
+        "identity_status": record["identity_status"], "provenance": payload
+    }).encode("utf-8")).hexdigest()
+    return canonical_json(record)
+
+
+def resign_complete(record: dict) -> str:
+    record["identity_status"] = "complete"
+    payload = record["provenance"]
+    payload["source"].update({"revision": "a" * 40, "tree_state": "clean"})
+    payload["build"].update({
+        "compiler_id": "fixture-compiler", "compiler_version": "1.0", "cxx_standard": "20",
+        "build_type": "Release", "platform": "fixture-platform", "cmake_version": "3.30",
+    })
+    payload["executable"].update({"status": "hashed", "sha256": "b" * 64})
+    payload["package"].update({"kind": "validation", "id": "validation-fixture", "release_tag": "unknown"})
+    payload["manifest"]["identity"].update({"role": "root_configuration", "status": "hashed"})
+    for input_record in payload["configuration_files"]:
+        input_record.update({"status": "hashed"})
+    payload["input_verification"]["status"] = "exact_bytes_captured_and_used"
+    payload["result"]["status"] = "hashed"
+    return seal_identity(record)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-root", required=True, type=pathlib.Path)
@@ -119,6 +145,166 @@ def main() -> int:
                 raise
         else:
             raise AssertionError("a self-hashed complete claim with unavailable source/tool/config identity was accepted")
+
+        valid_complete = json.loads(first["sidecar_text"], parse_int=RawNumber, parse_float=RawNumber)
+        complete_text = resign_complete(valid_complete)
+        parse_run_provenance(
+            complete_text, result_json_bytes=(temp / "baseline-a.json").read_bytes(), require_complete=True
+        )
+        for mutate, expected in (
+            (lambda payload: payload["configuration"].update({"frames": RawNumber("1.5")}), "integer"),
+            (lambda payload: payload["configuration"].update({"frame_period_us": RawNumber("1e999")}), "non-finite"),
+            (lambda payload: payload["build"].update({"cxx_standard": "17"}), "C++ standard"),
+            (lambda payload: payload.pop("explicit_cli_overrides"), "overrides"),
+            (lambda payload: payload.pop("authored_values_after_overrides"), "authored configuration"),
+        ):
+            invalid_record = json.loads(complete_text, parse_int=RawNumber, parse_float=RawNumber)
+            mutate(invalid_record["provenance"])
+            invalid_text = seal_identity(invalid_record)
+            try:
+                parse_run_provenance(
+                    invalid_text, result_json_bytes=(temp / "baseline-a.json").read_bytes(), require_complete=True
+                )
+            except ValueError as error:
+                if expected not in str(error):
+                    raise
+            else:
+                raise AssertionError(f"complete provenance with invalid {expected} was accepted")
+
+        trace_dir = temp / "trace-inputs"
+        trace_dir.mkdir()
+        trace_config = trace_dir / "manifest.conf"
+        trace_config.write_text(
+            "scenario_name = provenance_trace_fixture\n"
+            "frame_arrival_mode = trace\n"
+            "frame_arrival_trace = arrivals.csv\n"
+            "frame_arrival_provenance = arrivals.md\n"
+            "frames = 1\n",
+            encoding="utf-8",
+        )
+        (trace_dir / "arrivals.csv").write_text("frame,release_us\n0,0\n", encoding="utf-8")
+        (trace_dir / "arrivals.md").write_text("synthetic trace provenance fixture\n", encoding="utf-8")
+        trace_result = run(binary, trace_config, temp / "trace-input-result.json")
+        trace_complete = json.loads(trace_result["sidecar_text"], parse_int=RawNumber, parse_float=RawNumber)
+        trace_complete_text = resign_complete(trace_complete)
+        parse_run_provenance(
+            trace_complete_text,
+            result_json_bytes=(temp / "trace-input-result.json").read_bytes(),
+            require_complete=True,
+        )
+        for role, mutate_path in (
+            ("frame_arrival_trace", lambda item: item.update({"path": "substituted.csv"})),
+            ("frame_arrival_provenance", lambda item: item.update({"path": "substituted.md"})),
+        ):
+            invalid_record = json.loads(trace_complete_text, parse_int=RawNumber, parse_float=RawNumber)
+            item = next(item for item in invalid_record["provenance"]["configuration_files"] if item["role"] == role)
+            mutate_path(item)
+            try:
+                parse_run_provenance(
+                    seal_identity(invalid_record),
+                    result_json_bytes=(temp / "trace-input-result.json").read_bytes(),
+                    require_complete=True,
+                )
+            except ValueError as error:
+                if "frame-arrival inputs" not in str(error):
+                    raise
+            else:
+                raise AssertionError(f"complete provenance accepted substituted {role} path")
+        invalid_record = json.loads(trace_complete_text, parse_int=RawNumber, parse_float=RawNumber)
+        invalid_record["provenance"]["configuration_files"] = [
+            item for item in invalid_record["provenance"]["configuration_files"]
+            if item["role"] != "frame_arrival_trace"
+        ]
+        try:
+            parse_run_provenance(
+                seal_identity(invalid_record),
+                result_json_bytes=(temp / "trace-input-result.json").read_bytes(),
+                require_complete=True,
+            )
+        except ValueError as error:
+            if "frame-arrival inputs" not in str(error):
+                raise
+        else:
+            raise AssertionError("complete provenance accepted a trace configuration without its input hash")
+
+        graph_dir = temp / "profiled-graph-inputs"
+        graph_dir.mkdir()
+        graph_config = graph_dir / "manifest.conf"
+        model_hash = "0" * 64
+        (graph_dir / "profile.json").write_text(
+            "{\"schema_version\":\"axissim.workload-profile.v1\","
+            "\"source_url\":\"https://example.invalid/model\",\"license\":\"CC0-1.0\","
+            f"\"model_sha256\":\"{model_hash}\",\"tensor_storage_precision\":\"fp32\","
+            "\"operators\":[{\"id\":\"op\",\"mapping_class\":\"npu_compute\","
+            "\"dependencies\":[],\"inputs\":[\"input\"],\"outputs\":[\"output\"],"
+            "\"macs\":1,\"vector_elements\":0,\"ops_per_element\":0,"
+            "\"activation_read_bytes\":1,\"activation_write_bytes\":1,\"weight_bytes\":1}]}",
+            encoding="utf-8",
+        )
+        (graph_dir / "mapping.json").write_text(
+            "{\"schema_version\":\"axissim.mapping-plan.v1\",\"id\":\"captured_plan\","
+            f"\"source_model_sha256\":\"{model_hash}\",\"mapping_rule_version\":\"test-v1\","
+            "\"accuracy_evidence\":\"evidence.json\",\"entries\":["
+            "{\"operator_id\":\"op\",\"mapping_class\":\"npu_compute\"}]}",
+            encoding="utf-8",
+        )
+        (graph_dir / "evidence.json").write_text(
+            "{\"schema_version\":\"axissim.accuracy-evidence.v1\","
+            "\"mapping_plan_id\":\"captured_plan\","
+            f"\"source_model_sha256\":\"{model_hash}\","
+            "\"evaluation_status\":\"external_evaluated\",\"metric\":\"accuracy\","
+            "\"value\":1.0,\"dataset\":\"fixture\",\"evaluator\":\"fixture\","
+            "\"source_url\":\"https://example.invalid/evidence\"}",
+            encoding="utf-8",
+        )
+        graph_config.write_text(
+            "scenario_name = provenance_profiled_graph_fixture\n"
+            "workload_mode = profiled_graph\n"
+            "workload_profile = profile.json\n"
+            "mapping_plan = mapping.json\n"
+            "frames = 1\n",
+            encoding="utf-8",
+        )
+        graph_result_path = temp / "profiled-graph-result.json"
+        graph_result = run(binary, graph_config, graph_result_path)
+        graph_complete = json.loads(graph_result["sidecar_text"], parse_int=RawNumber, parse_float=RawNumber)
+        graph_complete_text = resign_complete(graph_complete)
+        parse_run_provenance(
+            graph_complete_text,
+            result_json_bytes=graph_result_path.read_bytes(),
+            require_complete=True,
+        )
+        graph_roles = {
+            item["role"] for item in graph_complete["provenance"]["configuration_files"]
+        }
+        if not {"workload_profile", "mapping_plan", "mapping_accuracy_evidence"}.issubset(graph_roles):
+            raise AssertionError("profiled workload provenance omitted a captured mapping dependency")
+        graph_mutations = (
+            (
+                lambda payload: payload["configuration"].update({"workload_profile": "substituted-profile.json"}),
+                "profiled-workload inputs",
+            ),
+            (
+                lambda payload: payload["configuration_files"].remove(next(
+                    item for item in payload["configuration_files"] if item["role"] == "mapping_accuracy_evidence"
+                )),
+                "runtime-input requirements",
+            ),
+        )
+        for mutate, expected in graph_mutations:
+            invalid_record = json.loads(graph_complete_text, parse_int=RawNumber, parse_float=RawNumber)
+            mutate(invalid_record["provenance"])
+            try:
+                parse_run_provenance(
+                    seal_identity(invalid_record),
+                    result_json_bytes=graph_result_path.read_bytes(),
+                    require_complete=True,
+                )
+            except ValueError as error:
+                if expected not in str(error):
+                    raise
+            else:
+                raise AssertionError(f"complete profiled-graph provenance accepted {expected} corruption")
 
         tampered_result = first["result"].copy()
         tampered_result["scenario_name"] = "tampered_result"

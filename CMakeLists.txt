@@ -114,10 +114,12 @@ if(AXISSIM_BUILD_GUI)
       set(AXISSIM_QT_RUNTIME_MODE "system-dynamic")
     endif()
     get_filename_component(AXISSIM_QT_PREFIX "${Qt6_DIR}/../../.." ABSOLUTE)
-    file(GLOB AXISSIM_QT_SOURCES
+    file(GLOB AXISSIM_QT_SOURCES CONFIGURE_DEPENDS
          "${AXISSIM_QT_PREFIX}/sbom/*.spdx.json"
          "${AXISSIM_QT_PREFIX}/share/qt/sbom/*.spdx"
          "${AXISSIM_QT_PREFIX}/share/qt/sbom/*.spdx.json")
+    list(REMOVE_DUPLICATES AXISSIM_QT_SOURCES)
+    list(SORT AXISSIM_QT_SOURCES)
   endif()
 endif()
 
@@ -131,7 +133,7 @@ set(AXISSIM_CXX_STANDARD "${CMAKE_CXX_STANDARD}")
 set(AXISSIM_PACKAGE_SBOM_STATUS "not-applicable")
 if(NOT AXISSIM_QT_RUNTIME_MODE STREQUAL "not-bundled")
   if(AXISSIM_QT_SOURCES)
-    set(AXISSIM_PACKAGE_SBOM_STATUS "included")
+    set(AXISSIM_PACKAGE_SBOM_STATUS "included_installation_catalog_not_runtime_mapping")
   else()
     set(AXISSIM_PACKAGE_SBOM_STATUS "unavailable")
     if(AXISSIM_QT_RUNTIME_MODE STREQUAL "bundled-dynamic")
@@ -142,7 +144,9 @@ if(NOT AXISSIM_QT_RUNTIME_MODE STREQUAL "not-bundled")
   endif()
 endif()
 
-file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/generated" "${CMAKE_BINARY_DIR}/package-assets/licenses" "${CMAKE_BINARY_DIR}/package-assets/third-party")
+file(REMOVE "${CMAKE_BINARY_DIR}/package-assets/third-party/qt-installation-sbom.spdx")
+file(REMOVE_RECURSE "${CMAKE_BINARY_DIR}/package-assets/third-party/qt-installation-sboms")
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/generated" "${CMAKE_BINARY_DIR}/package-assets/licenses" "${CMAKE_BINARY_DIR}/package-assets/third-party/qt-installation-sboms")
 configure_file(src/build_info.hpp.in "${CMAKE_BINARY_DIR}/generated/build_info.hpp" @ONLY)
 configure_file(resources/package-provenance.json.in "${CMAKE_BINARY_DIR}/package-assets/package-provenance.json" @ONLY)
 configure_file(LICENSE "${CMAKE_BINARY_DIR}/package-assets/LICENSE" COPYONLY)
@@ -150,10 +154,17 @@ configure_file(docs/THIRD_PARTY_NOTICES.md "${CMAKE_BINARY_DIR}/package-assets/T
 configure_file(docs/licenses/LGPL-3.0.txt "${CMAKE_BINARY_DIR}/package-assets/licenses/LGPL-3.0.txt" COPYONLY)
 file(WRITE "${CMAKE_BINARY_DIR}/package-assets/third-party/qt-sbom-status.txt"
      "qt_installation_sbom_status=${AXISSIM_PACKAGE_SBOM_STATUS}\n")
-if(AXISSIM_QT_SOURCES)
-  list(GET AXISSIM_QT_SOURCES 0 AXISSIM_QT_SBOM)
-  configure_file("${AXISSIM_QT_SBOM}" "${CMAKE_BINARY_DIR}/package-assets/third-party/qt-installation-sbom.spdx" COPYONLY)
-endif()
+foreach(AXISSIM_QT_SBOM IN LISTS AXISSIM_QT_SOURCES)
+  file(RELATIVE_PATH AXISSIM_QT_SBOM_RELATIVE "${AXISSIM_QT_PREFIX}" "${AXISSIM_QT_SBOM}")
+  if(AXISSIM_QT_SBOM_RELATIVE MATCHES "^\\.\\.")
+    message(FATAL_ERROR "Qt installation SBOM escaped the selected Qt prefix: ${AXISSIM_QT_SBOM}")
+  endif()
+  get_filename_component(AXISSIM_QT_SBOM_DIRECTORY "${AXISSIM_QT_SBOM_RELATIVE}" DIRECTORY)
+  file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/package-assets/third-party/qt-installation-sboms/${AXISSIM_QT_SBOM_DIRECTORY}")
+  configure_file("${AXISSIM_QT_SBOM}"
+                 "${CMAKE_BINARY_DIR}/package-assets/third-party/qt-installation-sboms/${AXISSIM_QT_SBOM_RELATIVE}"
+                 COPYONLY)
+endforeach()
 
 function(axissim_enable_strict_warnings target)
   if(MSVC)
