@@ -102,13 +102,24 @@ struct ConfigLoadResult {
   std::vector<std::filesystem::path> source_files;
   // Exact bytes parsed for each source, keyed by its absolute normalized path.
   std::map<std::filesystem::path, std::string> source_contents;
+  // Merged, validated textual values after explicit CLI overrides. Paths that
+  // are interpreted relative to the root manifest remain in their authored
+  // form here; the typed Config above is the resolved model configuration.
+  std::map<std::string, std::string> resolved_values;
+  std::map<std::string, std::string> explicit_overrides;
 };
 
 Config load_config(const std::string& path, const std::map<std::string, std::string>& overrides = {});
 ConfigLoadResult load_config_with_sources(const std::string& path, const std::map<std::string, std::string>& overrides = {});
 const std::set<std::string>& supported_keys();
 void validate(const Config& config, const std::optional<std::string>& frame_arrival_trace_contents = std::nullopt);
+void validate(const Config& config,
+              const std::optional<std::string>& frame_arrival_trace_contents,
+              const std::optional<std::string>& frame_arrival_provenance_contents);
 std::vector<double> load_frame_arrivals(const Config& config);
 std::vector<double> load_frame_arrivals(const Config& config, const std::optional<std::string>& frame_arrival_trace_contents);
+std::vector<double> load_frame_arrivals(const Config& config,
+                                       const std::optional<std::string>& frame_arrival_trace_contents,
+                                       const std::optional<std::string>& frame_arrival_provenance_contents);
 
 }  // namespace axissim

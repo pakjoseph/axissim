@@ -4,6 +4,231 @@ project(axissim VERSION 0.1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+option(AXISSIM_BUILD_GUI "Build the Qt 6 desktop explorer when Qt Widgets is available" ON)
+option(AXISSIM_PACKAGE_BUILD "Reject untracked, ignored, or modified packaged scenario/data inputs" OFF)
+message(STATUS "AxisSim requires CMake 3.20+ and a compiler with C++20 support; using ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+
+set(AXISSIM_RELEASE_TAG "" CACHE STRING "Optional Git tag identity for a release-labeled package; must resolve to this exact source revision")
+set(AXISSIM_PACKAGE_RELEASE_TAG "unknown")
+
+set(AXISSIM_SOURCE_REVISION "unknown")
+set(AXISSIM_SOURCE_TREE_STATE "unknown")
+set(AXISSIM_PACKAGE_INPUT_STATUS_VERIFIED OFF)
+find_package(Git QUIET)
+if(Git_FOUND)
+  execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} rev-parse --verify HEAD
+                  RESULT_VARIABLE AXISSIM_GIT_RESULT OUTPUT_VARIABLE AXISSIM_GIT_HEAD
+                  OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+  if(AXISSIM_GIT_RESULT EQUAL 0 AND AXISSIM_GIT_HEAD MATCHES "^[0-9a-fA-F]+$")
+    string(TOLOWER "${AXISSIM_GIT_HEAD}" AXISSIM_SOURCE_REVISION)
+    execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} status --porcelain --untracked-files=all
+                    RESULT_VARIABLE AXISSIM_GIT_STATUS_RESULT OUTPUT_VARIABLE AXISSIM_GIT_STATUS
+                    OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    if(AXISSIM_GIT_STATUS_RESULT EQUAL 0 AND AXISSIM_GIT_STATUS STREQUAL "")
+      set(AXISSIM_SOURCE_TREE_STATE "clean")
+    else()
+      set(AXISSIM_SOURCE_TREE_STATE "modified")
+      message(STATUS "AxisSim source tree was not clean at configure time; provenance will be marked modified")
+    endif()
+    if(AXISSIM_PACKAGE_BUILD)
+      execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} status --porcelain --untracked-files=all --ignored=matching -- configs reference_data
+                      RESULT_VARIABLE AXISSIM_PACKAGE_INPUT_STATUS_RESULT
+                      OUTPUT_VARIABLE AXISSIM_PACKAGE_INPUT_STATUS
+                      OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+      if(NOT AXISSIM_PACKAGE_INPUT_STATUS_RESULT EQUAL 0)
+        message(FATAL_ERROR "Cannot verify package scenario/data inputs with Git")
+      endif()
+      if(NOT AXISSIM_PACKAGE_INPUT_STATUS STREQUAL "")
+        message(FATAL_ERROR
+          "Package builds reject modified, untracked, or ignored files beneath configs/ and reference_data/:\n${AXISSIM_PACKAGE_INPUT_STATUS}")
+      endif()
+      set(AXISSIM_PACKAGE_INPUT_STATUS_VERIFIED ON)
+    endif()
+    # Regenerate the embedded build identity when any tracked source input
+    # changes after the initial configure. Package scripts also reconfigure
+    # immediately before building, so package identities cannot stay stale.
+    execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} ls-files
+                    RESULT_VARIABLE AXISSIM_TRACKED_FILES_RESULT
+                    OUTPUT_VARIABLE AXISSIM_TRACKED_FILES
+                    OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    if(AXISSIM_TRACKED_FILES_RESULT EQUAL 0)
+      string(REPLACE "\n" ";" AXISSIM_TRACKED_FILE_LIST "${AXISSIM_TRACKED_FILES}")
+      set(AXISSIM_TRACKED_CONFIGURE_DEPENDS)
+      foreach(AXISSIM_TRACKED_FILE IN LISTS AXISSIM_TRACKED_FILE_LIST)
+        if(NOT AXISSIM_TRACKED_FILE STREQUAL "")
+          list(APPEND AXISSIM_TRACKED_CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/${AXISSIM_TRACKED_FILE}")
+        endif()
+      endforeach()
+      set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${AXISSIM_TRACKED_CONFIGURE_DEPENDS})
+    endif()
+  endif()
+endif()
+
+if(AXISSIM_PACKAGE_BUILD)
+  if(NOT Git_FOUND OR AXISSIM_SOURCE_REVISION STREQUAL "unknown")
+    message(FATAL_ERROR "Package builds require a verifiable Git source revision and package-input status")
+  endif()
+  if(NOT AXISSIM_PACKAGE_INPUT_STATUS_VERIFIED)
+    message(FATAL_ERROR "Package builds cannot continue because configs/ and reference_data/ were not verified")
+  endif()
+  find_package(Python3 3.10 COMPONENTS Interpreter REQUIRED)
+  execute_process(
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/verify_package_inputs.py"
+            --source-root "${CMAKE_SOURCE_DIR}" --revision "${AXISSIM_SOURCE_REVISION}"
+    RESULT_VARIABLE AXISSIM_PACKAGE_INPUT_HASH_RESULT
+    OUTPUT_VARIABLE AXISSIM_PACKAGE_INPUT_HASH_OUTPUT
+    ERROR_VARIABLE AXISSIM_PACKAGE_INPUT_HASH_ERROR
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+  if(NOT AXISSIM_PACKAGE_INPUT_HASH_RESULT EQUAL 0)
+    message(FATAL_ERROR
+      "Package input verification failed against ${AXISSIM_SOURCE_REVISION}:\n${AXISSIM_PACKAGE_INPUT_HASH_OUTPUT}\n${AXISSIM_PACKAGE_INPUT_HASH_ERROR}")
+  endif()
+  # Reconfigure before staging if a packaged file changes or a new one appears
+  # after this initial configure. The package guard then runs again before build.
+  file(GLOB_RECURSE AXISSIM_PACKAGE_INPUT_FILES CONFIGURE_DEPENDS LIST_DIRECTORIES false
+       "${CMAKE_SOURCE_DIR}/configs/*"
+       "${CMAKE_SOURCE_DIR}/reference_data/*")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${AXISSIM_PACKAGE_INPUT_FILES})
+endif()
+
+if(AXISSIM_RELEASE_TAG)
+  if(NOT Git_FOUND OR AXISSIM_SOURCE_REVISION STREQUAL "unknown")
+    message(FATAL_ERROR "A release tag cannot be verified without Git source identity")
+  endif()
+  if(AXISSIM_SOURCE_TREE_STATE STREQUAL "modified")
+    message(FATAL_ERROR "Release-labeled packages require a clean source tree with no untracked files")
+  endif()
+  find_package(Python3 3.10 COMPONENTS Interpreter REQUIRED)
+  foreach(AXISSIM_RELEASE_INPUT_MODE IN ITEMS package all-tracked)
+    set(AXISSIM_RELEASE_INPUT_ARGS)
+    if(AXISSIM_RELEASE_INPUT_MODE STREQUAL "all-tracked")
+      list(APPEND AXISSIM_RELEASE_INPUT_ARGS --all-tracked)
+    endif()
+    execute_process(
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/verify_package_inputs.py"
+              --source-root "${CMAKE_SOURCE_DIR}" --revision "${AXISSIM_SOURCE_REVISION}"
+              ${AXISSIM_RELEASE_INPUT_ARGS}
+      RESULT_VARIABLE AXISSIM_RELEASE_INPUT_RESULT
+      OUTPUT_VARIABLE AXISSIM_RELEASE_INPUT_OUTPUT
+      ERROR_VARIABLE AXISSIM_RELEASE_INPUT_ERROR
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_STRIP_TRAILING_WHITESPACE)
+    if(NOT AXISSIM_RELEASE_INPUT_RESULT EQUAL 0)
+      message(FATAL_ERROR
+        "Release source verification failed (${AXISSIM_RELEASE_INPUT_MODE}) against ${AXISSIM_SOURCE_REVISION}:\n${AXISSIM_RELEASE_INPUT_OUTPUT}\n${AXISSIM_RELEASE_INPUT_ERROR}")
+    endif()
+  endforeach()
+  # Keep values inserted into the generated JSON and C++ metadata safely
+  # representable. Git's ref validator below remains authoritative for tag
+  # structure; this whitelist additionally prevents quote/backslash injection.
+  set(AXISSIM_SAFE_TAG_CHARACTERS "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._/-")
+  string(LENGTH "${AXISSIM_RELEASE_TAG}" AXISSIM_RELEASE_TAG_LENGTH)
+  math(EXPR AXISSIM_RELEASE_TAG_LAST_INDEX "${AXISSIM_RELEASE_TAG_LENGTH} - 1")
+  foreach(AXISSIM_TAG_INDEX RANGE 0 ${AXISSIM_RELEASE_TAG_LAST_INDEX})
+    string(SUBSTRING "${AXISSIM_RELEASE_TAG}" ${AXISSIM_TAG_INDEX} 1 AXISSIM_TAG_CHARACTER)
+    string(FIND "${AXISSIM_SAFE_TAG_CHARACTERS}" "${AXISSIM_TAG_CHARACTER}" AXISSIM_TAG_CHARACTER_INDEX)
+    if(AXISSIM_TAG_CHARACTER_INDEX EQUAL -1)
+      message(FATAL_ERROR "Release tag identity contains unsupported characters")
+    endif()
+  endforeach()
+  string(FIND "${AXISSIM_RELEASE_TAG}" ".." AXISSIM_RELEASE_TAG_DOTDOT_INDEX)
+  if(NOT AXISSIM_RELEASE_TAG_DOTDOT_INDEX EQUAL -1)
+    message(FATAL_ERROR "Release tag identity contains unsupported characters: ${AXISSIM_RELEASE_TAG}")
+  endif()
+  execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} check-ref-format "refs/tags/${AXISSIM_RELEASE_TAG}"
+                  RESULT_VARIABLE AXISSIM_TAG_FORMAT_RESULT ERROR_QUIET)
+  if(NOT AXISSIM_TAG_FORMAT_RESULT EQUAL 0)
+    message(FATAL_ERROR "Invalid release tag name: ${AXISSIM_RELEASE_TAG}")
+  endif()
+  execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} rev-parse "refs/tags/${AXISSIM_RELEASE_TAG}^{commit}"
+                  RESULT_VARIABLE AXISSIM_TAG_RESULT OUTPUT_VARIABLE AXISSIM_TAG_COMMIT
+                  OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+  string(TOLOWER "${AXISSIM_TAG_COMMIT}" AXISSIM_TAG_COMMIT)
+  if(NOT AXISSIM_TAG_RESULT EQUAL 0 OR NOT AXISSIM_TAG_COMMIT STREQUAL AXISSIM_SOURCE_REVISION)
+    message(FATAL_ERROR "Release tag ${AXISSIM_RELEASE_TAG} does not resolve to packaged source revision ${AXISSIM_SOURCE_REVISION}")
+  endif()
+  set(AXISSIM_PACKAGE_KIND "release")
+  set(AXISSIM_PACKAGE_ID "${AXISSIM_RELEASE_TAG}")
+  set(AXISSIM_PACKAGE_RELEASE_TAG "${AXISSIM_RELEASE_TAG}")
+else()
+  set(AXISSIM_PACKAGE_KIND "validation")
+  string(LENGTH "${AXISSIM_SOURCE_REVISION}" AXISSIM_SOURCE_REVISION_LENGTH)
+  if(AXISSIM_SOURCE_REVISION_LENGTH GREATER_EQUAL 12)
+    string(SUBSTRING "${AXISSIM_SOURCE_REVISION}" 0 12 AXISSIM_SHORT_REVISION)
+  else()
+    set(AXISSIM_SHORT_REVISION "unknown")
+  endif()
+  set(AXISSIM_PACKAGE_ID "validation-${AXISSIM_SHORT_REVISION}")
+  if(AXISSIM_SOURCE_TREE_STATE STREQUAL "modified")
+    string(APPEND AXISSIM_PACKAGE_ID "-modified")
+  endif()
+endif()
+
+set(AXISSIM_QT_VERSION "not-applicable")
+set(AXISSIM_QT_RUNTIME_MODE "not-bundled")
+set(AXISSIM_QT_SOURCES "")
+if(AXISSIM_BUILD_GUI)
+  find_package(Qt6 COMPONENTS Widgets QUIET)
+  if(Qt6Widgets_FOUND)
+    set(AXISSIM_QT_VERSION "${Qt6_VERSION}")
+    if(APPLE OR WIN32)
+      set(AXISSIM_QT_RUNTIME_MODE "bundled-dynamic")
+    else()
+      set(AXISSIM_QT_RUNTIME_MODE "system-dynamic")
+    endif()
+    get_filename_component(AXISSIM_QT_PREFIX "${Qt6_DIR}/../../.." ABSOLUTE)
+    file(GLOB AXISSIM_QT_SOURCES CONFIGURE_DEPENDS
+         "${AXISSIM_QT_PREFIX}/sbom/*.spdx.json"
+         "${AXISSIM_QT_PREFIX}/share/qt/sbom/*.spdx"
+         "${AXISSIM_QT_PREFIX}/share/qt/sbom/*.spdx.json")
+    list(REMOVE_DUPLICATES AXISSIM_QT_SOURCES)
+    list(SORT AXISSIM_QT_SOURCES)
+  endif()
+endif()
+
+set(AXISSIM_COMPILER_ID "${CMAKE_CXX_COMPILER_ID}")
+set(AXISSIM_COMPILER_VERSION "${CMAKE_CXX_COMPILER_VERSION}")
+set(AXISSIM_TARGET_PLATFORM "${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE "unspecified")
+endif()
+set(AXISSIM_CXX_STANDARD "${CMAKE_CXX_STANDARD}")
+set(AXISSIM_PACKAGE_SBOM_STATUS "not-applicable")
+if(NOT AXISSIM_QT_RUNTIME_MODE STREQUAL "not-bundled")
+  if(AXISSIM_QT_SOURCES)
+    set(AXISSIM_PACKAGE_SBOM_STATUS "included_installation_catalog_not_runtime_mapping")
+  else()
+    set(AXISSIM_PACKAGE_SBOM_STATUS "unavailable")
+    if(AXISSIM_QT_RUNTIME_MODE STREQUAL "bundled-dynamic")
+      message(WARNING "Qt is dynamically bundled but its installation SBOM was not found; package notices will identify this limitation")
+    else()
+      message(STATUS "Qt installation SBOM was not found; system Qt packages remain host-managed")
+    endif()
+  endif()
+endif()
+
+file(REMOVE "${CMAKE_BINARY_DIR}/package-assets/third-party/qt-installation-sbom.spdx")
+file(REMOVE_RECURSE "${CMAKE_BINARY_DIR}/package-assets/third-party/qt-installation-sboms")
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/generated" "${CMAKE_BINARY_DIR}/package-assets/licenses" "${CMAKE_BINARY_DIR}/package-assets/third-party/qt-installation-sboms")
+configure_file(src/build_info.hpp.in "${CMAKE_BINARY_DIR}/generated/build_info.hpp" @ONLY)
+configure_file(resources/package-provenance.json.in "${CMAKE_BINARY_DIR}/package-assets/package-provenance.json" @ONLY)
+configure_file(LICENSE "${CMAKE_BINARY_DIR}/package-assets/LICENSE" COPYONLY)
+configure_file(docs/THIRD_PARTY_NOTICES.md "${CMAKE_BINARY_DIR}/package-assets/THIRD_PARTY_NOTICES.md" COPYONLY)
+configure_file(docs/licenses/LGPL-3.0.txt "${CMAKE_BINARY_DIR}/package-assets/licenses/LGPL-3.0.txt" COPYONLY)
+file(WRITE "${CMAKE_BINARY_DIR}/package-assets/third-party/qt-sbom-status.txt"
+     "qt_installation_sbom_status=${AXISSIM_PACKAGE_SBOM_STATUS}\n")
+foreach(AXISSIM_QT_SBOM IN LISTS AXISSIM_QT_SOURCES)
+  file(RELATIVE_PATH AXISSIM_QT_SBOM_RELATIVE "${AXISSIM_QT_PREFIX}" "${AXISSIM_QT_SBOM}")
+  if(AXISSIM_QT_SBOM_RELATIVE MATCHES "^\\.\\.")
+    message(FATAL_ERROR "Qt installation SBOM escaped the selected Qt prefix: ${AXISSIM_QT_SBOM}")
+  endif()
+  get_filename_component(AXISSIM_QT_SBOM_DIRECTORY "${AXISSIM_QT_SBOM_RELATIVE}" DIRECTORY)
+  file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/package-assets/third-party/qt-installation-sboms/${AXISSIM_QT_SBOM_DIRECTORY}")
+  configure_file("${AXISSIM_QT_SBOM}"
+                 "${CMAKE_BINARY_DIR}/package-assets/third-party/qt-installation-sboms/${AXISSIM_QT_SBOM_RELATIVE}"
+                 COPYONLY)
+endforeach()
 
 function(axissim_enable_strict_warnings target)
   if(MSVC)
@@ -24,9 +249,10 @@ add_library(axissim-core STATIC
   src/matrix_execution.cpp
   src/metrics.cpp
   src/profile.cpp
+  src/run_provenance.cpp
   src/sha256.cpp
   src/study_contract.cpp)
-target_include_directories(axissim-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(axissim-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_BINARY_DIR}/generated)
 axissim_enable_strict_warnings(axissim-core)
 
 add_executable(axissim src/cli/main.cpp)
@@ -34,10 +260,15 @@ target_link_libraries(axissim PRIVATE axissim-core)
 target_include_directories(axissim PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 axissim_enable_strict_warnings(axissim)
 
-option(AXISSIM_BUILD_GUI "Build the Qt 6 desktop explorer when Qt Widgets is available" ON)
 if(AXISSIM_BUILD_GUI)
   find_package(Qt6 COMPONENTS Widgets QUIET)
   if(Qt6Widgets_FOUND)
+    set(AXISSIM_PACKAGE_INPUT_GUARD_COMMAND)
+    if(AXISSIM_PACKAGE_BUILD)
+      list(APPEND AXISSIM_PACKAGE_INPUT_GUARD_COMMAND
+           COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/verify_package_inputs.py"
+                   --source-root "${CMAKE_SOURCE_DIR}" --revision "${AXISSIM_SOURCE_REVISION}")
+    endif()
     set(CMAKE_AUTORCC ON)
     set(AXISSIM_GUI_SOURCES
         src/gui/main.cpp
@@ -59,6 +290,7 @@ if(AXISSIM_BUILD_GUI)
                             MACOSX_BUNDLE_SHORT_VERSION_STRING "0.2"
                             MACOSX_BUNDLE_BUNDLE_VERSION "0.2")
       add_custom_command(TARGET axissim-gui POST_BUILD
+                         ${AXISSIM_PACKAGE_INPUT_GUARD_COMMAND}
                          COMMAND ${CMAKE_COMMAND} -E copy_if_different
                                  $<TARGET_FILE:axissim>
                                  $<TARGET_BUNDLE_DIR:axissim-gui>/Contents/MacOS/axissim-cli
@@ -70,6 +302,9 @@ if(AXISSIM_BUILD_GUI)
                          COMMAND ${CMAKE_COMMAND} -E copy_directory
                                  ${CMAKE_SOURCE_DIR}/reference_data
                                  $<TARGET_BUNDLE_DIR:axissim-gui>/Contents/Resources/axissim-data/reference_data
+                         COMMAND ${CMAKE_COMMAND} -E copy_directory
+                                 ${CMAKE_BINARY_DIR}/package-assets
+                                 $<TARGET_BUNDLE_DIR:axissim-gui>/Contents/Resources/axissim-package
                          COMMENT "Bundling AxisSim CLI, scenarios, and reference data")
     else()
       add_executable(axissim-gui ${AXISSIM_GUI_SOURCES})
@@ -79,6 +314,7 @@ if(AXISSIM_BUILD_GUI)
       add_dependencies(axissim-gui axissim)
       set(AXISSIM_PORTABLE_DIR "${CMAKE_BINARY_DIR}/portable")
       add_custom_command(TARGET axissim-gui POST_BUILD
+                         ${AXISSIM_PACKAGE_INPUT_GUARD_COMMAND}
                          COMMAND ${CMAKE_COMMAND} -E make_directory ${AXISSIM_PORTABLE_DIR}/axissim-data
                          COMMAND ${CMAKE_COMMAND} -E copy_if_different
                                  $<TARGET_FILE:axissim>
@@ -92,6 +328,9 @@ if(AXISSIM_BUILD_GUI)
                          COMMAND ${CMAKE_COMMAND} -E copy_directory
                                  ${CMAKE_SOURCE_DIR}/reference_data
                                  ${AXISSIM_PORTABLE_DIR}/axissim-data/reference_data
+                         COMMAND ${CMAKE_COMMAND} -E copy_directory
+                                 ${CMAKE_BINARY_DIR}/package-assets
+                                 ${AXISSIM_PORTABLE_DIR}
                          COMMENT "Bundling portable AxisSim CLI, scenarios, and reference data")
     endif()
     target_link_libraries(axissim-gui PRIVATE Qt6::Widgets axissim-core)
@@ -112,6 +351,8 @@ if(TARGET axissim-gui AND NOT APPLE)
 endif()
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/configs ${CMAKE_SOURCE_DIR}/reference_data
         DESTINATION ${CMAKE_INSTALL_DATADIR}/axissim/axissim-data)
+install(DIRECTORY "${CMAKE_BINARY_DIR}/package-assets/"
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/axissim)
 if(TARGET axissim-gui AND UNIX AND NOT APPLE)
   configure_file(${CMAKE_SOURCE_DIR}/resources/axissim.desktop.in
                  ${CMAKE_BINARY_DIR}/axissim.desktop @ONLY)
@@ -122,7 +363,8 @@ if(TARGET axissim-gui AND UNIX AND NOT APPLE)
   set(CPACK_PACKAGE_VENDOR "AxisSim")
   set(CPACK_PACKAGE_CONTACT "pakjoseph@users.noreply.github.com")
   set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "AI architecture performance and energy exploration workbench")
-  set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt6widgets6, libqt6gui6, libqt6core6")
+  set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt6dbus6, qt6-qpa-plugins")
+  set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
   set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
   include(CPack)
 endif()
@@ -134,6 +376,11 @@ if(BUILD_TESTING)
   target_include_directories(axissim-sha256-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
   axissim_enable_strict_warnings(axissim-sha256-tests)
   add_test(NAME sha256_cpp_contract COMMAND axissim-sha256-tests)
+  add_executable(axissim-run-provenance-tests tests/run_provenance_tests.cpp)
+  target_link_libraries(axissim-run-provenance-tests PRIVATE axissim-core)
+  target_include_directories(axissim-run-provenance-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  axissim_enable_strict_warnings(axissim-run-provenance-tests)
+  add_test(NAME run_provenance_cpp_contract COMMAND axissim-run-provenance-tests)
   add_executable(axissim-gemm-json-tests tests/gemm_json_tests.cpp)
   target_link_libraries(axissim-gemm-json-tests PRIVATE axissim-core)
   target_include_directories(axissim-gemm-json-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -191,6 +438,7 @@ if(BUILD_TESTING)
                      ${CMAKE_SOURCE_DIR}/reference_data/hosts/apple-silicon-arm64-mobilenetv2-7.json
                      ${CMAKE_SOURCE_DIR}/reference_data/hosts/github-actions-ubuntu-x86_64-mobilenetv2-7.json)
     if(Python3_VERSION VERSION_GREATER_EQUAL "3.10")
+      message(STATUS "AxisSim tests: Python ${Python3_VERSION} enables the full Python 3.10+ study and provenance contract suite")
       add_test(NAME power_cost_coverage_documentation_contract
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/power_cost_coverage_docs.py
                        --source-root ${CMAKE_SOURCE_DIR})
@@ -241,8 +489,33 @@ if(BUILD_TESTING)
       add_test(NAME mnist12_study_power_overlay_preserves_legacy_config
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/check_mnist12_power_overlay.py
                        ${CMAKE_SOURCE_DIR} $<TARGET_FILE:axissim>)
+      add_test(NAME run_provenance_cli_contract
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/run_provenance_e2e.py
+                       --source-root ${CMAKE_SOURCE_DIR} --binary $<TARGET_FILE:axissim>)
+      add_test(NAME package_metadata_contract
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/package_metadata_tests.py
+                       --source-root ${CMAKE_SOURCE_DIR} --build-dir ${CMAKE_BINARY_DIR})
+      add_test(NAME windows_pe_import_contract
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/windows_pe_imports_tests.py)
     endif()
+    if(NOT Python3_VERSION VERSION_GREATER_EQUAL "3.10")
+      message(WARNING "AxisSim tests: Python ${Python3_VERSION} is older than 3.10; study, provenance, and full runner contracts are not registered. Install Python 3.10+ and reconfigure for the complete test suite.")
+    endif()
+  else()
+    message(WARNING "AxisSim tests: Python was not found; Python-backed tests are not registered. Install Python 3.10+ and reconfigure for the complete study and provenance test suite.")
   endif()
+
+  if(Python3_Interpreter_FOUND AND Python3_VERSION VERSION_GREATER_EQUAL "3.10")
+    set(AXISSIM_REGISTRATION_PYTHON_EXECUTABLE "${Python3_EXECUTABLE}")
+  else()
+    set(AXISSIM_REGISTRATION_PYTHON_EXECUTABLE "")
+  endif()
+  add_test(NAME cmake_python_registration_contract
+           COMMAND ${CMAKE_COMMAND}
+                   -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
+                   -DTEST_ROOT=${CMAKE_BINARY_DIR}/python-registration-check
+                   -DPYTHON_EXECUTABLE=${AXISSIM_REGISTRATION_PYTHON_EXECUTABLE}
+                   -P ${CMAKE_SOURCE_DIR}/tests/cmake_python_registration_tests.cmake)
 
   add_test(NAME baseline_smoke
            COMMAND axissim validate ${CMAKE_SOURCE_DIR}/configs/baseline/manifest.conf)

@@ -1,43 +1,146 @@
-name: Release packages
+name: Package validation
 
 on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Release tag recorded in package provenance
-        required: true
+        description: Optional existing tag that must resolve to the exact packaged commit; leave empty for a validation build
+        required: false
+        default: ''
         type: string
+  pull_request:
+    paths:
+      - '.github/workflows/release-packages.yml'
+      - 'CMakeLists.txt'
+      - 'LICENSE'
+      - 'docs/THIRD_PARTY_NOTICES.md'
+      - 'docs/licenses/**'
+      - 'resources/package-provenance.json.in'
+      - 'scripts/package_*.sh'
+      - 'scripts/package_*.ps1'
+      - 'tools/generate_package_runtime_inventory.py'
+      - 'tools/verify_package_inputs.py'
+      - 'tools/provenance_contract.py'
+      - 'tools/verify_extracted_package.py'
+      - 'tools/verify_macos_bundle.py'
+      - 'tools/windows_pe.py'
+      - 'src/**'
+      - 'configs/**'
+      - 'reference_data/**'
+      - 'resources/**'
+      - 'src/build_info.hpp.in'
+      - 'src/cli/main.cpp'
+      - 'src/config.*'
+      - 'src/gui/main.cpp'
+      - 'src/run_provenance.*'
+      - 'tests/package_metadata_tests.py'
+      - 'tests/windows_pe_imports_tests.py'
+      - 'tests/run_provenance*'
+      - 'tests/cmake_python_registration_tests.cmake'
+      - 'README.md'
+      - 'docs/run-provenance.md'
+      - 'docs/package-provenance-and-licensing.md'
 
 jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.release_tag != '' && inputs.release_tag || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.10'
       - uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.3'
           arch: win64_msvc2022_64
-      - name: Build portable Windows application
+      - name: Verify clean source checkout
         shell: pwsh
-        run: ./scripts/package_windows.ps1 -BuildDir build-release
-      - uses: actions/upload-artifact@v4
-        with:
-          name: AxisSim-windows-x64
-          path: build-release/AxisSim-windows-x64.zip
-          if-no-files-found: error
+        run: |
+          # install-qt-action writes this diagnostic log into the current directory.
+          Remove-Item -LiteralPath aqtinstall.log -ErrorAction SilentlyContinue
+          git status --short --untracked-files=all
+      - name: Build, extract, and verify the Windows portable ZIP
+        shell: pwsh
+        env:
+          AXISSIM_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          if (-not (Test-Path $vswhere)) { throw "Visual Studio locator not found: $vswhere" }
+          $vsInstall = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vsInstall) { throw 'No Visual Studio installation with x64 C++ tools was found' }
+          $developerCommand = Join-Path $vsInstall 'Common7/Tools/VsDevCmd.bat'
+          if (-not (Test-Path $developerCommand)) { throw "Visual Studio developer command not found: $developerCommand" }
+          $packageScript = (Resolve-Path './scripts/package_windows.ps1').Path
+          $runnerCommand = Join-Path $env:RUNNER_TEMP 'run-axissim-windows-package.cmd'
+          @"
+          @echo off
+          call "$developerCommand" -no_logo -arch=x64 -host_arch=x64
+          if errorlevel 1 exit /b
+          if not defined VCINSTALLDIR (
+            echo VCINSTALLDIR was not set by VsDevCmd.bat 1>&2
+            exit /b 1
+          )
+          echo VCINSTALLDIR=%VCINSTALLDIR%
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$packageScript" -BuildDir build/package-windows-release -ReleaseTag "%AXISSIM_RELEASE_TAG%" -InstallVcRuntimeForValidation
+          exit /b %errorlevel%
+          "@ | Set-Content -Encoding Ascii -Path $runnerCommand
+          & cmd.exe /d /c $runnerCommand
+          if ($LASTEXITCODE -ne 0) { throw "Windows package validation failed with exit code $LASTEXITCODE" }
+      - name: Report source checkout status after packaging
+        if: always()
+        shell: pwsh
+        run: git status --short --untracked-files=all
 
   linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Install Qt and Debian packaging tools
-        run: sudo env DEBIAN_FRONTEND=noninteractive apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends qt6-base-dev dpkg-dev
-      - name: Build Linux application packages
-        run: ./scripts/package_linux.sh build-release
-      - uses: actions/upload-artifact@v4
+      - uses: actions/checkout@v7
         with:
-          name: AxisSim-linux-x64
-          path: |
-            build-release/*.deb
-            build-release/AxisSim-linux-*.tar.gz
-          if-no-files-found: error
+          ref: ${{ inputs.release_tag != '' && inputs.release_tag || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.10'
+      - name: Install Qt and Debian packaging tools
+        run: sudo env DEBIAN_FRONTEND=noninteractive apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends qt6-base-dev qt6-qpa-plugins dpkg-dev
+      - name: Verify clean source checkout
+        run: git status --short --untracked-files=all
+      - name: Build and verify extracted Linux packages
+        env:
+          AXISSIM_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: ./scripts/package_linux.sh build/package-linux-release "$AXISSIM_RELEASE_TAG"
+      - name: Report source checkout status after packaging
+        if: always()
+        run: git status --short --untracked-files=all
+
+  macos:
+    # This Qt 6.8.3 package links the legacy AGL framework; the macOS 26 SDK
+    # used by macos-latest fails that link. Keep package validation on macOS 15.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.release_tag != '' && inputs.release_tag || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.10'
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          arch: clang_64
+      - name: Verify clean source checkout
+        run: |
+          # install-qt-action writes this diagnostic log into the current directory.
+          rm -f aqtinstall.log
+          git status --short --untracked-files=all
+      - name: Build, relocate, and verify the native macOS application
+        env:
+          AXISSIM_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: ./scripts/package_macos.sh build/package-macos-release "$AXISSIM_RELEASE_TAG"
+      - name: Report source checkout status after packaging
+        if: always()
+        run: git status --short --untracked-files=all

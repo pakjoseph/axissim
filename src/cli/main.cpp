@@ -36,6 +36,7 @@
 #include "config.hpp"
 #include "metrics.hpp"
 #include "profile.hpp"
+#include "run_provenance.hpp"
 #include "simulation.hpp"
 #include "study_contract.hpp"
 #include "gemm_study_contract.hpp"
@@ -762,15 +763,38 @@ int main(int argc, char** argv) {
       return 0;
     }
     if (output_path || sweep_assignment || reference_path || ranges_path) throw std::runtime_error("--csv, --sweep, --reference, and --ranges are only valid with their matching commands");
-    const Config config = load_config(argv[2], overrides);
-    validate(config);
+    const auto loaded_config = load_config_with_sources(argv[2], overrides);
+    const Config& config = loaded_config.config;
+    std::optional<std::vector<CapturedRuntimeInput>> captured_run_inputs;
+    if (command == "run" && json_path)
+      captured_run_inputs = capture_runtime_inputs(config);
+    const auto captured_text = [&captured_run_inputs](const std::string& role) -> std::optional<std::string> {
+      if (!captured_run_inputs) return std::nullopt;
+      const auto* value = captured_runtime_input(*captured_run_inputs, role);
+      if (value == nullptr) return std::nullopt;
+      return *value;
+    };
+    validate(config, captured_text("frame_arrival_trace"),
+             captured_text("frame_arrival_provenance"));
     if (command == "validate") {
       std::cout << "Config is valid: " << argv[2] << '\n';
       return 0;
     }
     if (command != "run") throw std::runtime_error("Unknown command: " + command);
+    std::optional<gemm_json::Value> run_provenance_snapshot;
+    std::optional<PreparedRunInputs> prepared_run_inputs;
+    if (json_path) {
+      // Capture and parse each mutable external input once. The simulator
+      // consumes these exact parsed values, and the sidecar hashes the bytes
+      // from which they were produced.
+      prepared_run_inputs = prepare_run_inputs(config, *captured_run_inputs);
+      run_provenance_snapshot = make_run_provenance(
+          loaded_config, argv[2], running_executable_path(argv[0]),
+          prepared_run_inputs->captured_inputs);
+    }
     Simulator simulator(config);
-    simulator.run();
+    if (prepared_run_inputs) simulator.run(*prepared_run_inputs);
+    else simulator.run();
     print_results(simulator, config);
     if (trace_path) {
       write_trace_csv(*trace_path, simulator.trace());
@@ -778,6 +802,7 @@ int main(int argc, char** argv) {
     }
     if (json_path) {
       write_result_json(*json_path, simulator, config);
+      write_run_provenance_record(*json_path, finalize_run_provenance(*run_provenance_snapshot, *json_path));
       std::cout << "  result JSON:         " << *json_path << '\n';
     }
     return 0;

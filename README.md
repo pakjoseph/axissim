@@ -159,6 +159,19 @@ The 36-point sweep finds four feasible non-dominated designs. The minimum-energy
 
 ## Build and run
 
+Requirements for a CLI build:
+
+- CMake 3.20 or newer.
+- A C++20 compiler supported by CMake. The exact compiler and version are recorded in run provenance when available.
+- Python 3.10 or newer for the complete study, provenance, and runner contract suite. Python is not required to build or run the ordinary C++ CLI.
+- Qt 6 Widgets is optional for the desktop application. If Qt is not found, CMake continues with a CLI-only build and reports that the GUI target was omitted.
+
+At configure time, CMake prints whether the full Python 3.10+ contract suite is
+registered. If Python is absent, or older than 3.10, reduced test registration
+is reported explicitly. Confirm the registered tests with
+`ctest --test-dir build -N`. The `cmake_python_registration_contract` checks
+both enabled and disabled configuration paths on hosts with Python 3.10+.
+
 ```sh
 cmake -S . -B build
 cmake --build build
@@ -170,32 +183,48 @@ ctest --test-dir build --output-on-failure
 
 GitHub Actions runs the same configure, build, and CTest workflow on every push and pull request; see [CI workflow](.github/workflows/ci.yml).
 
-### Windows and Linux downloads
+### Native package validation
 
 AxisSim's C++ CLI is built in CI on Windows x64, Linux x64, and macOS ARM64.
 When Qt 6 Widgets is available, Windows and Linux builds also create a
 `portable/` layout containing the desktop workbench, authoritative CLI, and
 the required `axissim-data/` scenarios and reference data. This means the GUI
 does not depend on a checked-out source tree after packaging.
+The package-validation workflow builds and verifies packages in native runner
+workspaces. It does not retain them as downloadable Actions artifacts or publish
+releases.
 
-Create a native downloadable archive with:
+Create and verify a native package with:
 
 ```sh
-# Linux (native Qt 6 build host; GUI uses the system Qt runtime)
+# Linux (native Qt 6 build host; GUI uses system Qt and QPA plugins)
 ./scripts/package_linux.sh
 
-# Windows (Developer PowerShell with Qt's windeployqt on PATH)
+# Windows (Visual Studio Developer PowerShell with VCINSTALLDIR and Qt's windeployqt on PATH)
 .\scripts\package_windows.ps1
+
+# macOS (Qt 6, macdeployqt, codesign, hdiutil, and Cocoa required)
+./scripts/package_macos.sh
 ```
 
-The Windows script runs `windeployqt` and emits a portable ZIP. The Linux
-script emits both a native-architecture tarball and a Debian/Ubuntu `.deb`
-with Qt runtime dependencies and an application-menu launcher. An AppImage is
-intentionally left for a later, separately verified distribution pipeline.
-Release artifacts are platform-specific and must be built/tested on their
-target OS. The repository's **Release packages** workflow builds those native
-artifacts on Windows and Ubuntu runners before they are attached to a GitHub
-Release.
+The Windows script runs `windeployqt`, extracts its ZIP into a new directory,
+and verifies the packaged CLI, GUI, provenance, license files, Qt runtime
+inventory, and bundled `vc_redist.x64.exe`. The Windows package requires the
+Microsoft Visual C++ Redistributable (x64); install the included redistributable
+before launch if it is not already present. The Linux script verifies the
+extracted tarball and Debian package; the tarball uses system Qt, and the `.deb`
+declares Qt libraries and QPA plugin dependencies. The macOS script preserves
+the DMG relocation test, checks the relocated app's actual Mach-O dependency
+closure, and runs a native Cocoa GUI smoke test. These scripts create validation
+artifacts only. They do not publish a GitHub Release, sign/notarize a public
+macOS release, or establish that all LGPL source/relinking obligations have
+been met. See
+[package and licensing notes](docs/package-provenance-and-licensing.md).
+
+Untagged packages are labeled as validation builds. A release-labeled package
+requires a local tag that resolves exactly to the checked-out source commit;
+CMake rejects absent, mismatched, or tracked-dirty source identities. This
+build path does not create or publish a GitHub Release.
 
 ## Desktop explorer
 
@@ -230,7 +259,7 @@ To create a relocatable macOS app and DMG with Qt frameworks bundled and an ad-h
 ./scripts/package_macos.sh
 ```
 
-Release artifacts are written to `build-release/AxisSim.app` and `build-release/AxisSim.dmg` by default. The bundle is ad-hoc signed for local distribution; public distribution without Gatekeeper warnings requires an Apple Developer ID signature and notarization.
+Release-validation artifacts are written under `build/package-macos-release/` by default, including `AxisSim.app` and `AxisSim.dmg`. The bundle is ad-hoc signed for local distribution; public distribution without Gatekeeper warnings requires an Apple Developer ID signature and notarization. The build directory is ignored by Git so generated package files do not make the source identity appear dirty.
 
 For a non-interactive GUI initialization check on a machine with Qt, run:
 
@@ -265,7 +294,13 @@ The baseline scenario is a manifest rather than one monolithic parameter file:
 
 `manifest.conf` composes the layers and identifies the scenario/model version. This makes architectural facts distinct from timing and energy assumptions.
 
-`--json result.json` emits a schema-versioned machine-readable result artifact containing scenario provenance, latency, deadline, traffic, energy, power, deployment, and proxy metrics. See [implementation proxy scope and equations](docs/implementation-proxies.md).
+`--json result.json` preserves the existing numerical result contract and
+writes a separate `result.json.provenance.json` sidecar. The sidecar binds the
+executable and source revision to the resolved model configuration, root and
+included manifests, explicit CLI overrides, and referenced profile/mapping/
+arrival inputs. Unknown identity is recorded as `unknown` and sets
+`identity_status` to `incomplete`; timestamps and absolute developer paths do
+not participate in the canonical identity. See [run provenance](docs/run-provenance.md).
 
 ## First experiments
 
