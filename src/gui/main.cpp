@@ -1,4 +1,5 @@
 #include "charts.hpp"
+#include "config.hpp"
 #include "theme.hpp"
 
 #include <QAbstractButton>
@@ -33,6 +34,7 @@
 #include <QProcess>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QResizeEvent>
 #include <QSettings>
 #include <QSignalBlocker>
@@ -56,7 +58,10 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <exception>
 #include <memory>
+#include <map>
+#include <optional>
 
 namespace {
 
@@ -64,6 +69,20 @@ QString requestedAppearanceKey() {
   const QString override = qEnvironmentVariable("AXISSIM_APPEARANCE_OVERRIDE").trimmed().toLower();
   if (override == "light" || override == "dark" || override == "system") return override;
   return QSettings().value("appearance/mode", "system").toString();
+}
+
+double linearChannel(double channel) {
+  return channel <= 0.04045 ? channel / 12.92 : std::pow((channel + 0.055) / 1.055, 2.4);
+}
+
+double contrastRatio(const QColor& foreground, const QColor& background) {
+  const auto luminance = [](const QColor& color) {
+    return 0.2126 * linearChannel(color.redF()) + 0.7152 * linearChannel(color.greenF()) +
+           0.0722 * linearChannel(color.blueF());
+  };
+  const double first = luminance(foreground);
+  const double second = luminance(background);
+  return (std::max(first, second) + 0.05) / (std::min(first, second) + 0.05);
 }
 
 class KpiCard final : public QFrame {
@@ -100,8 +119,8 @@ class AxisSimWindow final : public QMainWindow {
  public:
   explicit AxisSimWindow(bool exit_after_run = false, QString snapshot_path = {}, QSize snapshot_size = {},
                          bool tutorial_smoke_run = false, bool tutorial_preview = false, bool mapping_lab_smoke_run = false,
-                         bool power_study_smoke_run = false)
-      : snapshot_path_(std::move(snapshot_path)), exit_after_run_(exit_after_run), tutorial_smoke_run_(tutorial_smoke_run), tutorial_preview_(tutorial_preview), mapping_lab_smoke_run_(mapping_lab_smoke_run), power_study_smoke_run_(power_study_smoke_run) {
+                         bool power_study_smoke_run = false, bool results_workbench_smoke_run = false)
+      : snapshot_path_(std::move(snapshot_path)), exit_after_run_(exit_after_run), tutorial_smoke_run_(tutorial_smoke_run), tutorial_preview_(tutorial_preview), mapping_lab_smoke_run_(mapping_lab_smoke_run), power_study_smoke_run_(power_study_smoke_run), results_workbench_smoke_run_(results_workbench_smoke_run) {
     project_root_ = findProjectRoot();
     setWindowTitle("AxisSim — AI Architecture Explorer");
     setWindowIcon(QIcon(":/icons/axissim.png"));
@@ -109,9 +128,12 @@ class AxisSimWindow final : public QMainWindow {
     setMinimumSize(1'100, 720);
     buildInterface();
     buildMenus();
-    if (snapshot_path_.isEmpty()) restoreWindowState();
+    if (snapshot_path_.isEmpty() && !results_workbench_smoke_run_) restoreWindowState();
     loadScenario(scenario_->currentData().toString());
     refreshTutorialEntry();
+    if (results_workbench_smoke_run_) {
+      results_workbench_initial_state_ok_ = run_state_label_->text().startsWith("No completed result");
+    }
     if (tutorial_preview_) {
       QTimer::singleShot(0, this, [this] {
         startTutorial(false);
@@ -130,6 +152,8 @@ class AxisSimWindow final : public QMainWindow {
       QTimer::singleShot(0, this, [this] { runMappingPolicyStudy(); });
     } else if (power_study_smoke_run_) {
       QTimer::singleShot(0, this, [this] { runPowerOpportunityStudy(); });
+    } else if (results_workbench_smoke_run_) {
+      QTimer::singleShot(0, this, [this] { runScenario(); });
     } else if (exit_after_run_) {
       QTimer::singleShot(0, this, [this] { runScenario(); });
     }
@@ -150,6 +174,9 @@ class AxisSimWindow final : public QMainWindow {
       }
       if (name.isEmpty()) issues << QString("%1 has no accessible name").arg(widget->metaObject()->className());
     }
+    if (last_result_json_.isEmpty() && !run_state_label_->text().startsWith("No completed result")) {
+      issues << "The no-result workbench state is not identified";
+    }
     return issues;
   }
 
@@ -165,7 +192,16 @@ class AxisSimWindow final : public QMainWindow {
     QMainWindow::resizeEvent(event);
     if (!nav_rail_ || !header_title_) return;
     const bool compact = event->size().width() < 1'200;
+    if (overview_layout_) {
+      overview_layout_->setStretch(0, compact ? 2 : 3);
+      overview_layout_->setStretch(1, 1);
+    }
     nav_rail_->setFixedWidth(compact ? 88 : 150);
+    if (overview_analysis_layout_) overview_analysis_layout_->setSpacing(compact ? 10 : 18);
+    if (timeline_chart_) timeline_chart_->setMinimumHeight(compact ? 174 : 230);
+    if (energy_panel_) energy_panel_->setMinimumHeight(compact ? 164 : 208);
+    if (energy_chart_) energy_chart_->setMinimumHeight(compact ? 140 : 184);
+    QTimer::singleShot(0, this, [this] { updateInspectorMinimumHeight(); });
     nav_layout_->setContentsMargins(compact ? 8 : 12, 20, compact ? 8 : 12, 16);
     nav_title_->setText(compact ? "AS" : "AxisSim");
     nav_subtitle_->setVisible(!compact);
@@ -787,10 +823,12 @@ class AxisSimWindow final : public QMainWindow {
     result_views_->tabBar()->hide();
     auto* overview_page = new QWidget(result_views_);
     auto* overview_layout = new QHBoxLayout(overview_page);
+    overview_layout_ = overview_layout;
     overview_layout->setContentsMargins(0, 4, 0, 0);
     overview_layout->setSpacing(22);
     auto* analysis = new QWidget(overview_page);
     auto* analysis_layout = new QVBoxLayout(analysis);
+    overview_analysis_layout_ = analysis_layout;
     analysis_layout->setContentsMargins(0, 0, 0, 0);
     analysis_layout->setSpacing(18);
     auto* timeline_panel = new QFrame(analysis);
@@ -800,18 +838,18 @@ class AxisSimWindow final : public QMainWindow {
     timeline_chart_ = new ResourceTimelineWidget(timeline_panel);
     timeline_panel_layout->addWidget(timeline_chart_);
     analysis_layout->addWidget(timeline_panel, 3);
-    auto* energy_panel = new QFrame(analysis);
-    energy_panel->setObjectName("energyPanel");
+    energy_panel_ = new QFrame(analysis);
+    energy_panel_->setObjectName("energyPanel");
     // Preserve a readable empty state and prevent it from being squeezed
     // against the following scope/status region on short desktop windows.
-    energy_panel->setMinimumHeight(208);
-    auto* energy_panel_layout = new QVBoxLayout(energy_panel);
+    energy_panel_->setMinimumHeight(208);
+    auto* energy_panel_layout = new QVBoxLayout(energy_panel_);
     energy_panel_layout->setContentsMargins(12, 10, 12, 10);
     energy_panel_layout->setSpacing(0);
-    energy_chart_ = new EnergyBreakdownWidget(energy_panel);
+    energy_chart_ = new EnergyBreakdownWidget(energy_panel_);
     energy_chart_->setToolTip("Component ledger is shown per completed vision frame. Dynamic categories are divided by the vision-frame count; the static component is configured static power integrated over the run and divided by that same count. Total IT energy also includes configured control-task energy, if any. Numeric comparisons with the study report require matching workload, model, power overlay, and interval.");
     energy_panel_layout->addWidget(energy_chart_);
-    analysis_layout->addWidget(energy_panel, 1);
+    analysis_layout->addWidget(energy_panel_, 1);
     metrics_ = new QTableWidget(overview_page);
     metrics_->setColumnCount(3);
     metrics_->setHorizontalHeaderLabels({"Metric", "Modeled value", "Interpretation"});
@@ -821,7 +859,8 @@ class AxisSimWindow final : public QMainWindow {
     configureTable(metrics_);
     metrics_->setAccessibleName("Modeled result details");
     metrics_->hide();
-    auto* scope_note = mutedLabel("Model outputs are scenario-dependent estimates. Power, area, thermal, deployment, and reliability values are only as valid as their explicit input assumptions.", overview_page);
+    auto* scope_note = mutedLabel("Energy ledger scope · modeled IT energy per completed vision frame. Static inputs are configured assumptions (zero is not a measured zero). SRAM access energy is unpriced, resident-weight SRAM costs are incomplete, and DRAM-interface power is not scaled with bandwidth. Byte-accounted traffic is not a DRAM command trace.", overview_page);
+    scope_note_ = scope_note;
     scope_note->setWordWrap(true);
     auto* scope_panel = new QFrame(analysis);
     scope_panel->setObjectName("scopePanel");
@@ -831,39 +870,75 @@ class AxisSimWindow final : public QMainWindow {
     scope_layout->addWidget(scope_note);
     analysis_layout->addWidget(scope_panel);
     overview_layout->addWidget(analysis, 3);
-    auto* findings = new QFrame(overview_page);
-    findings->setObjectName("findingsMargin");
-    findings->setMinimumWidth(250);
-    findings->setMaximumWidth(340);
-    auto* findings_layout = new QVBoxLayout(findings);
-    findings_layout->setContentsMargins(16, 12, 16, 12);
-    auto* findings_title = new QLabel("What limits this run", findings);
-    findings_title->setObjectName("panelTitle");
-    findings_layout->addWidget(findings_title);
-    latency_finding_ = new QLabel("Run a scenario to identify the longest serialized stage.", findings);
-    latency_finding_->setObjectName("findingText");
-    latency_finding_->setWordWrap(true);
-    findings_layout->addWidget(latency_finding_);
-    auto* latency_scope = mutedLabel("Timing is an analytical model under the selected workload and configuration assumptions.", findings);
-    latency_scope->setWordWrap(true);
-    findings_layout->addWidget(latency_scope);
-    auto* divider = new QFrame(findings);
+    auto* inspector_scroll = new QScrollArea(overview_page);
+    inspector_scroll->setObjectName("runInspectorScroll");
+    inspector_scroll->setWidgetResizable(true);
+    inspector_scroll->setFrameShape(QFrame::NoFrame);
+    inspector_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    inspector_scroll->setFocusPolicy(Qt::StrongFocus);
+    inspector_scroll->setAccessibleName("Run inspector details");
+    run_inspector_scroll_ = inspector_scroll;
+    auto* inspector = new QFrame(inspector_scroll);
+    inspector->setObjectName("findingsMargin");
+    inspector->setMaximumWidth(380);
+    auto* inspector_layout = new QVBoxLayout(inspector);
+    inspector_layout->setContentsMargins(16, 12, 16, 12);
+    inspector_layout->setSpacing(7);
+    auto* inspector_title = new QLabel("Run inspector", inspector);
+    inspector_title->setObjectName("panelTitle");
+    inspector_layout->addWidget(inspector_title);
+    run_state_label_ = new QLabel("No completed result · run a scenario to inspect it.", inspector);
+    run_state_label_->setObjectName("runStatusText");
+    run_state_label_->setProperty("state", "idle");
+    run_state_label_->setWordWrap(true);
+    run_state_label_->setAccessibleName("Current result status");
+    inspector_layout->addWidget(run_state_label_);
+    auto* config_title = new QLabel("Configuration used", inspector);
+    config_title->setObjectName("metricTitle");
+    inspector_layout->addWidget(config_title);
+    run_config_label_ = new QLabel("Resolved architecture and workload inputs appear after a successful run.", inspector);
+    run_config_label_->setObjectName("inspectorValue");
+    run_config_label_->setWordWrap(true);
+    run_config_label_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    run_config_label_->setAccessibleName("Resolved run configuration");
+    inspector_layout->addWidget(run_config_label_);
+    run_source_label_ = mutedLabel("No result provenance yet.", inspector);
+    run_source_label_->setObjectName("inspectorBody");
+    run_source_label_->setWordWrap(true);
+    run_source_label_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    run_source_label_->setAccessibleName("Scenario provenance");
+    inspector_layout->addWidget(run_source_label_);
+    auto* divider = new QFrame(inspector);
     divider->setObjectName("findingDivider");
     divider->setFrameShape(QFrame::HLine);
-    findings_layout->addWidget(divider);
-    energy_finding_ = new QLabel("Run a scenario to identify the modeled energy driver.", findings);
-    energy_finding_->setObjectName("findingText");
-    energy_finding_->setWordWrap(true);
-    findings_layout->addWidget(energy_finding_);
-    auto* energy_scope = mutedLabel("Energy is assumption-led. Component changes should be evaluated at whole-system scope.", findings);
-    energy_scope->setWordWrap(true);
-    findings_layout->addWidget(energy_scope);
-    findings_layout->addStretch();
-    auto* evidence = new QLabel("Timing\tanalytical\nEnergy\tassumption-led\nRVV envelope\tAra checked\nSilicon claim\tnone", findings);
-    evidence->setObjectName("evidenceLedger");
-    evidence->setWordWrap(true);
-    findings_layout->addWidget(evidence);
-    overview_layout->addWidget(findings, 1);
+    inspector_layout->addWidget(divider);
+    auto* trace_title = new QLabel("Frame 0 trace evidence", inspector);
+    trace_title->setObjectName("metricTitle");
+    inspector_layout->addWidget(trace_title);
+    trace_summary_label_ = new QLabel("The frame-zero task trace appears after a successful run.", inspector);
+    trace_summary_label_->setObjectName("inspectorValue");
+    trace_summary_label_->setWordWrap(true);
+    trace_summary_label_->setAccessibleName("Longest recorded frame zero task");
+    inspector_layout->addWidget(trace_summary_label_);
+    trace_scope_label_ = mutedLabel("Recorded resource intervals may overlap. The longest interval is not a causal share of end-to-end latency.", inspector);
+    trace_scope_label_->setObjectName("inspectorBody");
+    trace_scope_label_->setWordWrap(true);
+    inspector_layout->addWidget(trace_scope_label_);
+    auto* accounting_title = new QLabel("Energy and power boundary", inspector);
+    accounting_title->setObjectName("metricTitle");
+    inspector_layout->addWidget(accounting_title);
+    accounting_summary_label_ = new QLabel("Power and energy are model outputs, not hardware measurements.", inspector);
+    accounting_summary_label_->setObjectName("inspectorValue");
+    accounting_summary_label_->setWordWrap(true);
+    accounting_summary_label_->setAccessibleName("Modeled energy and power interpretation");
+    inspector_layout->addWidget(accounting_summary_label_);
+    accounting_limits_label_ = mutedLabel("Unpriced or partial resource costs remain outside the modeled result.", inspector);
+    accounting_limits_label_->setObjectName("inspectorBody");
+    accounting_limits_label_->setWordWrap(true);
+    inspector_layout->addWidget(accounting_limits_label_);
+    inspector_layout->addStretch();
+    inspector_scroll->setWidget(inspector);
+    overview_layout->addWidget(inspector_scroll, 1);
     result_views_->addTab(overview_page, "Overview");
 
     auto* timeline_page = new QWidget(result_views_);
@@ -1654,6 +1729,33 @@ class AxisSimWindow final : public QMainWindow {
     const QString trace_path = temporary_->filePath("trace.csv");
     QStringList arguments = {"run", scenario_path_, "--json", json_path, "--trace", trace_path};
     arguments.append(quickOverrides(true));
+    pending_run_config_.reset();
+    pending_run_config_source_count_ = 0;
+    pending_run_config_override_count_ = 0;
+    pending_run_source_names_.clear();
+    pending_run_config_error_.clear();
+    std::map<std::string, std::string> config_overrides;
+    for (qsizetype index = 0; index + 1 < arguments.size(); ++index) {
+      if (arguments[index] != "--set") continue;
+      const QString assignment = arguments[index + 1];
+      const qsizetype separator = assignment.indexOf('=');
+      if (separator <= 0) continue;
+      config_overrides[assignment.left(separator).toStdString()] = assignment.mid(separator + 1).toStdString();
+      ++index;
+    }
+    try {
+      const auto loaded = axissim::load_config_with_sources(scenario_path_.toStdString(), config_overrides);
+      pending_run_config_ = loaded.config;
+      pending_run_config_source_count_ = static_cast<int>(loaded.source_files.size());
+      pending_run_config_override_count_ = static_cast<int>(config_overrides.size());
+      for (const auto& source : loaded.source_files) {
+        pending_run_source_names_ << QDir(project_root_).relativeFilePath(QString::fromStdString(source.string()));
+      }
+    } catch (const std::exception& error) {
+      // The CLI remains authoritative for validation and user-facing errors.
+      // This best-effort copy exists only to label the result with resolved inputs.
+      pending_run_config_error_ = QString::fromUtf8(error.what());
+    }
     beginProcess("Running model…");
     connect(process_.get(), qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
             [this, json_path, trace_path](int exit_code, QProcess::ExitStatus exit_status) {
@@ -2161,7 +2263,21 @@ class AxisSimWindow final : public QMainWindow {
     status_pill_->setProperty("state", success ? "success" : "error");
     status_pill_->style()->unpolish(status_pill_);
     status_pill_->style()->polish(status_pill_);
-    if (!success && result_context_) result_context_->setText("The last operation did not complete. Review the error and configuration, then run again.");
+    if (success) {
+      if (run_state_label_->property("state").toString() != "warning") {
+        run_state_label_->setProperty("state", "success");
+        run_state_label_->style()->unpolish(run_state_label_);
+        run_state_label_->style()->polish(run_state_label_);
+      }
+    } else {
+      run_state_label_->setText(last_result_json_.isEmpty()
+          ? "No completed result · the last attempt failed. Review the error and configuration."
+          : "Last attempt failed · displayed metrics are from the previous successful result.");
+      run_state_label_->setProperty("state", "error");
+      run_state_label_->style()->unpolish(run_state_label_);
+      run_state_label_->style()->polish(run_state_label_);
+      if (result_context_) result_context_->setText("The last operation did not complete. Review the error and configuration, then run again.");
+    }
     statusBar()->showMessage(message, success ? 8'000 : 12'000);
   }
 
@@ -2172,6 +2288,17 @@ class AxisSimWindow final : public QMainWindow {
     status_pill_->style()->unpolish(status_pill_);
     status_pill_->style()->polish(status_pill_);
     if (busy && result_context_) result_context_->setText("Running the deterministic CLI and preparing JSON and trace artifacts…");
+    if (busy) {
+      run_state_label_->setText(last_result_json_.isEmpty()
+          ? "Running · no completed result yet."
+          : "Running · previous completed result remains displayed until this run succeeds.");
+      if (results_workbench_smoke_run_) {
+        results_workbench_saw_busy_state_ = run_state_label_->text().startsWith("Running");
+      }
+      run_state_label_->setProperty("state", "busy");
+      run_state_label_->style()->unpolish(run_state_label_);
+      run_state_label_->style()->polish(run_state_label_);
+    }
     scenario_->setEnabled(!busy);
     browse_button_->setEnabled(!busy);
     save_button_->setEnabled(!busy);
@@ -2200,7 +2327,7 @@ class AxisSimWindow final : public QMainWindow {
   }
 
   void showError(const QString& title, const QString& detail) {
-    const bool non_interactive = exit_after_run_ || tutorial_smoke_run_ || mapping_lab_smoke_run_ || power_study_smoke_run_ || !snapshot_path_.isEmpty();
+    const bool non_interactive = exit_after_run_ || tutorial_smoke_run_ || mapping_lab_smoke_run_ || power_study_smoke_run_ || results_workbench_smoke_run_ || !snapshot_path_.isEmpty();
     if (non_interactive) {
       qCritical().noquote() << title << ":" << detail;
       QCoreApplication::exit(1);
@@ -2218,22 +2345,35 @@ class AxisSimWindow final : public QMainWindow {
       showError("AxisSim result unavailable", "The CLI completed without producing the expected JSON artifact.");
       return;
     }
-    last_result_json_ = result_file.readAll();
-    refreshTutorialEntry();
+    const QByteArray result_json = result_file.readAll();
     QJsonParseError parse_error;
-    const auto document = QJsonDocument::fromJson(last_result_json_, &parse_error);
+    const auto document = QJsonDocument::fromJson(result_json, &parse_error);
     if (parse_error.error != QJsonParseError::NoError || !document.isObject()) {
       finishProcess(false, "Invalid result JSON");
       showError("AxisSim result is invalid", parse_error.errorString());
       return;
     }
     const QJsonObject result = document.object();
+    const QString contract_issue = resultContractIssue(result);
+    if (!contract_issue.isEmpty()) {
+      finishProcess(false, "Unsupported or incomplete result");
+      showError("AxisSim result is incomplete", contract_issue);
+      return;
+    }
+    last_result_json_ = result_json;
+    refreshTutorialEntry();
+    displayed_run_config_ = pending_run_config_;
+    displayed_run_config_source_count_ = pending_run_config_source_count_;
+    displayed_run_config_override_count_ = pending_run_config_override_count_;
+    displayed_run_source_names_ = pending_run_source_names_;
+    displayed_run_config_path_ = scenario_path_;
+    displayed_run_config_error_ = pending_run_config_error_;
     const QJsonObject latency = result.value("latency").toObject();
     const QJsonObject deadlines = result.value("deadlines").toObject();
     const QJsonObject traffic = result.value("traffic").toObject();
     const QJsonObject energy = result.value("energy").toObject();
     const QJsonObject power = result.value("power").toObject();
-    const int frames = std::max(1, deadlines.value("vision_jobs").toInt());
+    const int frames = deadlines.value("vision_jobs").toInt();
 
     const double mean_latency_us = latency.value("mean_us").toDouble();
     const double deadline_us = result.value("deadline_us").toDouble();
@@ -2254,10 +2394,6 @@ class AxisSimWindow final : public QMainWindow {
     energy_card_->setValue(QString::number(energy.value("it_per_frame_uj").toDouble(), 'f', 2) + " µJ", "modeled estimate");
     traffic_card_->setValue(QString("%1 %2%").arg(dominant_energy->first).arg(100.0 * dominant_energy->second / energy_total, 0, 'f', 1),
                             QString("%1 µJ / frame").arg(dominant_energy->second, 0, 'f', 2));
-    energy_finding_->setText(QString("Data movement owns %1% of dynamic energy.")
-                                 .arg(100.0 * (energy_components[2].second + energy_components[3].second) /
-                                      std::max(energy.value("per_frame_uj").toDouble(), 0.000001), 0, 'f', 1));
-
     energy_chart_->setSegments({
         {"Vector", energy.value("vector_pj").toDouble() / frames / 1'000'000.0, AxisTheme::chartRvv()},
         {"NPU arithmetic", energy.value("npu_arithmetic_pj").toDouble() / frames / 1'000'000.0, AxisTheme::chartNpu()},
@@ -2293,6 +2429,7 @@ class AxisSimWindow final : public QMainWindow {
       profile_evidence_->setText("No public workload profile is selected. Profile evidence appears here when a profiled-graph scenario runs.");
     }
     populateTrace(trace_path);
+    updateRunInspector(result);
     log_->setPlainText(QString("Scenario: %1  •  model %2  •  result schema %3\n\n%4\n\n"
                                "Interpretation boundary\n"
                                "AxisSim reports model outputs under explicit assumptions. Area, thermal, and FIT reliability values are sensitivity proxies—not implementation signoff or measured hardware.")
@@ -2300,8 +2437,10 @@ class AxisSimWindow final : public QMainWindow {
     export_button_->setEnabled(true);
     export_action_->setEnabled(true);
     result_views_->setCurrentIndex(0);
-    result_context_->setText(scenario_->currentText());
-    finishProcess(true, power.value("budget_w").toDouble() > 0.0 && !power.value("feasible").toBool() ? "Complete • budget exceeded" : "Model complete");
+    result_context_->setText(QString("%1 · model %2 · schema %3")
+                                 .arg(result.value("scenario_name").toString(), result.value("model_version").toString(),
+                                      result.value("schema_version").toString()));
+    finishProcess(true, power.value("budget_w").toDouble() > 0.0 && !power.value("feasible").toBool() ? "Complete • modeled budget exceeded" : "Model complete");
     handleTutorialResult(result);
     if (!snapshot_path_.isEmpty()) {
       bool tab_ok = false;
@@ -2316,6 +2455,12 @@ class AxisSimWindow final : public QMainWindow {
       return;
     }
     if (exit_after_run_) QCoreApplication::exit(0);
+    if (results_workbench_smoke_run_) {
+      const QStringList issues = resultsWorkbenchIssues();
+      QTextStream error(stderr);
+      for (const auto& issue : issues) error << issue << '\n';
+      QCoreApplication::exit(issues.isEmpty() ? 0 : 1);
+    }
   }
 
   static void appendRow(QTableWidget* table, const QString& name, const QString& value, const QString& interpretation) {
@@ -2333,6 +2478,7 @@ class AxisSimWindow final : public QMainWindow {
     const QJsonObject energy = result.value("energy").toObject();
     const QJsonObject power = result.value("power").toObject();
     const QJsonObject deployment = result.value("deployment").toObject();
+    const QJsonObject traffic = result.value("traffic").toObject();
     appendRow(metrics_, "Mean latency", QString::number(latency.value("mean_us").toDouble(), 'f', 3) + " µs", "End-to-end mean across completed vision jobs");
     appendRow(metrics_, "P99 latency", QString::number(latency.value("p99_us").toDouble(), 'f', 3) + " µs", "Modeled tail latency across completed vision jobs");
     appendRow(metrics_, "Modeled makespan", QString::number(timing.value("makespan_us").toDouble() / 1'000'000.0, 'f', 6) + " s", "Elapsed simulated workload window");
@@ -2341,9 +2487,14 @@ class AxisSimWindow final : public QMainWindow {
     appendRow(metrics_, "Facility energy / frame", QString::number(energy.value("facility_per_frame_uj").toDouble(), 'f', 3) + " µJ", "IT energy multiplied by configured PUE");
     appendRow(metrics_, "Average IT power", QString::number(power.value("average_it_w").toDouble(), 'f', 6) + " W", "Average over the modeled makespan");
     appendRow(metrics_, "Average facility power", QString::number(power.value("average_facility_w").toDouble(), 'f', 6) + " W", "Average IT power × PUE");
+    appendRow(metrics_, "Modeled DRAM byte traffic", QString::number(traffic.value("dram_bytes").toDouble(), 'f', 0) + " B",
+              "Logical byte-accounted model traffic; not physical DRAM transactions or commands");
     const double budget_w = power.value("budget_w").toDouble();
     appendRow(metrics_, "IT power budget", budget_w > 0.0 ? QString::number(budget_w, 'f', 6) + " W" : "Not configured",
-              budget_w > 0.0 ? (power.value("feasible").toBool() ? "Feasible" : "Infeasible") : "No budget constraint applied");
+              budget_w > 0.0 ? (power.value("feasible").toBool()
+                                    ? "Within modeled average IT power budget; provisional under current cost terms"
+                                    : "Above modeled average IT power budget")
+                             : "No budget constraint applied");
     appendRow(metrics_, "PUE", QString::number(power.value("pue").toDouble(), 'f', 3), "Facility multiplier; not a chip property");
     const double deployment_hours = deployment.value("hours").toDouble();
     if (deployment_hours > 0.0) {
@@ -2354,6 +2505,216 @@ class AxisSimWindow final : public QMainWindow {
     } else {
       appendRow(metrics_, "Deployment economics", "Not configured", "Set deployment_hours, deployment_xpu_count, and electricity_cost_per_kwh");
     }
+  }
+
+  QString resultContractIssue(const QJsonObject& result) const {
+    const QString version = result.value("schema_version").toString();
+    if (version != "1.2" && version != "1.3") return QString("Unsupported result schema: %1").arg(version.isEmpty() ? "missing" : version);
+    const auto has_number = [&result](const QString& object_key, const QString& value_key) {
+      const QJsonValue value = result.value(object_key).toObject().value(value_key);
+      return value.isDouble();
+    };
+    const auto has_root_number = [&result](const QString& key) { return result.value(key).isDouble(); };
+    const std::array<std::pair<QString, QString>, 18> required_numbers = {{
+        {"latency", "mean_us"}, {"latency", "p99_us"},
+        {"deadlines", "vision_jobs"}, {"deadlines", "vision_misses"},
+        {"timing", "makespan_us"},
+        {"energy", "per_frame_uj"}, {"energy", "static_per_frame_uj"},
+        {"energy", "it_per_frame_uj"}, {"energy", "facility_per_frame_uj"},
+        {"energy", "vector_pj"}, {"energy", "npu_arithmetic_pj"},
+        {"energy", "dram_pj"}, {"energy", "dma_pj"},
+        {"power", "modeled_static_w"}, {"power", "average_it_w"},
+        {"power", "budget_w"}, {"power", "pue"},
+        {"traffic", "dram_bytes"},
+    }};
+    for (const auto& [object_key, value_key] : required_numbers) {
+      if (!has_number(object_key, value_key)) return QString("Required numeric result field is missing: %1.%2").arg(object_key, value_key);
+    }
+    if (!has_root_number("deadline_us")) return "Required numeric result field is missing: deadline_us";
+    if (!result.value("power").toObject().value("feasible").isBool()) return "Required result field is missing: power.feasible";
+    const std::array<QString, 6> required_strings = {
+        "scenario_name", "model_version", "workload_mode", "mapping_plan", "scheduler_policy", "arrival_mode"};
+    for (const auto& key : required_strings) {
+      if (result.value(key).toString().isEmpty()) return QString("Required result identity field is missing: %1").arg(key);
+    }
+    if (result.value("deadlines").toObject().value("vision_jobs").toInt() <= 0) return "Result contains no completed vision work units";
+    return {};
+  }
+
+  void updateInspectorMinimumHeight() {
+    if (!run_inspector_scroll_ || !run_inspector_scroll_->widget()) return;
+    QWidget* content = run_inspector_scroll_->widget();
+    QLayout* layout = content->layout();
+    if (!layout) return;
+    layout->activate();
+    const int width = std::max(1, run_inspector_scroll_->viewport()->width());
+    const int content_height = layout->hasHeightForWidth() ? layout->heightForWidth(width) : layout->sizeHint().height();
+    content->setMinimumHeight(content_height);
+  }
+
+  void updateRunInspector(const QJsonObject& result) {
+    const QJsonObject power = result.value("power").toObject();
+    const QJsonObject energy = result.value("energy").toObject();
+    const QJsonObject deadlines = result.value("deadlines").toObject();
+    const double budget_w = power.value("budget_w").toDouble();
+    const QString state = budget_w > 0.0 && !power.value("feasible").toBool()
+        ? "Model complete · modeled average-power budget exceeded"
+        : "Model complete · outputs are analytical estimates";
+    run_state_label_->setText(state);
+    run_state_label_->setProperty("state", budget_w > 0.0 && !power.value("feasible").toBool() ? "warning" : "success");
+    run_state_label_->style()->unpolish(run_state_label_);
+    run_state_label_->style()->polish(run_state_label_);
+
+    if (displayed_run_config_) {
+      const auto& config = *displayed_run_config_;
+      const bool identity_matches = config.scenario_name == result.value("scenario_name").toString().toStdString() &&
+          config.model_version == result.value("model_version").toString().toStdString() &&
+          config.workload_mode == result.value("workload_mode").toString().toStdString() &&
+          config.scheduler_policy == result.value("scheduler_policy").toString().toStdString() &&
+          std::abs(config.deadline_us - result.value("deadline_us").toDouble()) < 1.0e-9;
+      if (!identity_matches) {
+        displayed_run_config_.reset();
+        displayed_run_config_error_ = "Resolved inputs do not match the identity fields in the emitted result.";
+        updateRunInspector(result);
+        run_state_label_->setText("Model complete · configuration identity mismatch; input details withheld.");
+        run_state_label_->setProperty("state", "warning");
+        run_state_label_->style()->unpolish(run_state_label_);
+        run_state_label_->style()->polish(run_state_label_);
+        return;
+      }
+      const QString scenario = QString::fromStdString(config.scenario_name);
+      const QString workload = QString::fromStdString(config.workload_mode).replace('_', ' ');
+      QString mapping = config.mapping_plan.empty() ? "implicit profile mapping" : QFileInfo(QString::fromStdString(config.mapping_plan)).fileName();
+      const QString schedule = QString("%1 / %2")
+          .arg(QString::fromStdString(config.scheduler_policy), QString::fromStdString(config.scheduler_ordering_policy));
+      const auto fill_placeholders = [](QString text, const QStringList& values) {
+        for (qsizetype index = values.size(); index > 0; --index) {
+          text.replace("%" + QString::number(index), values[static_cast<std::size_t>(index - 1)]);
+        }
+        return text;
+      };
+      QString config_summary =
+          "%1 · model %2 · schema %3\n%4 / %5\nRVV %10 × %11-bit · NPU %13 MACs\nDRAM %18 GB/s · SRAM %19 KiB";
+      const QStringList config_values = {
+          scenario, QString::fromStdString(config.model_version), result.value("schema_version").toString(), workload, mapping,
+          schedule, result.value("arrival_mode").toString(), QString::number(config.frames),
+          QString::number(config.deadline_us / 1'000.0, 'f', 3), QString::number(config.rvv_lanes),
+          QString::number(config.rvv_vlen_bits), QString::number(config.rvv_frequency_ghz, 'g', 4),
+          QString::number(config.npu_macs), QString::number(config.npu_frequency_ghz, 'g', 4),
+          QString::number(config.npu_tile_m), QString::number(config.npu_tile_n), QString::number(config.npu_tile_k),
+          QString::number(config.dram_bandwidth_gbps, 'g', 5),
+          QString::number(static_cast<double>(config.sram_capacity_bytes) / 1024.0, 'g', 5),
+          QString::number(config.npu_mac_pj, 'g', 5), QString::number(config.npu_arithmetic_energy_scale, 'g', 5),
+          QString::number(config.dram_byte_pj, 'g', 5), QString::number(config.dma_byte_pj, 'g', 5)};
+      config_summary = fill_placeholders(config_summary, config_values);
+      run_config_label_->setText(config_summary);
+      const QString full_config = fill_placeholders(QString(
+          "Scenario %1 · model %2 · schema %3\nWorkload %4 · mapping %5\nScheduler %6 · arrivals %7 · %8 frames · deadline %9 ms\n"
+          "RVV %10 lanes × %11-bit @ %12 GHz · NPU %13 MACs @ %14 GHz\nNPU tile %15×%16×%17 · DRAM %18 GB/s · SRAM %19 KiB\n"
+          "Energy assumptions: NPU %20 pJ/MAC × %21 · DRAM %22 pJ/B · DMA %23 pJ/B"), config_values);
+      run_config_label_->setToolTip(full_config);
+      run_config_label_->setAccessibleDescription(full_config);
+      run_source_label_->setText(QString("%1 · %2 resolved files · %3 run-only override%4")
+          .arg(QFileInfo(displayed_run_config_path_).fileName())
+          .arg(displayed_run_config_source_count_)
+          .arg(displayed_run_config_override_count_)
+          .arg(displayed_run_config_override_count_ == 1 ? "" : "s"));
+      run_source_label_->setToolTip(displayed_run_config_path_ + "\nResolved files:\n" + displayed_run_source_names_.join("\n"));
+      run_source_label_->setAccessibleDescription("Manifest path " + displayed_run_config_path_ + ". Resolved configuration files: " + displayed_run_source_names_.join(", ") + ". Run-only overrides: " + QString::number(displayed_run_config_override_count_));
+    } else {
+      run_config_label_->setText("Resolved architecture inputs are unavailable in this view. The C++ result remains authoritative; configuration parsing failed: " + displayed_run_config_error_);
+      run_source_label_->setText("Manifest path: " + displayed_run_config_path_ + "\nConfiguration inputs could not be resolved by the shared parser.");
+      run_source_label_->setToolTip(displayed_run_config_path_);
+    }
+
+    const int vision_jobs = deadlines.value("vision_jobs").toInt();
+    const double static_total_w = power.value("modeled_static_w").toDouble();
+    const double average_it_w = power.value("average_it_w").toDouble();
+    const double makespan_s = result.value("timing").toObject().value("makespan_us").toDouble() / 1'000'000.0;
+    const QString budget_text = budget_w > 0.0
+        ? QString("Budget: %1 %2 W average model budget · provisional")
+              .arg(power.value("feasible").toBool() ? "within" : "above")
+              .arg(budget_w, 0, 'g', 5)
+        : "No IT power limit configured";
+    const double dram_payload_bytes = result.value("traffic").toObject().value("dram_bytes").toDouble();
+    accounting_summary_label_->setText(
+        QString("IT energy: %1 µJ / completed frame (%2 frames)\nAverage IT power: %3 W over %4 s modeled makespan\nStatic term: %5 W configured (not measured)\nDRAM bytes in model: %6 B\n%7")
+            .arg(energy.value("it_per_frame_uj").toDouble(), 0, 'f', 2)
+            .arg(vision_jobs)
+            .arg(average_it_w, 0, 'g', 5)
+            .arg(makespan_s, 0, 'g', 5)
+            .arg(static_total_w, 0, 'g', 5)
+            .arg(dram_payload_bytes, 0, 'f', 0)
+            .arg(budget_text));
+    accounting_limits_label_->setText(budget_w > 0.0
+        ? "Budget pass/fail is provisional under current modeled costs, not physical feasibility."
+        : "Power and energy remain model outputs, not physical measurements.");
+    updateInspectorMinimumHeight();
+  }
+
+  QStringList resultsWorkbenchIssues() {
+    QStringList issues;
+    if (!results_workbench_initial_state_ok_) issues << "The initial no-result state was not identified";
+    if (!results_workbench_saw_busy_state_) issues << "The active simulation state was not identified";
+    if (run_state_label_->text().startsWith("Model complete") == false) issues << "Successful run state was not rendered";
+    if (!run_inspector_scroll_ || !run_inspector_scroll_->widget() ||
+        run_inspector_scroll_->widget()->width() > run_inspector_scroll_->viewport()->width()) {
+      issues << "Compact inspector content exceeds its viewport width";
+    }
+    if (run_inspector_scroll_ && run_inspector_scroll_->widget() &&
+        run_inspector_scroll_->widget()->height() <= run_inspector_scroll_->viewport()->height()) {
+      issues << "Compact inspector details are not scrollable when they exceed the available height";
+    }
+    const std::array<std::pair<QString, QColor>, 5> light_status_colors = {{
+        {"idle", QColor("#5D6465")}, {"busy", QColor("#147D85")}, {"success", QColor("#237B5B")},
+        {"warning", QColor("#9B6219")}, {"error", QColor("#B93F46")}}};
+    const QColor light_surface = AxisTheme::palette(false).color(QPalette::Base);
+    const QString light_style = AxisTheme::styleSheet(false);
+    for (const auto& [state, color] : light_status_colors) {
+      const QString selector = state == "idle" ? "QLabel#runStatusText { color: %1;"
+          : QString("QLabel#runStatusText[state=\"%1\"] { color: %2;").arg(state, color.name().toUpper());
+      const QString expected_rule = state == "idle" ? selector.arg(color.name().toUpper()) : selector;
+      if (!light_style.contains(expected_rule) || contrastRatio(color, light_surface) < 4.5) {
+        issues << QString("Light-theme %1 run status text does not meet 4.5:1 contrast").arg(state);
+      }
+    }
+    if (!displayed_run_config_ || displayed_run_config_->rvv_lanes != 8 || displayed_run_config_->npu_macs != 1024) {
+      issues << "Resolved baseline configuration inputs were not displayed";
+    }
+    if (!run_config_label_->text().contains("schema 1.2") || !run_config_label_->accessibleDescription().contains("RVV 8 lanes × 256-bit")) {
+      issues << "Configuration and schema summary is incomplete";
+    }
+    if (trace_->rowCount() == 0 || !trace_summary_label_->text().contains("Longest recorded task")) {
+      issues << "Real frame-zero trace evidence is missing";
+    }
+    if (!accounting_summary_label_->text().contains("Average IT power") ||
+        !accounting_summary_label_->text().contains("DRAM bytes in model") ||
+        !scope_note_->text().contains("not scaled with bandwidth") ||
+        !scope_note_->text().contains("not a DRAM command trace")) {
+      issues << "Power-accounting boundary is not visible";
+    }
+    QJsonObject incomplete_result;
+    incomplete_result.insert("schema_version", "1.2");
+    if (resultContractIssue(incomplete_result).isEmpty()) issues << "Missing result metrics would not be rejected";
+    incomplete_result.insert("schema_version", "99.0");
+    if (!resultContractIssue(incomplete_result).startsWith("Unsupported result schema")) {
+      issues << "Unsupported result schemas would not be rejected";
+    }
+    const QByteArray completed_result = last_result_json_;
+    const QString completed_context = result_context_->text();
+    last_result_json_.clear();
+    finishProcess(false, "Synthetic invalid-configuration check");
+    if (!run_state_label_->text().startsWith("No completed result · the last attempt failed")) {
+      issues << "An invalid first run is not identified as failed without a completed result";
+    }
+    last_result_json_ = completed_result;
+    finishProcess(false, "Synthetic failed-rerun check");
+    if (!run_state_label_->text().startsWith("Last attempt failed · displayed metrics are from the previous successful result")) {
+      issues << "A failed rerun does not identify the preserved earlier result";
+    }
+    finishProcess(true, "Model complete");
+    result_context_->setText(completed_context);
+    return issues;
   }
 
   void populateProxies(const QJsonObject& result) {
@@ -2394,9 +2755,13 @@ class AxisSimWindow final : public QMainWindow {
 
   void populateTrace(const QString& trace_path) {
     QFile trace_file(trace_path);
-    if (!trace_file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
     trace_->setRowCount(0);
     QVector<TimelineEvent> events;
+    if (!trace_file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+      trace_summary_label_->setText("No frame-zero trace was emitted for this result.");
+      timeline_chart_->setEvents({});
+      return;
+    }
     QTextStream input(&trace_file);
     input.readLine();
     while (!input.atEnd()) {
@@ -2423,13 +2788,13 @@ class AxisSimWindow final : public QMainWindow {
                                               return left.end_us - left.start_us < right.end_us - right.start_us;
                                             });
       const double duration = longest->end_us - longest->start_us;
-      const double frame_end = std::max_element(events.cbegin(), events.cend(),
-                                                [](const TimelineEvent& left, const TimelineEvent& right) {
-                                                  return left.end_us < right.end_us;
-                                                })->end_us;
-      latency_finding_->setText(QString("%1 owns %2% of frame latency.")
-                                    .arg(longest->task)
-                                    .arg(100.0 * duration / std::max(frame_end, 0.001), 0, 'f', 1));
+      trace_summary_label_->setText(QString("Longest recorded task: %1 · %2 · %3 µs interval (%4–%5 µs).")
+          .arg(longest->task, longest->resource)
+          .arg(duration, 0, 'f', 2)
+          .arg(longest->start_us, 0, 'f', 2)
+          .arg(longest->end_us, 0, 'f', 2));
+    } else {
+      trace_summary_label_->setText("No frame-zero task events were present in the trace.");
     }
     timeline_chart_->setEvents(std::move(events));
   }
@@ -2555,8 +2920,17 @@ class AxisSimWindow final : public QMainWindow {
   QLabel* capacity_value_ = nullptr;
   QLabel* profile_evidence_ = nullptr;
   QLabel* host_reference_summary_ = nullptr;
-  QLabel* latency_finding_ = nullptr;
-  QLabel* energy_finding_ = nullptr;
+  QLabel* run_state_label_ = nullptr;
+  QLabel* run_config_label_ = nullptr;
+  QLabel* run_source_label_ = nullptr;
+  QLabel* trace_summary_label_ = nullptr;
+  QLabel* trace_scope_label_ = nullptr;
+  QLabel* accounting_summary_label_ = nullptr;
+  QLabel* accounting_limits_label_ = nullptr;
+  QLabel* scope_note_ = nullptr;
+  QScrollArea* run_inspector_scroll_ = nullptr;
+  QHBoxLayout* overview_layout_ = nullptr;
+  QVBoxLayout* overview_analysis_layout_ = nullptr;
   QLabel* tutorial_title_ = nullptr;
   QLabel* tutorial_text_ = nullptr;
   QProgressBar* progress_ = nullptr;
@@ -2565,6 +2939,7 @@ class AxisSimWindow final : public QMainWindow {
   QFrame* experiment_panel_ = nullptr;
   QFrame* tutorial_panel_ = nullptr;
   QWidget* tutorial_target_ = nullptr;
+  QFrame* energy_panel_ = nullptr;
   QSplitter* splitter_ = nullptr;
   QPlainTextEdit* editor_ = nullptr;
   QPlainTextEdit* log_ = nullptr;
@@ -2589,6 +2964,17 @@ class AxisSimWindow final : public QMainWindow {
   int previous_scenario_index_ = 0;
   QString scenario_path_;
   QByteArray last_result_json_;
+  std::optional<axissim::Config> pending_run_config_;
+  std::optional<axissim::Config> displayed_run_config_;
+  QString pending_run_config_error_;
+  QString displayed_run_config_error_;
+  QString displayed_run_config_path_;
+  QStringList pending_run_source_names_;
+  QStringList displayed_run_source_names_;
+  int pending_run_config_source_count_ = 0;
+  int pending_run_config_override_count_ = 0;
+  int displayed_run_config_source_count_ = 0;
+  int displayed_run_config_override_count_ = 0;
   std::unique_ptr<QProcess> process_;
   std::unique_ptr<QTemporaryDir> temporary_;
   std::unique_ptr<QTemporaryDir> mapping_temporary_;
@@ -2606,6 +2992,9 @@ class AxisSimWindow final : public QMainWindow {
   bool tutorial_preview_ = false;
   bool mapping_lab_smoke_run_ = false;
   bool power_study_smoke_run_ = false;
+  bool results_workbench_smoke_run_ = false;
+  bool results_workbench_initial_state_ok_ = false;
+  bool results_workbench_saw_busy_state_ = false;
 };
 
 }  // namespace
@@ -2616,6 +3005,7 @@ int main(int argc, char** argv) {
   const bool tutorial_smoke_run = argc == 2 && QString::fromLocal8Bit(argv[1]) == "--tutorial-smoke-test-run";
   const bool mapping_lab_smoke_run = argc == 2 && QString::fromLocal8Bit(argv[1]) == "--mapping-lab-smoke-test-run";
   const bool power_study_smoke_run = argc == 2 && QString::fromLocal8Bit(argv[1]) == "--power-study-smoke-test-run";
+  const bool results_workbench_smoke_run = argc == 2 && QString::fromLocal8Bit(argv[1]) == "--results-workbench-smoke-test-run";
   const bool audit_ui = argc == 2 && QString::fromLocal8Bit(argv[1]) == "--audit-ui";
   const bool snapshot_run = argc == 5 && QString::fromLocal8Bit(argv[1]) == "--snapshot-run";
   const bool tutorial_preview = argc == 5 && QString::fromLocal8Bit(argv[1]) == "--tutorial-preview";
@@ -2644,8 +3034,12 @@ int main(int argc, char** argv) {
                      if (current_mode == AxisTheme::Mode::System) AxisTheme::apply(application, current_mode);
                    });
 #endif
-  AxisSimWindow window(smoke_test_run || snapshot_run, snapshot_path,
-                       (snapshot_run || tutorial_preview || mapping_lab_preview) ? QSize(snapshot_width, snapshot_height) : QSize(), tutorial_smoke_run, tutorial_preview, mapping_lab_smoke_run || mapping_lab_preview, power_study_smoke_run);
+  const QSize initial_size = (snapshot_run || tutorial_preview || mapping_lab_preview)
+      ? QSize(snapshot_width, snapshot_height)
+      : (results_workbench_smoke_run ? QSize(1'100, 820) : QSize());
+  AxisSimWindow window(smoke_test_run || snapshot_run, snapshot_path, initial_size,
+                       tutorial_smoke_run, tutorial_preview, mapping_lab_smoke_run || mapping_lab_preview,
+                       power_study_smoke_run, results_workbench_smoke_run);
   window.show();
   if (smoke_test) QTimer::singleShot(0, &application, &QCoreApplication::quit);
   if (audit_ui) {
