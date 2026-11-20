@@ -10,6 +10,13 @@ $Root = Split-Path -Parent $PSScriptRoot
 $BuildDir = Join-Path $Root $BuildDir
 $Stage = Join-Path $BuildDir "portable"
 $Archive = Join-Path $BuildDir "AxisSim-windows-x64.zip"
+trap {
+  if (Test-Path $Archive) { Remove-Item $Archive -Force -ErrorAction SilentlyContinue }
+  if (Test-Path $Stage) { Remove-Item $Stage -Recurse -Force -ErrorAction SilentlyContinue }
+  throw
+}
+if (Test-Path $Archive) { Remove-Item $Archive -Force }
+if (Test-Path $Stage) { Remove-Item $Stage -Recurse -Force }
 
 if ([string]::IsNullOrWhiteSpace($env:VCINSTALLDIR) -or -not (Test-Path $env:VCINSTALLDIR)) {
   throw "VCINSTALLDIR must identify an installed Visual Studio C++ toolchain; run from a Visual Studio developer shell."
@@ -18,7 +25,7 @@ Write-Output "Using Visual Studio C++ runtime source: $env:VCINSTALLDIR"
 
 cmake -S $Root -B $BuildDir -DCMAKE_BUILD_TYPE=Release -DAXISSIM_BUILD_GUI=ON -DAXISSIM_PACKAGE_BUILD=ON "-DAXISSIM_RELEASE_TAG=$ReleaseTag"
 if ($LASTEXITCODE -ne 0) { throw "CMake configure failed with exit code $LASTEXITCODE" }
-cmake --build $BuildDir --target axissim-gui --config Release --parallel
+cmake --build $BuildDir --clean-first --target axissim-gui --config Release --parallel
 if ($LASTEXITCODE -ne 0) { throw "CMake build failed with exit code $LASTEXITCODE" }
 windeployqt (Join-Path $Stage "AxisSim.exe") --release --no-translations --compiler-runtime
 if ($LASTEXITCODE -ne 0) { throw "windeployqt failed with exit code $LASTEXITCODE" }
@@ -33,7 +40,13 @@ if ($InstallVcRuntimeForValidation) {
   if ($InstallProcess.ExitCode -notin @(0, 3010, 1638)) {
     throw "Bundled VC redistributable installation failed with exit code $($InstallProcess.ExitCode)"
   }
-  Write-Output "VC redistributable installer exited with $($InstallProcess.ExitCode)"
+  if ($InstallProcess.ExitCode -eq 1638) {
+    Write-Output "VC redistributable installer found an existing runtime; package smoke tests will use that host runtime."
+  } elseif ($InstallProcess.ExitCode -eq 3010) {
+    Write-Output "Bundled VC redistributable installer succeeded; a restart is required. Smoke tests run in the current host environment."
+  } else {
+    Write-Output "Bundled VC redistributable installer succeeded with exit code 0. Smoke tests run in the current host environment."
+  }
 }
 $Revision = (git -C $Root rev-parse HEAD).Trim()
 python (Join-Path $Root "tools/generate_package_runtime_inventory.py") `

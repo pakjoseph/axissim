@@ -13,6 +13,7 @@ set(AXISSIM_PACKAGE_RELEASE_TAG "unknown")
 
 set(AXISSIM_SOURCE_REVISION "unknown")
 set(AXISSIM_SOURCE_TREE_STATE "unknown")
+set(AXISSIM_PACKAGE_INPUT_STATUS_VERIFIED OFF)
 find_package(Git QUIET)
 if(Git_FOUND)
   execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} rev-parse --verify HEAD
@@ -41,6 +42,7 @@ if(Git_FOUND)
         message(FATAL_ERROR
           "Package builds reject modified, untracked, or ignored files beneath configs/ and reference_data/:\n${AXISSIM_PACKAGE_INPUT_STATUS}")
       endif()
+      set(AXISSIM_PACKAGE_INPUT_STATUS_VERIFIED ON)
     endif()
     # Regenerate the embedded build identity when any tracked source input
     # changes after the initial configure. Package scripts also reconfigure
@@ -62,6 +64,34 @@ if(Git_FOUND)
   endif()
 endif()
 
+if(AXISSIM_PACKAGE_BUILD)
+  if(NOT Git_FOUND OR AXISSIM_SOURCE_REVISION STREQUAL "unknown")
+    message(FATAL_ERROR "Package builds require a verifiable Git source revision and package-input status")
+  endif()
+  if(NOT AXISSIM_PACKAGE_INPUT_STATUS_VERIFIED)
+    message(FATAL_ERROR "Package builds cannot continue because configs/ and reference_data/ were not verified")
+  endif()
+  find_package(Python3 3.10 COMPONENTS Interpreter REQUIRED)
+  execute_process(
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/verify_package_inputs.py"
+            --source-root "${CMAKE_SOURCE_DIR}" --revision "${AXISSIM_SOURCE_REVISION}"
+    RESULT_VARIABLE AXISSIM_PACKAGE_INPUT_HASH_RESULT
+    OUTPUT_VARIABLE AXISSIM_PACKAGE_INPUT_HASH_OUTPUT
+    ERROR_VARIABLE AXISSIM_PACKAGE_INPUT_HASH_ERROR
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+  if(NOT AXISSIM_PACKAGE_INPUT_HASH_RESULT EQUAL 0)
+    message(FATAL_ERROR
+      "Package input verification failed against ${AXISSIM_SOURCE_REVISION}:\n${AXISSIM_PACKAGE_INPUT_HASH_OUTPUT}\n${AXISSIM_PACKAGE_INPUT_HASH_ERROR}")
+  endif()
+  # Reconfigure before staging if a packaged file changes or a new one appears
+  # after this initial configure. The package guard then runs again before build.
+  file(GLOB_RECURSE AXISSIM_PACKAGE_INPUT_FILES CONFIGURE_DEPENDS LIST_DIRECTORIES false
+       "${CMAKE_SOURCE_DIR}/configs/*"
+       "${CMAKE_SOURCE_DIR}/reference_data/*")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${AXISSIM_PACKAGE_INPUT_FILES})
+endif()
+
 if(AXISSIM_RELEASE_TAG)
   if(NOT Git_FOUND OR AXISSIM_SOURCE_REVISION STREQUAL "unknown")
     message(FATAL_ERROR "A release tag cannot be verified without Git source identity")
@@ -69,6 +99,26 @@ if(AXISSIM_RELEASE_TAG)
   if(AXISSIM_SOURCE_TREE_STATE STREQUAL "modified")
     message(FATAL_ERROR "Release-labeled packages require a clean source tree with no untracked files")
   endif()
+  find_package(Python3 3.10 COMPONENTS Interpreter REQUIRED)
+  foreach(AXISSIM_RELEASE_INPUT_MODE IN ITEMS package all-tracked)
+    set(AXISSIM_RELEASE_INPUT_ARGS)
+    if(AXISSIM_RELEASE_INPUT_MODE STREQUAL "all-tracked")
+      list(APPEND AXISSIM_RELEASE_INPUT_ARGS --all-tracked)
+    endif()
+    execute_process(
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/verify_package_inputs.py"
+              --source-root "${CMAKE_SOURCE_DIR}" --revision "${AXISSIM_SOURCE_REVISION}"
+              ${AXISSIM_RELEASE_INPUT_ARGS}
+      RESULT_VARIABLE AXISSIM_RELEASE_INPUT_RESULT
+      OUTPUT_VARIABLE AXISSIM_RELEASE_INPUT_OUTPUT
+      ERROR_VARIABLE AXISSIM_RELEASE_INPUT_ERROR
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_STRIP_TRAILING_WHITESPACE)
+    if(NOT AXISSIM_RELEASE_INPUT_RESULT EQUAL 0)
+      message(FATAL_ERROR
+        "Release source verification failed (${AXISSIM_RELEASE_INPUT_MODE}) against ${AXISSIM_SOURCE_REVISION}:\n${AXISSIM_RELEASE_INPUT_OUTPUT}\n${AXISSIM_RELEASE_INPUT_ERROR}")
+    endif()
+  endforeach()
   # Keep values inserted into the generated JSON and C++ metadata safely
   # representable. Git's ref validator below remains authoritative for tag
   # structure; this whitelist additionally prevents quote/backslash injection.
@@ -213,6 +263,12 @@ axissim_enable_strict_warnings(axissim)
 if(AXISSIM_BUILD_GUI)
   find_package(Qt6 COMPONENTS Widgets QUIET)
   if(Qt6Widgets_FOUND)
+    set(AXISSIM_PACKAGE_INPUT_GUARD_COMMAND)
+    if(AXISSIM_PACKAGE_BUILD)
+      list(APPEND AXISSIM_PACKAGE_INPUT_GUARD_COMMAND
+           COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/verify_package_inputs.py"
+                   --source-root "${CMAKE_SOURCE_DIR}" --revision "${AXISSIM_SOURCE_REVISION}")
+    endif()
     set(CMAKE_AUTORCC ON)
     set(AXISSIM_GUI_SOURCES
         src/gui/main.cpp
@@ -234,6 +290,7 @@ if(AXISSIM_BUILD_GUI)
                             MACOSX_BUNDLE_SHORT_VERSION_STRING "0.2"
                             MACOSX_BUNDLE_BUNDLE_VERSION "0.2")
       add_custom_command(TARGET axissim-gui POST_BUILD
+                         ${AXISSIM_PACKAGE_INPUT_GUARD_COMMAND}
                          COMMAND ${CMAKE_COMMAND} -E copy_if_different
                                  $<TARGET_FILE:axissim>
                                  $<TARGET_BUNDLE_DIR:axissim-gui>/Contents/MacOS/axissim-cli
@@ -257,6 +314,7 @@ if(AXISSIM_BUILD_GUI)
       add_dependencies(axissim-gui axissim)
       set(AXISSIM_PORTABLE_DIR "${CMAKE_BINARY_DIR}/portable")
       add_custom_command(TARGET axissim-gui POST_BUILD
+                         ${AXISSIM_PACKAGE_INPUT_GUARD_COMMAND}
                          COMMAND ${CMAKE_COMMAND} -E make_directory ${AXISSIM_PORTABLE_DIR}/axissim-data
                          COMMAND ${CMAKE_COMMAND} -E copy_if_different
                                  $<TARGET_FILE:axissim>

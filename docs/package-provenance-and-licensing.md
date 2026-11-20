@@ -16,7 +16,13 @@ with `VCINSTALLDIR` set. `windeployqt --compiler-runtime` stages
 ZIP does not contain app-local MSVC DLLs: install the bundled Microsoft Visual
 C++ Redistributable (x64, 14.x) if the target system does not already have it.
 The verifier requires the installer record and hash and confirms the declared
-runtime DLL imports resolve on the validation host. The vendor installer may
+runtime DLL imports resolve on the validation host. Installer exit 0 indicates
+success; 3010 indicates success with a reboot required. Smoke tests then run
+against the host environment and do not record the exact runtime DLL version
+loaded. Exit 1638 means another runtime is already installed; in that case the
+installer is not counted as exercised, and the smoke tests validate against
+the host runtime instead. The package still includes the hash-verified
+installer prerequisite. The vendor installer may
 itself be a 32-bit bootstrapper even though it installs the x64 runtime; the
 verified installer is therefore excluded from the x64 application-image scan.
 It does not count a host-installed runtime as evidence that the package is
@@ -69,22 +75,31 @@ policy require a separate decision.
 ```
 
 ```powershell
-./scripts/package_windows.ps1 -BuildDir build-package-check
+./scripts/package_windows.ps1 -BuildDir build-package-check -InstallVcRuntimeForValidation
 ```
+
+Run the Windows command from an elevated Developer PowerShell launched from
+Visual Studio. The validation switch attempts to install the redistributable
+contained in the package before its extracted-package smoke tests. If the
+installer reports exit 1638, the script states that an existing host runtime
+will be used. Omit the switch only when the matching x64 runtime is already
+installed; without an installed runtime, the package smoke test will fail.
 
 ```sh
 ./scripts/package_macos.sh build-package-check
 ```
 
 Each script prints its output paths and runs `tools/verify_extracted_package.py`
-against a fresh extraction or relocation. The Windows and macOS packages
-bundle Qt dynamically. Linux needs Qt development/runtime packages, `dpkg-dev`,
+against a fresh extraction or relocation. Package creation requires Python
+3.10 or newer for package-input and runtime-inventory checks. The Windows and
+macOS packages bundle Qt dynamically. Linux needs Qt development/runtime packages, `dpkg-dev`,
 and the QPA plugins installed on the host. macOS packaging needs Qt 6,
 `macdeployqt`, `codesign`, `hdiutil`, and a working Cocoa session for the
 native GUI smoke test. The Windows static dependency check covers normal PE
-imports. The package-validation job installs the included Windows
+imports. The Windows package-validation job attempts to install the included
 redistributable in its ephemeral runner before the extracted-package smoke
-tests. The static Windows PE check verifies AMD64 machine type and normal
+tests and reports whether it installed that runtime or used an existing host
+runtime. The static Windows PE check verifies AMD64 machine type and normal
 imported DLL names; it does not verify imported symbol exports, delay-load
 imports, or dependencies opened through `LoadLibrary`.
 Native CLI and GUI smoke tests cover only the dependency paths they exercise.

@@ -19,6 +19,7 @@ on:
       - 'scripts/package_*.sh'
       - 'scripts/package_*.ps1'
       - 'tools/generate_package_runtime_inventory.py'
+      - 'tools/verify_package_inputs.py'
       - 'tools/provenance_contract.py'
       - 'tools/verify_extracted_package.py'
       - 'tools/verify_macos_bundle.py'

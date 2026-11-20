@@ -13,8 +13,24 @@ fi
 stage="$build_dir/portable"
 archive="$build_dir/AxisSim-linux-$(uname -m).tar.gz"
 
+# This build directory owns these package outputs. Remove prior results so a
+# failed rebuild cannot leave an older archive looking like current evidence.
+mkdir -p "$build_dir"
+rm -f "$archive"
+find "$build_dir" -maxdepth 1 -type f -name 'axissim*.deb' -delete
+cleanup_failed_packages() {
+  local status=$?
+  if [[ $status -ne 0 ]]; then
+    rm -f "$archive"
+    find "$build_dir" -maxdepth 1 -type f -name 'axissim*.deb' -delete
+    rm -rf "$stage"
+  fi
+}
+trap cleanup_failed_packages EXIT
+cmake -E remove_directory "$stage"
+
 cmake -S "$root" -B "$build_dir" -DCMAKE_BUILD_TYPE=Release -DAXISSIM_BUILD_GUI=ON -DAXISSIM_PACKAGE_BUILD=ON "-DAXISSIM_RELEASE_TAG=$release_tag"
-cmake --build "$build_dir" --target axissim-gui --parallel
+cmake --build "$build_dir" --clean-first --target axissim-gui --parallel
 test -x "$stage/AxisSim"
 test -x "$stage/axissim-cli"
 revision=$(git -C "$root" rev-parse HEAD)
@@ -41,10 +57,15 @@ if ! (cd "$build_dir" && cpack --config "$cpak_config" -G DEB); then
   fi
   exit 1
 fi
-deb=$(find "$build_dir" -maxdepth 1 -type f -name '*.deb' -print -quit)
-test -n "$deb"
+deb_candidates=("$build_dir"/axissim*.deb)
+if [[ ${#deb_candidates[@]} -ne 1 || ! -f "${deb_candidates[0]}" ]]; then
+  echo "Expected exactly one newly generated axissim Debian package; found ${#deb_candidates[@]}" >&2
+  exit 1
+fi
+deb=${deb_candidates[0]}
 dpkg-deb -x "$deb" "$verify_deb"
 python3 "$root/tools/verify_extracted_package.py" --root "$verify_deb" --platform linux --layout deb \
   --expected-source-revision "$revision" --deb-file "$deb" --gui-smoke
+trap - EXIT
 echo "Portable Linux archive: $archive"
 echo "Debian/Ubuntu package: $build_dir"/*.deb
