@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <iterator>
 #include <limits>
+#include <locale>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -519,9 +520,11 @@ std::optional<std::string> run_provenance_completeness_issue(const Value& proven
     if (value == nullptr || !value->is_number()) return false;
     const auto& lexeme = std::get<gemm_json::Number>(value->storage).lexeme;
     double parsed = 0.0;
-    const auto [end, error] = std::from_chars(
-        lexeme.data(), lexeme.data() + lexeme.size(), parsed, std::chars_format::general);
-    return error == std::errc{} && end == lexeme.data() + lexeme.size() && std::isfinite(parsed);
+    std::istringstream input(lexeme);
+    input.imbue(std::locale::classic());
+    input >> std::noskipws >> parsed;
+    if (input.fail() || !std::isfinite(parsed)) return false;
+    return input.peek() == std::char_traits<char>::eof();
   };
   for (const auto key : required_config_fields) {
     bool is_string_field = false;
