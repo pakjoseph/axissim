@@ -12,7 +12,8 @@ The AxisSim GUI links Qt 6 Core, Gui, and Widgets. Windows and macOS use
 dynamically bundled Qt runtimes selected by `windeployqt` and `macdeployqt`.
 Linux packages intentionally use system Qt libraries and platform plugins;
 the portable tarball documents that dependency, and the Debian package uses
-the shared-library dependency scan plus the Qt QPA plugin package. The Linux
+the shared-library dependency scan plus explicit dependencies for every
+Qt runtime package resolved from the extracted binaries and the Qt QPA plugin package. The Linux
 tarball is not a self-contained application bundle.
 
 `third-party/qt-runtime-inventory.json` identifies the shared native libraries
@@ -38,6 +39,12 @@ No signing credentials or notarization are configured. The macOS bundle is
 ad-hoc signed for local validation. Windows/Linux/macOS validation artifacts
 must be built and verified natively; a successful build on one OS is not
 evidence for another.
+
+An artifact marked `release` must name a real `refs/tags/<tag>` reference that
+resolves to the packaged commit. This check prevents a branch with the same
+name from being accepted as a tag. It does not verify a cryptographic tag
+signature or authenticate who created the tag; release signing and trusted-tag
+policy require a separate decision.
 
 ## Reproduction
 

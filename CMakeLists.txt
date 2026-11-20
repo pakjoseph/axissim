@@ -19,9 +19,10 @@ if(Git_FOUND)
                   OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
   if(AXISSIM_GIT_RESULT EQUAL 0 AND AXISSIM_GIT_HEAD MATCHES "^[0-9a-fA-F]+$")
     string(TOLOWER "${AXISSIM_GIT_HEAD}" AXISSIM_SOURCE_REVISION)
-    execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} diff-index --quiet HEAD --
-                    RESULT_VARIABLE AXISSIM_GIT_DIRTY_RESULT ERROR_QUIET)
-    if(AXISSIM_GIT_DIRTY_RESULT EQUAL 0)
+    execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} status --porcelain --untracked-files=all
+                    RESULT_VARIABLE AXISSIM_GIT_STATUS_RESULT OUTPUT_VARIABLE AXISSIM_GIT_STATUS
+                    OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    if(AXISSIM_GIT_STATUS_RESULT EQUAL 0 AND AXISSIM_GIT_STATUS STREQUAL "")
       set(AXISSIM_SOURCE_TREE_STATE "clean")
     else()
       set(AXISSIM_SOURCE_TREE_STATE "modified")
@@ -51,7 +52,7 @@ if(AXISSIM_RELEASE_TAG)
     message(FATAL_ERROR "A release tag cannot be verified without Git source identity")
   endif()
   if(AXISSIM_SOURCE_TREE_STATE STREQUAL "modified")
-    message(FATAL_ERROR "Release-labeled packages require a clean tracked source tree")
+    message(FATAL_ERROR "Release-labeled packages require a clean source tree with no untracked files")
   endif()
   # Keep values inserted into the generated JSON and C++ metadata safely
   # representable. Git's ref validator below remains authoritative for tag
@@ -75,7 +76,7 @@ if(AXISSIM_RELEASE_TAG)
   if(NOT AXISSIM_TAG_FORMAT_RESULT EQUAL 0)
     message(FATAL_ERROR "Invalid release tag name: ${AXISSIM_RELEASE_TAG}")
   endif()
-  execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} rev-parse "${AXISSIM_RELEASE_TAG}^{commit}"
+  execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_SOURCE_DIR} rev-parse "refs/tags/${AXISSIM_RELEASE_TAG}^{commit}"
                   RESULT_VARIABLE AXISSIM_TAG_RESULT OUTPUT_VARIABLE AXISSIM_TAG_COMMIT
                   OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
   string(TOLOWER "${AXISSIM_TAG_COMMIT}" AXISSIM_TAG_COMMIT)
@@ -410,6 +411,8 @@ if(BUILD_TESTING)
       add_test(NAME package_metadata_contract
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/package_metadata_tests.py
                        --source-root ${CMAKE_SOURCE_DIR} --build-dir ${CMAKE_BINARY_DIR})
+      add_test(NAME windows_pe_import_contract
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/windows_pe_imports_tests.py)
     endif()
     if(NOT Python3_VERSION VERSION_GREATER_EQUAL "3.10")
       message(WARNING "AxisSim tests: Python ${Python3_VERSION} is older than 3.10; study, provenance, and full runner contracts are not registered. Install Python 3.10+ and reconfigure for the complete test suite.")

@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 
 from provenance_contract import parse_run_provenance
+from windows_pe import PEFormatError, imports_from_file
 
 
 def sha256(path: pathlib.Path) -> str:
@@ -29,15 +30,111 @@ def require_file(path: pathlib.Path, description: str) -> pathlib.Path:
     return path
 
 
-def check_dependencies(binary: pathlib.Path, platform: str) -> str:
+def check_windows_package_dependencies(root: pathlib.Path) -> str:
+    system_root = pathlib.Path(os.environ.get("SystemRoot", r"C:\Windows"))
+    system_dirs = [system_root / "System32", system_root / "SysWOW64"]
+    packaged_files = [path for path in root.rglob("*") if path.is_file()]
+    dlls: dict[str, pathlib.Path] = {}
+    binaries = []
+    for path in packaged_files:
+        if path.suffix.lower() not in (".exe", ".dll"):
+            continue
+        try:
+            imports = imports_from_file(path)
+        except PEFormatError as error:
+            raise AssertionError(f"invalid packaged PE image {path.relative_to(root)}: {error}") from error
+        binaries.append((path, imports))
+        if path.suffix.lower() == ".dll":
+            key = path.name.casefold()
+            previous = dlls.get(key)
+            if previous is not None and previous.resolve() != path.resolve():
+                raise AssertionError(f"duplicate packaged DLL name: {previous} and {path}")
+            dlls[key] = path
+    if not binaries:
+        raise AssertionError("portable Windows package contains no PE executables or DLLs")
+
+    missing = []
+    for binary, imports in binaries:
+        for name in imports:
+            key = name.casefold()
+            if key in dlls:
+                continue
+            if key.startswith(("api-ms-win-", "ext-ms-win-")):
+                continue
+            if any((directory / name).is_file() for directory in system_dirs):
+                continue
+            missing.append(f"{binary.relative_to(root)} -> {name}")
+    if missing:
+        raise AssertionError("unresolved Windows PE imports outside package/System32:\n" + "\n".join(missing))
+    if not (root / "platforms/qwindows.dll").is_file():
+        raise AssertionError("Windows package is missing the Qt qwindows platform plugin")
+    return f"PE import closure verified for {len(binaries)} package executables/DLLs; only package and OS DLLs resolve."
+
+
+def check_dependencies(binary: pathlib.Path, platform: str, package_root: pathlib.Path) -> str:
     if platform == "linux":
-        result = subprocess.run(["ldd", str(binary)], capture_output=True, text=True, check=True)
+        environment = runtime_environment(platform, package_root)
+        result = subprocess.run(["ldd", str(binary)], capture_output=True, text=True,
+                                check=True, env=environment)
         if "not found" in result.stdout:
             raise AssertionError(f"unresolved shared library for {binary.name}:\n{result.stdout}")
         return result.stdout
     if platform == "windows":
-        return "Native Windows process launch and GUI smoke validate loader dependencies."
+        return check_windows_package_dependencies(package_root)
     return "macOS dependencies are checked by the package script with otool-based closure verification."
+
+
+def check_deb_qt_dependencies(deb_path: pathlib.Path, extracted_root: pathlib.Path) -> str:
+    depends = subprocess.run(["dpkg-deb", "-f", str(deb_path), "Depends"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+    declared = set()
+    for clause in depends.split(","):
+        for alternative in clause.split("|"):
+            match = re.match(r"\s*([A-Za-z0-9+.-]+)", alternative)
+            if match:
+                declared.add(match.group(1))
+    required = {"qt6-qpa-plugins"}
+    binaries = [extracted_root / "usr/bin/axissim", extracted_root / "usr/bin/axissim-gui"]
+    observed_qt_packages = set()
+    environment = runtime_environment("linux", extracted_root)
+    for binary in binaries:
+        output = subprocess.run(["ldd", str(binary)], capture_output=True, text=True,
+                                check=True, env=environment).stdout
+        if "not found" in output:
+            raise AssertionError(f"extracted Debian binary has unresolved libraries:\n{output}")
+        for line in output.splitlines():
+            if "libQt6" not in line or "=>" not in line:
+                continue
+            path_text = line.split("=>", 1)[1].strip().split(" ", 1)[0]
+            library = pathlib.Path(path_text).resolve()
+            owner = subprocess.run(["dpkg-query", "-S", str(library)],
+                                   capture_output=True, text=True)
+            if owner.returncode != 0:
+                raise AssertionError(f"cannot identify Debian package owning Qt runtime library {library}")
+            package_name = owner.stdout.split(":", 1)[0].strip()
+            if package_name:
+                observed_qt_packages.add(package_name)
+    required.update(observed_qt_packages)
+    missing = sorted(required - declared)
+    if missing:
+        raise AssertionError(
+            "Debian Depends omits required system Qt runtime packages: " + ", ".join(missing) +
+            f"; declared dependencies are: {depends}"
+        )
+    return f"Debian Depends declares Qt runtime packages resolved from extracted binaries: {', '.join(sorted(required))}"
+
+
+def runtime_environment(platform: str, root: pathlib.Path) -> dict[str, str]:
+    environment = os.environ.copy()
+    for key in list(environment):
+        if key.upper().startswith(("QT_", "QML")) or key.upper() in ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"):
+            environment.pop(key, None)
+    if platform == "windows":
+        system_root = os.environ.get("SystemRoot", r"C:\Windows")
+        environment["PATH"] = ";".join((str(root), str(pathlib.Path(system_root) / "System32"), system_root))
+    elif platform == "linux":
+        environment.pop("LD_PRELOAD", None)
+    return environment
 
 
 def main() -> int:
@@ -46,6 +143,7 @@ def main() -> int:
     parser.add_argument("--platform", required=True, choices=("windows", "linux", "macos"))
     parser.add_argument("--layout", required=True, choices=("portable", "deb", "macos"))
     parser.add_argument("--expected-source-revision", required=True)
+    parser.add_argument("--deb-file", type=pathlib.Path)
     parser.add_argument("--gui-smoke", action="store_true")
     args = parser.parse_args()
     root = args.root.resolve()
@@ -103,19 +201,27 @@ def main() -> int:
             raise AssertionError("bundled Qt package has an empty runtime inventory")
     elif inventory.get("qt_runtime_mode") != "system-dynamic":
         raise AssertionError("Linux package must declare system Qt runtime dependency")
+    if args.layout == "deb":
+        if args.deb_file is None or not args.deb_file.is_file():
+            raise AssertionError("Debian package verification requires the original .deb file")
+        check_deb_qt_dependencies(args.deb_file.resolve(), root)
 
     dependencies = "\n".join(
-        filter(None, (check_dependencies(cli, args.platform), check_dependencies(gui, args.platform)))
+        filter(None, (check_dependencies(cli, args.platform, root), check_dependencies(gui, args.platform, root)))
     )
     with tempfile.TemporaryDirectory(prefix="axissim-extracted-package-") as temporary:
         workspace = pathlib.Path(temporary)
         result_path = workspace / "baseline-result.json"
         trace_path = workspace / "baseline-trace.csv"
-        subprocess.run([str(cli), "validate", str(manifest)], cwd=workspace, check=True, capture_output=True, text=True, timeout=60)
-        subprocess.run([str(cli), "run", str(manifest), "--json", str(result_path), "--trace", str(trace_path)], cwd=workspace, check=True, capture_output=True, text=True, timeout=120)
+        environment = runtime_environment(args.platform, root)
+        subprocess.run([str(cli), "validate", str(manifest)], cwd=workspace, env=environment,
+                       check=True, capture_output=True, text=True, timeout=60)
+        subprocess.run([str(cli), "run", str(manifest), "--json", str(result_path), "--trace", str(trace_path)],
+                       cwd=workspace, env=environment, check=True, capture_output=True, text=True, timeout=120)
         result = json.loads(result_path.read_text(encoding="utf-8"))
         sidecar = parse_run_provenance(
             pathlib.Path(str(result_path) + ".provenance.json").read_text(encoding="utf-8"),
+            result_json_bytes=result_path.read_bytes(),
             require_complete=True,
         )
         if result.get("schema_version") not in ("1.2", "1.3"):
@@ -133,11 +239,9 @@ def main() -> int:
             raise AssertionError("run provenance contains a machine-specific manifest path")
 
         if args.gui_smoke:
-            environment = os.environ.copy()
+            environment = runtime_environment(args.platform, root)
             if args.platform == "linux":
                 environment["QT_QPA_PLATFORM"] = "offscreen"
-            else:
-                environment.pop("QT_QPA_PLATFORM", None)
             subprocess.run([str(gui), "--smoke-test-run"], cwd=workspace, env=environment,
                            check=True, capture_output=True, text=True, timeout=120)
 

@@ -11,7 +11,7 @@ cmake -S $Root -B $BuildDir -DCMAKE_BUILD_TYPE=Release -DAXISSIM_BUILD_GUI=ON "-
 if ($LASTEXITCODE -ne 0) { throw "CMake configure failed with exit code $LASTEXITCODE" }
 cmake --build $BuildDir --target axissim-gui --config Release --parallel
 if ($LASTEXITCODE -ne 0) { throw "CMake build failed with exit code $LASTEXITCODE" }
-windeployqt (Join-Path $Stage "AxisSim.exe") --release --no-translations
+windeployqt (Join-Path $Stage "AxisSim.exe") --release --no-translations --compiler-runtime
 if ($LASTEXITCODE -ne 0) { throw "windeployqt failed with exit code $LASTEXITCODE" }
 $Revision = (git -C $Root rev-parse HEAD).Trim()
 python (Join-Path $Root "tools/generate_package_runtime_inventory.py") `

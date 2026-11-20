@@ -2394,11 +2394,19 @@ class AxisSimWindow final : public QMainWindow {
       const auto status_it = record.find("identity_status");
       const auto identity_it = record.find("identity_sha256");
       const auto payload_it = record.find("provenance");
+      const auto result_it = payload_it == record.end() || !payload_it->second.is_object()
+          ? axissim::gemm_json::Object::const_iterator{}
+          : payload_it->second.object().find("result");
       if (status_it == record.end() || !status_it->second.is_string() ||
           (status_it->second.string() != "complete" && status_it->second.string() != "incomplete") ||
           identity_it == record.end() || !identity_it->second.is_string() ||
           payload_it == record.end() || !payload_it->second.is_object() ||
-          axissim::sha256_hex(axissim::canonical_provenance_value(payload_it->second)) != identity_it->second.string()) {
+          result_it == payload_it->second.object().end() || !result_it->second.is_object() ||
+          result_it->second.object().at("status").string() != "hashed" ||
+          result_it->second.object().at("sha256").string() !=
+              axissim::sha256_hex(std::string(result_json.constData(), static_cast<std::size_t>(result_json.size()))) ||
+          axissim::sha256_hex(axissim::canonical_provenance_value(axissim::gemm_json::Value(
+              axissim::gemm_json::Object{{"identity_status", status_it->second}, {"provenance", payload_it->second}}))) != identity_it->second.string()) {
         throw std::runtime_error("run provenance identity status or hash is invalid");
       }
       last_run_identity_status_ = QString::fromStdString(status_it->second.string());

@@ -45,8 +45,6 @@ deb=$(find "$build_dir" -maxdepth 1 -type f -name '*.deb' -print -quit)
 test -n "$deb"
 dpkg-deb -x "$deb" "$verify_deb"
 python3 "$root/tools/verify_extracted_package.py" --root "$verify_deb" --platform linux --layout deb \
-  --expected-source-revision "$revision" --gui-smoke
-depends=$(dpkg-deb -f "$deb" Depends)
-printf '%s\n' "$depends" | rg -qi 'libqt6|qt6-qpa-plugins' || { echo "Debian package metadata omits Qt runtime dependencies: $depends" >&2; exit 1; }
+  --expected-source-revision "$revision" --deb-file "$deb" --gui-smoke
 echo "Portable Linux archive: $archive"
 echo "Debian/Ubuntu package: $build_dir"/*.deb

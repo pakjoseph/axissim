@@ -24,7 +24,9 @@ def run(binary: pathlib.Path, config: pathlib.Path, output: pathlib.Path, *overr
     subprocess.run(command, check=True, capture_output=True, text=True)
     result = json.loads(output.read_text(encoding="utf-8"))
     sidecar_path = pathlib.Path(str(output) + ".provenance.json")
-    provenance = parse_run_provenance(sidecar_path.read_text(encoding="utf-8"))
+    provenance = parse_run_provenance(
+        sidecar_path.read_text(encoding="utf-8"), result_json_bytes=output.read_bytes()
+    )
     if not trace.is_file() or trace.stat().st_size == 0:
         raise AssertionError("run did not emit a task trace")
     if result.get("schema_version") != "1.2":
@@ -59,6 +61,13 @@ def main() -> int:
         second = run(binary, original_config, temp / "baseline-b.json")
         if first["provenance"] != second["provenance"]:
             raise AssertionError("same executable and inputs did not produce identical sidecars")
+        try:
+            parse_run_provenance(first["sidecar_text"], require_complete=True)
+        except ValueError as error:
+            if "result JSON bytes" not in str(error):
+                raise
+        else:
+            raise AssertionError("complete sidecar was accepted without its corresponding result bytes")
 
         damaged_payload = first["sidecar_text"].replace("baseline_physical_ai", "tampered_scenario", 1)
         if damaged_payload == first["sidecar_text"]:
@@ -70,6 +79,34 @@ def main() -> int:
                 raise
         else:
             raise AssertionError("a changed provenance payload was accepted under the old identity hash")
+        original_status = first["provenance"]["identity_status"]
+        changed_status = "complete" if original_status == "incomplete" else "incomplete"
+        tampered_status = first["sidecar_text"].replace(
+            f'"identity_status":"{original_status}"',
+            f'"identity_status":"{changed_status}"',
+            1,
+        )
+        if tampered_status == first["sidecar_text"]:
+            raise AssertionError("test fixture did not contain an identifiable identity status")
+        try:
+            parse_run_provenance(tampered_status)
+        except ValueError as error:
+            if "SHA-256" not in str(error):
+                raise
+        else:
+            raise AssertionError("changing identity status was accepted under the old identity hash")
+        tampered_result = first["result"].copy()
+        tampered_result["scenario_name"] = "tampered_result"
+        try:
+            parse_run_provenance(
+                first["sidecar_text"],
+                result_json_bytes=(json.dumps(tampered_result, separators=(",", ":")) + "\n").encode(),
+            )
+        except ValueError as error:
+            if "result JSON" not in str(error):
+                raise
+        else:
+            raise AssertionError("a result JSON change was not detected by its provenance sidecar")
 
         identity = first["provenance"]["provenance"]
         if identity["source"]["revision"] != source_revision:
@@ -132,7 +169,7 @@ def main() -> int:
 
     if hashlib.sha256(b"abc").hexdigest() != "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad":
         raise AssertionError("independent SHA-256 fixture failed")
-    print("run provenance sidecar E2E passed: reproducibility, executable/config identity, override, transitive include, and schema 1.2 parity")
+    print("run provenance sidecar E2E passed: result binding, status integrity, reproducibility, executable/config identity, override, transitive include, and schema 1.2 parity")
     return 0
 
 

@@ -297,6 +297,7 @@ struct InputRecord {
       {"authored_values_after_overrides", Value(std::move(authored_values))},
       {"configuration", config_json(loaded.config, config_root)},
       {"configuration_files", Value(std::move(input_array))},
+      {"input_verification", Object{{"status", Value("pending")}}},
       {"explicit_cli_overrides", Value(std::move(overrides))},
       {"executable", Object{{"sha256", Value(executable_hash)}, {"status", Value(executable_status)}}},
       {"manifest", Object{{"path", Value(manifest_id)}, {"identity", root_file}}},
@@ -310,17 +311,73 @@ struct InputRecord {
       {"schema_version", Value("axissim.run-provenance.v1")}};
 }
 
+[[nodiscard]] Value identity_record(Value payload, bool complete) {
+  const Value status(complete ? "complete" : "incomplete");
+  const Value identity_input(Object{{"identity_status", status}, {"provenance", payload}});
+  return Object{{"identity_status", status},
+                {"identity_sha256", Value(sha256_hex(canonical_value(identity_input)))},
+                {"provenance", std::move(payload)}};
+}
+
+[[nodiscard]] bool input_snapshot_unchanged(
+    const Value& input_snapshot, const ConfigLoadResult& loaded,
+    const std::filesystem::path& root_manifest) {
+  try {
+    const auto& original_payload = input_snapshot.object().at("provenance");
+    const auto& original_inputs = original_payload.object().at("configuration_files").array();
+    const auto current_inputs = collect_inputs(loaded, root_manifest);
+    using Key = std::pair<std::string, std::string>;
+    std::map<Key, std::pair<std::string, std::string>> current;
+    for (const auto& input : current_inputs) {
+      current[{input.role, input.path}] = {
+          input.available ? input.hash : "unknown",
+          input.available ? "hashed" : "unavailable"};
+    }
+    if (current.size() != original_inputs.size()) return false;
+    for (const auto& input : original_inputs) {
+      const auto& fields = input.object();
+      const Key key{fields.at("role").string(), fields.at("path").string()};
+      const auto found = current.find(key);
+      if (found == current.end() ||
+          found->second.first != fields.at("sha256").string() ||
+          found->second.second != fields.at("status").string()) return false;
+    }
+    return true;
+  } catch (const std::exception&) {
+    return false;
+  }
+}
+
 }  // namespace
 
 Value make_run_provenance(const ConfigLoadResult& loaded,
                           const std::filesystem::path& root_manifest,
                           const std::filesystem::path& executable) {
   bool complete = true;
-  const auto payload = make_identity_payload(loaded, root_manifest, executable, &complete);
-  const std::string identity = canonical_value(payload);
-  return Object{{"identity_status", Value(complete ? "complete" : "incomplete")},
-                {"identity_sha256", Value(sha256_hex(identity))},
-                {"provenance", payload}};
+  auto payload = make_identity_payload(loaded, root_manifest, executable, &complete);
+  return identity_record(std::move(payload), complete);
+}
+
+Value finalize_run_provenance(const Value& input_snapshot,
+                              const ConfigLoadResult& loaded,
+                              const std::filesystem::path& root_manifest,
+                              const std::filesystem::path& result_json_path) {
+  const auto& snapshot_record = input_snapshot.object();
+  bool complete = snapshot_record.at("identity_status").string() == "complete";
+  auto payload = snapshot_record.at("provenance");
+  auto& fields = std::get<Object>(payload.storage);
+  const bool inputs_unchanged = input_snapshot_unchanged(input_snapshot, loaded, root_manifest);
+  fields["input_verification"] = Object{{"status", Value(inputs_unchanged ? "unchanged" : "changed_or_unavailable")}};
+  if (!inputs_unchanged) complete = false;
+
+  try {
+    const auto result_bytes = read_bytes(result_json_path);
+    fields["result"] = Object{{"sha256", Value(sha256_hex(result_bytes))}, {"status", Value("hashed")}};
+  } catch (const std::exception&) {
+    fields["result"] = Object{{"sha256", Value("unknown")}, {"status", Value("unavailable")}};
+    complete = false;
+  }
+  return identity_record(std::move(payload), complete);
 }
 
 std::string canonical_provenance_value(const Value& value) {
@@ -337,8 +394,9 @@ void write_run_provenance(const std::filesystem::path& result_json_path,
                           const ConfigLoadResult& loaded,
                           const std::filesystem::path& root_manifest,
                           const std::filesystem::path& executable) {
+  const auto snapshot = make_run_provenance(loaded, root_manifest, executable);
   write_run_provenance_record(result_json_path,
-                              make_run_provenance(loaded, root_manifest, executable));
+      finalize_run_provenance(snapshot, loaded, root_manifest, result_json_path));
 }
 
 void write_run_provenance_record(const std::filesystem::path& result_json_path,

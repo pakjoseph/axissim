@@ -8,7 +8,8 @@ does not affect model execution or numerical outputs.
 
 The sidecar records:
 
-- Source revision and tracked source-tree state embedded at CMake configure time.
+- Source revision and source-tree state (including untracked paths) embedded at
+  CMake configure time.
 - Compiler ID/version, C++ standard, build type, target platform, Qt version,
   package kind, and package identity.
 - SHA-256 of the actual running CLI executable.
@@ -16,12 +17,17 @@ The sidecar records:
   bytes captured by the configuration parser.
 - Referenced workload profile, mapping plan, mapping accuracy evidence, arrival
   trace, and its provenance source hashes when applicable. The input snapshot is
-  captured immediately before simulation and serialized with the completed
-  result.
+  captured immediately before simulation and compared with the referenced
+  files after simulation. A changed or unavailable referenced file makes the
+  identity incomplete rather than claiming which bytes the run consumed.
+- The exact result-JSON byte hash. The GUI and Python verifier compare the
+  result bytes against this hash before treating the JSON/sidecar pair as
+  intact.
 - The explicit `--set` overrides, authored merged values, and the full typed
   resolved `Config`.
-- `identity_sha256`, calculated from deterministic JSON with sorted object
-  keys and no timestamp or absolute host path.
+- `identity_sha256`, calculated from deterministic JSON containing both the
+  identity status and provenance payload, with sorted object keys and no
+  timestamp or absolute host path.
 
 Paths in the record are logical paths relative to the root manifest. Files
 outside that tree use an `external/<basename>` label and are distinguished by
@@ -45,7 +51,8 @@ sidecar.
 generated during CMake configuration, not by inspecting `.git` at runtime.
 Untagged builds say `artifact_kind: validation` and use a commit-derived
 `package_id`; unavailable revision information remains `unknown`. A
-release-labeled package requires `AXISSIM_RELEASE_TAG` to resolve to the exact
-packaged HEAD, and requires a clean tracked source tree. This validation does
+release-labeled package requires `AXISSIM_RELEASE_TAG` to name an existing Git
+tag that resolves to the exact packaged HEAD, and requires a clean source tree
+with no untracked paths. This validation does
 not create a Git tag, publish a GitHub Release, sign a binary, or notarize an
 application.

@@ -31,6 +31,15 @@ def main() -> int:
         raise AssertionError("unsupported package provenance schema")
     if metadata.get("source_revision") != revision:
         raise AssertionError("package metadata does not bind the configured source revision")
+    tree_status = subprocess.run(
+        ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    expected_tree_state = "clean" if not tree_status else "modified"
+    if metadata.get("source_tree_state") != expected_tree_state:
+        raise AssertionError("package metadata does not report tracked and untracked source-tree state")
     if metadata.get("artifact_kind") != "validation" or metadata.get("release_tag") != "unknown":
         raise AssertionError("untagged package must be labeled as a validation artifact")
     if not metadata.get("package_id", "").startswith("validation-"):
@@ -53,6 +62,8 @@ def main() -> int:
         raise AssertionError("Windows release tag must enter PowerShell through an environment variable")
     if 'run: ./scripts/package_macos.sh build-release "$AXISSIM_RELEASE_TAG"' not in workflow:
         raise AssertionError("macOS release tag must enter the shell through an environment variable")
+    if "runs-on: macos-15" not in workflow:
+        raise AssertionError("Qt 6.8.3 package validation must avoid the incompatible macOS 26 SDK")
     if "upload-artifact" in workflow or "create-release" in workflow:
         raise AssertionError("package validation workflow must not publish or upload package outputs")
 
@@ -78,7 +89,23 @@ def main() -> int:
             text=True,
         ).stdout.strip()
         subprocess.run(["git", "-C", str(clean_source), "tag", "existing-tag"], check=True)
+        subprocess.run(["git", "-C", str(clean_source), "branch", "branch-only-tag"], check=True)
         subprocess.run(["git", "-C", str(clean_source), "checkout", "-q", first_commit], check=True)
+        branch_only = subprocess.run(
+            [
+                "cmake",
+                "-S",
+                str(clean_source),
+                "-B",
+                str(temporary_root / "branch-only-build"),
+                "-DAXISSIM_BUILD_GUI=OFF",
+                "-DAXISSIM_RELEASE_TAG=branch-only-tag",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if branch_only.returncode == 0:
+            raise AssertionError("a branch without a same-named tag was accepted as a release tag")
         matching = subprocess.run(
             [
                 "cmake",
@@ -102,6 +129,24 @@ def main() -> int:
                 release_metadata.get("source_revision") != first_commit or
                 release_metadata.get("package_id") != "existing-tag"):
             raise AssertionError("verified package release identity does not bind the matching tag and source revision")
+        untracked_input = clean_source / "configs" / "untracked-package-input.conf"
+        untracked_input.write_text("scenario_name = untracked_package_input\n", encoding="utf-8")
+        untracked_release = subprocess.run(
+            [
+                "cmake",
+                "-S",
+                str(clean_source),
+                "-B",
+                str(temporary_root / "untracked-release-build"),
+                "-DAXISSIM_BUILD_GUI=OFF",
+                "-DAXISSIM_RELEASE_TAG=existing-tag",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if untracked_release.returncode == 0 or "clean source tree" not in (untracked_release.stdout + untracked_release.stderr):
+            raise AssertionError("an untracked configuration that would ship in the package was accepted")
+        untracked_input.unlink()
         (clean_source / "tag-fixture.txt").write_text("second revision\n", encoding="utf-8")
         subprocess.run(["git", "-C", str(clean_source), "add", "tag-fixture.txt"], check=True)
         subprocess.run(["git", "-C", str(clean_source), "commit", "-qm", "second fixture"], check=True)
@@ -115,7 +160,7 @@ def main() -> int:
                 "-B",
                 str(temporary_root / "build"),
                 "-DAXISSIM_BUILD_GUI=OFF",
-                "-DAXISSIM_RELEASE_TAG=not-an-existing-matching-tag",
+                "-DAXISSIM_RELEASE_TAG=existing-tag",
             ],
             capture_output=True,
             text=True,
@@ -125,7 +170,7 @@ def main() -> int:
         if mismatch.returncode == 0 or "does not resolve to packaged source revision" not in normalized:
             raise AssertionError(f"a mismatched release tag was not rejected explicitly: {combined}")
 
-    print("package metadata contract passed: source revision, validation identity, licenses, matching tags, and tag mismatch rejection")
+    print("package metadata contract passed: source revision, tree state, validation identity, exact tag refs, licenses, matching/mismatched tags, and untracked package input rejection")
     return 0
 
 

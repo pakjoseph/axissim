@@ -787,7 +787,8 @@ int main(int argc, char** argv) {
     }
     if (json_path) {
       write_result_json(*json_path, simulator, config);
-      write_run_provenance_record(*json_path, *run_provenance_snapshot);
+      write_run_provenance_record(*json_path, finalize_run_provenance(
+          *run_provenance_snapshot, loaded_config, argv[2], *json_path));
       std::cout << "  result JSON:         " << *json_path << '\n';
     }
     return 0;

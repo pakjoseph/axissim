@@ -68,7 +68,10 @@ int main() {
     const auto repeated = make_run_provenance(first_config, manifest, executable);
     require(first_canonical == canonical_provenance_value(repeated),
             "identical executable and input records must have identical canonical provenance");
-    const auto expected_identity = sha256_hex(canonical_provenance_value(field(first, "provenance")));
+    const auto identity_input = gemm_json::Value(gemm_json::Object{
+        {"identity_status", field(first, "identity_status")},
+        {"provenance", field(first, "provenance")}});
+    const auto expected_identity = sha256_hex(canonical_provenance_value(identity_input));
     require(field(first, "identity_sha256").string() == expected_identity,
             "identity hash must cover the canonical provenance payload");
     const auto& payload = field(first, "provenance");
@@ -86,8 +89,8 @@ int main() {
     require(field(first, "identity_status").string() == expected_build_status,
             "identity status must reflect embedded build identity completeness");
 
-    const auto arrival_record = make_run_provenance(load_config_with_sources(arrival_config.string()),
-                                                     arrival_config, executable);
+    const auto arrival_loaded = load_config_with_sources(arrival_config.string());
+    const auto arrival_record = make_run_provenance(arrival_loaded, arrival_config, executable);
     const auto& arrival_payload = field(arrival_record, "provenance");
     const auto& arrival_files = field(arrival_payload, "configuration_files").array();
     bool found_arrival_trace = false;
@@ -117,6 +120,27 @@ int main() {
     std::filesystem::current_path(original_current_path);
     require(canonical_provenance_value(relative_record) == canonical_provenance_value(arrival_record),
             "relative and absolute manifest invocations must identify the same resolved inputs");
+
+    const auto result_file = root / "result.json";
+    write(result_file, "{\"schema_version\":\"1.2\"}\n");
+    const auto finalized = finalize_run_provenance(arrival_record, arrival_loaded, arrival_config, result_file);
+    const auto& finalized_payload = field(finalized, "provenance");
+    require(field(field(finalized_payload, "result"), "sha256").string() ==
+                sha256_hex("{\"schema_version\":\"1.2\"}\n"),
+            "final provenance must hash the exact emitted numerical result bytes");
+    require(field(field(finalized_payload, "input_verification"), "status").string() == "unchanged",
+            "unchanged referenced inputs must be reported as stable after execution");
+    write(arrival_trace, "release_us\n1\n");
+    const auto changed_inputs = finalize_run_provenance(arrival_record, arrival_loaded, arrival_config, result_file);
+    require(field(changed_inputs, "identity_status").string() == "incomplete" &&
+                field(field(field(changed_inputs, "provenance"), "input_verification"), "status").string() == "changed_or_unavailable",
+            "changed referenced input bytes after the initial snapshot must make provenance incomplete");
+    const auto changed_status_input = gemm_json::Value(gemm_json::Object{
+        {"identity_status", gemm_json::Value("complete")},
+        {"provenance", field(finalized, "provenance")}});
+    require(sha256_hex(canonical_provenance_value(changed_status_input)) !=
+                field(finalized, "identity_sha256").string(),
+            "identity status must participate in the canonical integrity hash");
     write(arrival_trace, "release_us\n0\n1\n");
     const auto trace_item = std::find_if(arrival_files.begin(), arrival_files.end(), [](const auto& input) {
       return input.object().at("role").string() == "frame_arrival_trace";
