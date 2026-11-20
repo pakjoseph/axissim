@@ -50,6 +50,11 @@ def package_member_path(root: pathlib.Path, relative: str, description: str) -> 
     return candidate
 
 
+def package_inventory_root(root: pathlib.Path, docs: pathlib.Path, layout: str) -> pathlib.Path:
+    """Return the base used by inventory paths in each shipped layout."""
+    return root if layout == "macos" else docs
+
+
 def check_windows_package_dependencies(root: pathlib.Path) -> str:
     system_root = pathlib.Path(os.environ.get("SystemRoot", r"C:\Windows"))
     system_dirs = [system_root / "System32", system_root / "SysWOW64"]
@@ -222,10 +227,11 @@ def main() -> int:
     if sbom_status == "included_installation_catalog_not_runtime_mapping":
         if not sbom_files:
             raise AssertionError("runtime inventory declares an empty Qt installation SBOM catalog")
+        sbom_root = package_inventory_root(root, docs, args.layout)
         for item in sbom_files:
             if not isinstance(item, dict):
                 raise AssertionError("malformed Qt installation SBOM inventory entry")
-            sbom_path = package_member_path(root, item.get("path"), "Qt installation SBOM catalog file")
+            sbom_path = package_member_path(sbom_root, item.get("path"), "Qt installation SBOM catalog file")
             sbom = require_file(sbom_path, "Qt installation SBOM catalog file")
             if sha256(sbom) != item.get("sha256"):
                 raise AssertionError(f"Qt installation SBOM hash mismatch: {item['path']}")

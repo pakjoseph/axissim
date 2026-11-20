@@ -60,7 +60,7 @@ def main() -> int:
         raise AssertionError("package notices must not overstate the installation SBOM as a runtime license map")
     import sys
     sys.path.insert(0, str(root / "tools"))
-    from verify_extracted_package import package_member_path
+    from verify_extracted_package import package_inventory_root, package_member_path
     with tempfile.TemporaryDirectory(prefix="axissim-qt-inventory-") as temporary:
         fixture = pathlib.Path(temporary)
         sbom_root = fixture / "third-party/qt-installation-sboms/share/qt/sbom"
@@ -109,6 +109,21 @@ def main() -> int:
                 system_inventory.get("qt_installation_sbom_status") != "included_installation_catalog_not_runtime_mapping" or
                 system_inventory.get("runtime_files") != []):
             raise AssertionError("system-Qt package assets must retain available SBOM hashes without inventing bundled libraries")
+        deb_root = fixture / "deb-root"
+        deb_docs = deb_root / "usr/share/doc/axissim"
+        deb_sbom = deb_docs / "third-party/qt-installation-sboms/share/qt/sbom/qtbase.spdx"
+        deb_sbom.parent.mkdir(parents=True)
+        deb_sbom.write_text("SPDXVersion: SPDX-2.3\n", encoding="utf-8")
+        if package_inventory_root(deb_root, deb_docs, "deb") != deb_docs:
+            raise AssertionError("Debian package inventory paths must resolve relative to installed documentation")
+        if package_member_path(
+            package_inventory_root(deb_root, deb_docs, "deb"),
+            "third-party/qt-installation-sboms/share/qt/sbom/qtbase.spdx",
+            "Debian SBOM fixture",
+        ) != deb_sbom.resolve():
+            raise AssertionError("Debian package verifier resolved an SBOM against the wrong extraction root")
+        if package_inventory_root(deb_root, deb_docs, "macos") != deb_root:
+            raise AssertionError("macOS inventory paths must remain relative to app Contents")
         for unsafe_path in ("../outside.spdx", "sub/../../outside.spdx", "/outside.spdx", "C:/outside.spdx"):
             try:
                 package_member_path(fixture, unsafe_path, "synthetic inventory item")
