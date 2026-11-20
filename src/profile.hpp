@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -77,12 +79,39 @@ struct MappingPlan {
   std::string target_storage_precision;
   double npu_arithmetic_energy_scale = 1.0;
   std::string accuracy_evidence_path;
+  std::string accuracy_metric;
+  std::string accuracy_dataset;
+  std::string accuracy_evaluator;
+  std::string accuracy_source_url;
+  double accuracy_value = 0.0;
+};
+
+struct CapturedRuntimeInput {
+  std::string role;
+  std::filesystem::path path;
+  std::string bytes;
+};
+
+struct PreparedRunInputs {
+  std::vector<double> frame_arrivals_us;
+  std::optional<WorkloadProfile> workload_profile;
+  std::vector<CapturedRuntimeInput> captured_inputs;
 };
 
 WorkloadProfile load_workload_profile(const std::string& path);
 WorkloadProfile load_workload_profile_text(const std::string& json);
 MappingPlan load_mapping_plan(const std::string& path, const WorkloadProfile& profile);
 MappingPlan load_mapping_plan_text(const std::string& path, const WorkloadProfile& profile, const std::string& json);
+MappingPlan load_mapping_plan_text(const std::string& path, const WorkloadProfile& profile,
+                                   const std::string& json,
+                                   const std::optional<std::string>& accuracy_evidence_json);
+std::optional<std::filesystem::path> mapping_plan_accuracy_evidence_path(
+    const std::filesystem::path& path, const std::string& json);
+std::vector<CapturedRuntimeInput> capture_runtime_inputs(const Config& config);
+PreparedRunInputs prepare_run_inputs(const Config& config,
+                                     std::vector<CapturedRuntimeInput> captured_inputs);
+const std::string* captured_runtime_input(const std::vector<CapturedRuntimeInput>& inputs,
+                                          const std::string& role);
 void apply_mapping_plan(WorkloadProfile& profile, const MappingPlan& plan, const Config& config);
 
 }  // namespace axissim

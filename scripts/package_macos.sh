@@ -3,7 +3,7 @@ set -euo pipefail
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
 project_root=$(cd "$script_dir/.." && pwd)
-build_dir=${1:-"$project_root/build-release"}
+build_dir=${1:-"$project_root/build/package-macos-release"}
 release_tag=${2:-""}
 app="$build_dir/AxisSim.app"
 dmg="$build_dir/AxisSim.dmg"

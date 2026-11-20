@@ -68,7 +68,7 @@ def check_windows_package_dependencies(root: pathlib.Path) -> str:
         raise AssertionError("unresolved Windows PE imports outside package/System32:\n" + "\n".join(missing))
     if not (root / "platforms/qwindows.dll").is_file():
         raise AssertionError("Windows package is missing the Qt qwindows platform plugin")
-    return f"PE import closure verified for {len(binaries)} package executables/DLLs; only package and OS DLLs resolve."
+    return f"Normal PE import closure verified for {len(binaries)} package executables/DLLs; only package and OS DLLs resolve. Delay-load imports and runtime LoadLibrary calls are outside this static check."
 
 
 def check_dependencies(binary: pathlib.Path, platform: str, package_root: pathlib.Path) -> str:

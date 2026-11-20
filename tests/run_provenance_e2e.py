@@ -31,8 +31,10 @@ def run(binary: pathlib.Path, config: pathlib.Path, output: pathlib.Path, *overr
         raise AssertionError("run did not emit a task trace")
     if result.get("schema_version") != "1.2":
         raise AssertionError("legacy result JSON schema changed")
-    if provenance.get("provenance", {}).get("schema_version") != "axissim.run-provenance.v1":
+    if provenance.get("provenance", {}).get("schema_version") != "axissim.run-provenance.v2":
         raise AssertionError("unsupported provenance schema")
+    if provenance["provenance"].get("input_verification", {}).get("status") != "exact_bytes_captured_and_used":
+        raise AssertionError("run inputs were not tied to the exact bytes parsed and executed")
     return {
         "result": result,
         "provenance": provenance,
@@ -152,7 +154,8 @@ def main() -> int:
             if pathlib.Path(record["path"]).is_absolute():
                 raise AssertionError("transitive configuration provenance leaked an absolute path")
 
-        baseline = json.loads((source / "experiments/baseline_result.json").read_text(encoding="utf-8"))
+        baselines = json.loads((source / "tests/reference/legacy_study_baselines.json").read_text(encoding="utf-8"))
+        baseline = baselines["cli_baselines"]["physical_ai_baseline"]["result_json"]
         got = first["result"]
         expected = baseline
         comparisons = [

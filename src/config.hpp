@@ -113,7 +113,13 @@ Config load_config(const std::string& path, const std::map<std::string, std::str
 ConfigLoadResult load_config_with_sources(const std::string& path, const std::map<std::string, std::string>& overrides = {});
 const std::set<std::string>& supported_keys();
 void validate(const Config& config, const std::optional<std::string>& frame_arrival_trace_contents = std::nullopt);
+void validate(const Config& config,
+              const std::optional<std::string>& frame_arrival_trace_contents,
+              const std::optional<std::string>& frame_arrival_provenance_contents);
 std::vector<double> load_frame_arrivals(const Config& config);
 std::vector<double> load_frame_arrivals(const Config& config, const std::optional<std::string>& frame_arrival_trace_contents);
+std::vector<double> load_frame_arrivals(const Config& config,
+                                       const std::optional<std::string>& frame_arrival_trace_contents,
+                                       const std::optional<std::string>& frame_arrival_provenance_contents);
 
 }  // namespace axissim

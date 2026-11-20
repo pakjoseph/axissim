@@ -139,6 +139,12 @@ Config load_config(const std::string& path, const std::map<std::string, std::str
 
 
 void validate(const Config& c, const std::optional<std::string>& frame_arrival_trace_contents) {
+  validate(c, frame_arrival_trace_contents, std::nullopt);
+}
+
+void validate(const Config& c,
+              const std::optional<std::string>& frame_arrival_trace_contents,
+              const std::optional<std::string>& frame_arrival_provenance_contents) {
   if (c.frames < 1 || c.frame_period_us <= 0 || c.deadline_us <= 0) throw std::runtime_error("Frame configuration must be positive");
   if (c.workload_mode != "physical_ai" && c.workload_mode != "rvv_stream" && c.workload_mode != "profiled_graph") throw std::runtime_error("workload_mode must be physical_ai, rvv_stream, or profiled_graph");
   if (c.workload_mode == "profiled_graph" && c.workload_profile.empty()) throw std::runtime_error("profiled_graph workloads require workload_profile");
@@ -166,14 +172,22 @@ void validate(const Config& c, const std::optional<std::string>& frame_arrival_t
   if (c.vector_op_pj < 0 || c.npu_mac_pj < 0 || c.npu_arithmetic_energy_scale <= 0 || c.arithmetic_voltage_ratio <= 0 || c.dram_byte_pj < 0 || c.dma_byte_pj < 0) throw std::runtime_error("Energy values must be non-negative (scale and voltage ratio must be positive)");
   if (c.static_power_w < 0 || c.npu_static_power_per_mac_w < 0 || c.rvv_static_power_per_lane_w < 0 || c.sram_static_power_per_kib_w < 0 || c.dram_interface_static_power_w < 0 || c.it_power_budget_w < 0 || c.pue < 1.0 || c.electricity_cost_per_kwh < 0 || c.deployment_xpu_count < 1 || c.deployment_hours < 0) throw std::runtime_error("Power and deployment parameters are invalid");
   if (c.base_area_mm2 < 0 || c.npu_area_per_mac_mm2 < 0 || c.rvv_area_per_lane_mm2 < 0 || c.sram_area_per_kib_mm2 < 0 || c.max_area_mm2 < 0 || c.thermal_resistance_c_per_w < 0 || c.thermal_capacitance_j_per_c < 0 || c.reliability_fit_rate < 0 || c.reliability_voltage_fit_multiplier <= 0) throw std::runtime_error("Area, thermal, and reliability proxy parameters are invalid");
-  if (c.frame_arrival_mode == "trace") (void)load_frame_arrivals(c,frame_arrival_trace_contents);
+  if (c.frame_arrival_mode == "trace")
+    (void)load_frame_arrivals(c, frame_arrival_trace_contents, frame_arrival_provenance_contents);
 }
 
 std::vector<double> load_frame_arrivals(const Config& config) {
-  return load_frame_arrivals(config,std::nullopt);
+  return load_frame_arrivals(config, std::nullopt, std::nullopt);
 }
 
 std::vector<double> load_frame_arrivals(const Config& config, const std::optional<std::string>& frame_arrival_trace_contents) {
+  return load_frame_arrivals(config, frame_arrival_trace_contents, std::nullopt);
+}
+
+std::vector<double> load_frame_arrivals(
+    const Config& config,
+    const std::optional<std::string>& frame_arrival_trace_contents,
+    const std::optional<std::string>& frame_arrival_provenance_contents) {
   std::vector<double> releases;
   releases.reserve(static_cast<std::size_t>(config.frames));
   if (config.frame_arrival_mode == "periodic") {
@@ -181,9 +195,14 @@ std::vector<double> load_frame_arrivals(const Config& config, const std::optiona
     return releases;
   }
 
-  std::ifstream provenance(config.frame_arrival_provenance);
-  if (!provenance) throw std::runtime_error("Unable to open frame-arrival provenance: " + config.frame_arrival_provenance);
-  if (provenance.peek() == std::ifstream::traits_type::eof()) throw std::runtime_error("Frame-arrival provenance must not be empty");
+  if (frame_arrival_provenance_contents) {
+    if (frame_arrival_provenance_contents->empty())
+      throw std::runtime_error("Frame-arrival provenance must not be empty");
+  } else {
+    std::ifstream provenance(config.frame_arrival_provenance);
+    if (!provenance) throw std::runtime_error("Unable to open frame-arrival provenance: " + config.frame_arrival_provenance);
+    if (provenance.peek() == std::ifstream::traits_type::eof()) throw std::runtime_error("Frame-arrival provenance must not be empty");
+  }
   std::ifstream input_file;
   std::istringstream input_contents;
   std::istream* input = nullptr;

@@ -76,7 +76,9 @@ def parse_run_provenance(
     if not isinstance(record, dict):
         raise ValueError("run provenance must be a JSON object")
     payload = record.get("provenance")
-    if not isinstance(payload, dict) or payload.get("schema_version") != "axissim.run-provenance.v1":
+    if not isinstance(payload, dict) or payload.get("schema_version") not in (
+        "axissim.run-provenance.v1", "axissim.run-provenance.v2"
+    ):
         raise ValueError("run provenance schema is missing or unsupported")
     status = record.get("identity_status")
     if status not in ("complete", "incomplete"):
@@ -95,13 +97,16 @@ def parse_run_provenance(
     elif result_hash != "unknown":
         raise ValueError("unavailable run result identity must be marked unknown")
     input_verification = payload.get("input_verification")
-    if not isinstance(input_verification, dict) or input_verification.get("status") not in (
-        "unchanged", "changed_or_unavailable"
-    ):
+    schema = payload["schema_version"]
+    accepted_input_statuses = (
+        ("unchanged", "changed_or_unavailable") if schema == "axissim.run-provenance.v1"
+        else ("exact_bytes_captured_and_used",)
+    )
+    if not isinstance(input_verification, dict) or input_verification.get("status") not in accepted_input_statuses:
         raise ValueError("run input-stability status is missing or invalid")
     if status == "complete" and (
         result["status"] != "hashed" or
-        input_verification["status"] != "unchanged"
+        input_verification["status"] not in ("unchanged", "exact_bytes_captured_and_used")
     ):
         raise ValueError("complete run provenance has incomplete result or input verification")
     claimed = record.get("identity_sha256")

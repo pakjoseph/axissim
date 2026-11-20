@@ -255,7 +255,7 @@ To create a relocatable macOS app and DMG with Qt frameworks bundled and an ad-h
 ./scripts/package_macos.sh
 ```
 
-Release artifacts are written to `build-release/AxisSim.app` and `build-release/AxisSim.dmg` by default. The bundle is ad-hoc signed for local distribution; public distribution without Gatekeeper warnings requires an Apple Developer ID signature and notarization.
+Release-validation artifacts are written under `build/package-macos-release/` by default, including `AxisSim.app` and `AxisSim.dmg`. The bundle is ad-hoc signed for local distribution; public distribution without Gatekeeper warnings requires an Apple Developer ID signature and notarization. The build directory is ignored by Git so generated package files do not make the source identity appear dirty.
 
 For a non-interactive GUI initialization check on a machine with Qt, run:
 

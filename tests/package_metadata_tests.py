@@ -56,12 +56,14 @@ def main() -> int:
     if "source-code" not in notices or "validation artifacts only" not in notices:
         raise AssertionError("package notices must preserve Qt redistribution limitations")
     workflow = (root / ".github/workflows/release-packages.yml").read_text(encoding="utf-8")
-    if 'run: ./scripts/package_linux.sh build-release "$AXISSIM_RELEASE_TAG"' not in workflow:
+    if 'run: ./scripts/package_linux.sh build/package-linux-release "$AXISSIM_RELEASE_TAG"' not in workflow:
         raise AssertionError("Linux release tag must enter the shell through an environment variable")
     if "ReleaseTag $env:AXISSIM_RELEASE_TAG" not in workflow:
         raise AssertionError("Windows release tag must enter PowerShell through an environment variable")
-    if 'run: ./scripts/package_macos.sh build-release "$AXISSIM_RELEASE_TAG"' not in workflow:
+    if 'run: ./scripts/package_macos.sh build/package-macos-release "$AXISSIM_RELEASE_TAG"' not in workflow:
         raise AssertionError("macOS release tag must enter the shell through an environment variable")
+    if "build/package-windows-release" not in workflow:
+        raise AssertionError("Windows package build must stay under the ignored build directory")
     if "runs-on: macos-15" not in workflow:
         raise AssertionError("Qt 6.8.3 package validation must avoid the incompatible macOS 26 SDK")
     if "upload-artifact" in workflow or "create-release" in workflow:

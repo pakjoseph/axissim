@@ -5,7 +5,7 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-build_dir=${1:-"$root/build-linux-release"}
+build_dir=${1:-"$root/build/package-linux-release"}
 release_tag=${2:-""}
 if [[ "$build_dir" != /* ]]; then
   build_dir="$root/$build_dir"

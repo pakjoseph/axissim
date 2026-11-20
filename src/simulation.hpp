@@ -38,6 +38,21 @@ class Simulator {
     }
   }
 
+  // Provenance-enabled CLI runs pass the same captured bytes used to parse
+  // every external runtime input. This avoids reopening mutable files after
+  // their identity has been recorded.
+  void run(const PreparedRunInputs& prepared) {
+    frame_arrivals_us_ = prepared.frame_arrivals_us;
+    if (c_.workload_mode == "profiled_graph") {
+      if (!prepared.workload_profile)
+        throw std::runtime_error("prepared run is missing its parsed workload profile");
+      profile_ = *prepared.workload_profile;
+      run_profile_scheduler(nullptr);
+    } else {
+      run_event_scheduler(nullptr);
+    }
+  }
+
   [[nodiscard]] StudyMeasurementResult run_study(const StudyMeasurementRequest& request,
                                                  const WorkloadProfile* resolved_profile = nullptr,
                                                  const std::vector<double>* resolved_frame_arrivals = nullptr) {

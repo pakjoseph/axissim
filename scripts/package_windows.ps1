@@ -1,6 +1,6 @@
 # Creates a portable Windows ZIP after a native Qt 6/MSVC build. Run from a
 # Developer PowerShell with windeployqt available on PATH.
-param([string]$BuildDir = "build-windows-release", [string]$ReleaseTag = "")
+param([string]$BuildDir = "build/package-windows-release", [string]$ReleaseTag = "")
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $BuildDir = Join-Path $Root $BuildDir

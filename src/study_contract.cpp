@@ -3,13 +3,16 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cerrno>
 #include <charconv>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <limits>
+#include <locale.h>
 #include <map>
 #include <optional>
 #include <set>
@@ -61,6 +64,35 @@ struct ContractError : std::runtime_error {
   ContractError(std::string c, std::string f, std::string m)
       : std::runtime_error(std::move(m)), code(std::move(c)), field(std::move(f)) {}
 };
+
+[[nodiscard]] double parse_json_floating_number(std::string_view token) {
+  // Older supported Apple libc++ releases provide integral from_chars but
+  // omit its floating overload. Parse with an explicit C numeric locale so
+  // decimal interpretation stays independent of the process locale.
+  const std::string text(token);
+  char* end = nullptr;
+  double value = 0.0;
+#ifdef _WIN32
+  const _locale_t locale = _create_locale(LC_NUMERIC, "C");
+  if (locale == nullptr) throw std::runtime_error("Unable to create C numeric locale");
+  errno = 0;
+  value = _strtod_l(text.c_str(), &end, locale);
+  const int parse_error = errno;
+  _free_locale(locale);
+#else
+  const locale_t locale = newlocale(LC_NUMERIC_MASK, "C", nullptr);
+  if (locale == static_cast<locale_t>(0)) throw std::runtime_error("Unable to create C numeric locale");
+  errno = 0;
+  value = strtod_l(text.c_str(), &end, locale);
+  const int parse_error = errno;
+  freelocale(locale);
+#endif
+  if (end != text.c_str() + text.size() || end == text.c_str() ||
+      !std::isfinite(value) || (parse_error == ERANGE && value == 0.0)) {
+    throw std::runtime_error("JSON floating-point number is out of range or malformed");
+  }
+  return value;
+}
 
 [[nodiscard]] bool valid_utf8(std::string_view text) {
   for (std::size_t i = 0; i < text.size();) {
@@ -251,10 +283,11 @@ class JsonParser {
       }
       fail();
     }
-    double value = 0.0;
-    const auto result = std::from_chars(token.data(), token.data() + token.size(), value, std::chars_format::general);
-    if (result.ec != std::errc{} || result.ptr != token.data() + token.size() || !std::isfinite(value)) fail();
-    return Json(value);
+    try {
+      return Json(parse_json_floating_number(token));
+    } catch (const std::exception&) {
+      fail();
+    }
   }
   std::string_view input_;
   std::size_t position_ = 0;

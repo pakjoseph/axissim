@@ -60,6 +60,16 @@ namespace {
   }
 }
 
+[[nodiscard]] std::string read_exact_text(const std::filesystem::path& path, const std::string& role) {
+  std::ifstream input(path, std::ios::binary);
+  if (!input) throw std::runtime_error("Unable to open " + role + ": " + path.filename().string());
+  return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
+[[nodiscard]] std::filesystem::path absolute_normalized(const std::filesystem::path& path) {
+  return std::filesystem::absolute(path).lexically_normal();
+}
+
 [[nodiscard]] std::vector<std::string> json_string_array_field(const std::string& object, const std::string& key) {
   const std::regex expression("\\\"" + key + "\\\"\\s*:\\s*\\[([^\\]]*)\\]");
   std::smatch match;
@@ -178,6 +188,19 @@ WorkloadProfile load_workload_profile(const std::string& path) {
 }
 
 MappingPlan load_mapping_plan_text(const std::string& path, const WorkloadProfile& profile, const std::string& json) {
+  return load_mapping_plan_text(path, profile, json, std::nullopt);
+}
+
+std::optional<std::filesystem::path> mapping_plan_accuracy_evidence_path(
+    const std::filesystem::path& path, const std::string& json) {
+  const auto evidence = json_string_field(json, "accuracy_evidence");
+  if (!evidence) return std::nullopt;
+  return absolute_normalized(path.parent_path() / *evidence);
+}
+
+MappingPlan load_mapping_plan_text(
+    const std::string& path, const WorkloadProfile& profile, const std::string& json,
+    const std::optional<std::string>& accuracy_evidence_json) {
   if (json_string_field(json, "schema_version") != std::optional<std::string>("axissim.mapping-plan.v1")) {
     throw std::runtime_error("Unsupported mapping-plan schema; expected axissim.mapping-plan.v1");
   }
@@ -210,9 +233,9 @@ MappingPlan load_mapping_plan_text(const std::string& path, const WorkloadProfil
   }
   if (const auto evidence = json_string_field(json, "accuracy_evidence")) {
     plan.accuracy_evidence_path = (std::filesystem::path(path).parent_path() / *evidence).lexically_normal().string();
-    std::ifstream evidence_input(plan.accuracy_evidence_path);
-    if (!evidence_input) throw std::runtime_error("Unable to open mapping-plan accuracy evidence: " + plan.accuracy_evidence_path);
-    const std::string evidence_json((std::istreambuf_iterator<char>(evidence_input)), std::istreambuf_iterator<char>());
+    const std::string evidence_json = accuracy_evidence_json
+        ? *accuracy_evidence_json
+        : read_exact_text(plan.accuracy_evidence_path, "mapping-plan accuracy evidence");
     if (json_string_field(evidence_json, "schema_version") != std::optional<std::string>("axissim.accuracy-evidence.v1") ||
         json_string_field(evidence_json, "mapping_plan_id") != std::optional<std::string>(plan.id) ||
         json_string_field(evidence_json, "source_model_sha256") != std::optional<std::string>(profile.sha256) ||
@@ -225,6 +248,11 @@ MappingPlan load_mapping_plan_text(const std::string& path, const WorkloadProfil
     const auto source_url = json_string_field(evidence_json, "source_url").value_or("");
     const auto value = json_double_field(evidence_json, "value");
     if (metric.empty() || dataset.empty() || evaluator.empty() || source_url.empty() || !value) throw std::runtime_error("Accuracy evidence requires metric, value, dataset, evaluator, and source_url");
+    plan.accuracy_metric = metric;
+    plan.accuracy_dataset = dataset;
+    plan.accuracy_evaluator = evaluator;
+    plan.accuracy_source_url = source_url;
+    plan.accuracy_value = *value;
   }
   const auto objects = json_array_objects(json, "entries");
   std::set<std::string> mapped_ids;
@@ -290,6 +318,75 @@ MappingPlan load_mapping_plan(const std::string& path, const WorkloadProfile& pr
   if (!input) throw std::runtime_error("Unable to open mapping plan: " + path);
   const std::string json((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
   return load_mapping_plan_text(path,profile,json);
+}
+
+std::vector<CapturedRuntimeInput> capture_runtime_inputs(const Config& config) {
+  std::vector<CapturedRuntimeInput> inputs;
+  const auto capture = [&inputs](const std::filesystem::path& authored_path, std::string role) {
+    if (authored_path.empty()) return;
+    const auto path = absolute_normalized(authored_path);
+    inputs.push_back({std::move(role), path, read_exact_text(path, "runtime input")});
+  };
+
+  if (config.frame_arrival_mode == "trace" &&
+      !config.frame_arrival_trace.empty() && !config.frame_arrival_provenance.empty()) {
+    capture(config.frame_arrival_trace, "frame_arrival_trace");
+    capture(config.frame_arrival_provenance, "frame_arrival_provenance");
+  }
+  if (config.workload_mode == "profiled_graph" && !config.workload_profile.empty()) {
+    capture(config.workload_profile, "workload_profile");
+    if (!config.mapping_plan.empty()) {
+      capture(config.mapping_plan, "mapping_plan");
+      const auto mapping_path = absolute_normalized(config.mapping_plan);
+      const auto* mapping_json = captured_runtime_input(inputs, "mapping_plan");
+      if (mapping_json != nullptr) {
+        if (const auto evidence_path = mapping_plan_accuracy_evidence_path(mapping_path, *mapping_json))
+          capture(*evidence_path, "mapping_accuracy_evidence");
+      }
+    }
+  }
+  return inputs;
+}
+
+const std::string* captured_runtime_input(const std::vector<CapturedRuntimeInput>& inputs,
+                                          const std::string& role) {
+  const auto found = std::find_if(inputs.begin(), inputs.end(), [&role](const auto& input) {
+    return input.role == role;
+  });
+  return found == inputs.end() ? nullptr : &found->bytes;
+}
+
+PreparedRunInputs prepare_run_inputs(const Config& config,
+                                     std::vector<CapturedRuntimeInput> captured_inputs) {
+  PreparedRunInputs prepared;
+  prepared.captured_inputs = std::move(captured_inputs);
+  const auto find = [&prepared](const std::string& role) {
+    return captured_runtime_input(prepared.captured_inputs, role);
+  };
+  std::optional<std::string> arrivals;
+  std::optional<std::string> arrival_provenance;
+  if (const auto* bytes = find("frame_arrival_trace")) arrivals = *bytes;
+  if (const auto* bytes = find("frame_arrival_provenance")) arrival_provenance = *bytes;
+  prepared.frame_arrivals_us = load_frame_arrivals(config, arrivals, arrival_provenance);
+
+  if (config.workload_mode == "profiled_graph") {
+    const auto* profile_json = find("workload_profile");
+    if (profile_json == nullptr) throw std::runtime_error("workload profile bytes were not captured before execution");
+    prepared.workload_profile = load_workload_profile_text(*profile_json);
+    if (!config.mapping_plan.empty()) {
+      const auto* mapping_json = find("mapping_plan");
+      if (mapping_json == nullptr) throw std::runtime_error("mapping-plan bytes were not captured before execution");
+      std::optional<std::string> evidence_json;
+      const auto evidence_path = mapping_plan_accuracy_evidence_path(config.mapping_plan, *mapping_json);
+      if (evidence_path && find("mapping_accuracy_evidence") == nullptr)
+        throw std::runtime_error("mapping accuracy evidence bytes were not captured before execution");
+      if (const auto* evidence = find("mapping_accuracy_evidence")) evidence_json = *evidence;
+      auto mapping = load_mapping_plan_text(config.mapping_plan, *prepared.workload_profile,
+                                            *mapping_json, evidence_json);
+      apply_mapping_plan(*prepared.workload_profile, mapping, config);
+    }
+  }
+  return prepared;
 }
 
 void apply_mapping_plan(WorkloadProfile& profile, const MappingPlan& plan, const Config& config) {
@@ -366,14 +463,12 @@ void apply_mapping_plan(WorkloadProfile& profile, const MappingPlan& plan, const
   }
   profile.mapped_npu_arithmetic_energy_scale = plan.npu_arithmetic_energy_scale;
   if (!plan.accuracy_evidence_path.empty()) {
-    std::ifstream input(plan.accuracy_evidence_path);
-    const std::string json((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
     profile.accuracy_evidence_status = "external_evaluated";
-    profile.accuracy_metric = json_string_field(json, "metric").value_or("");
-    profile.accuracy_dataset = json_string_field(json, "dataset").value_or("");
-    profile.accuracy_evaluator = json_string_field(json, "evaluator").value_or("");
-    profile.accuracy_source_url = json_string_field(json, "source_url").value_or("");
-    profile.accuracy_value = *json_double_field(json, "value");
+    profile.accuracy_metric = plan.accuracy_metric;
+    profile.accuracy_dataset = plan.accuracy_dataset;
+    profile.accuracy_evaluator = plan.accuracy_evaluator;
+    profile.accuracy_source_url = plan.accuracy_source_url;
+    profile.accuracy_value = plan.accuracy_value;
   }
 }
 

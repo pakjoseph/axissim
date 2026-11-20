@@ -2382,7 +2382,8 @@ class AxisSimWindow final : public QMainWindow {
     QJsonParseError provenance_error;
     const auto provenance_document = QJsonDocument::fromJson(last_result_provenance_, &provenance_error);
     if (provenance_error.error != QJsonParseError::NoError || !provenance_document.isObject() ||
-        provenance_document.object().value("provenance").toObject().value("schema_version").toString() != "axissim.run-provenance.v1") {
+        (provenance_document.object().value("provenance").toObject().value("schema_version").toString() != "axissim.run-provenance.v1" &&
+         provenance_document.object().value("provenance").toObject().value("schema_version").toString() != "axissim.run-provenance.v2")) {
       finishProcess(false, "Run provenance invalid");
       showError("Run provenance invalid", "The provenance sidecar is malformed or uses an unsupported schema.");
       last_result_provenance_.clear();

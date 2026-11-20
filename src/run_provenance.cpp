@@ -1,5 +1,6 @@
 #include "run_provenance.hpp"
 
+#include <algorithm>
 #include <charconv>
 #include <cctype>
 #include <cmath>
@@ -146,7 +147,8 @@ struct InputRecord {
 }
 
 [[nodiscard]] std::vector<InputRecord> collect_inputs(
-    const ConfigLoadResult& loaded, const std::filesystem::path& root_manifest) {
+    const ConfigLoadResult& loaded, const std::filesystem::path& root_manifest,
+    const std::vector<CapturedRuntimeInput>& captured_inputs) {
   std::vector<InputRecord> records;
   const auto root = std::filesystem::absolute(root_manifest).lexically_normal();
   const auto base = root.parent_path();
@@ -159,39 +161,10 @@ struct InputRecord {
                        contents != loaded.source_contents.end()});
   }
 
-  const auto add_file = [&records, &base](const std::filesystem::path& file,
-                                         const std::string& role) {
-    if (file.empty()) return;
-    const auto resolved_file = file.is_absolute() ? file : std::filesystem::absolute(file).lexically_normal();
-    try {
-      const auto contents = read_bytes(resolved_file);
-      records.push_back({role, relative_identity_path(resolved_file, base), sha256_hex(contents), true});
-    } catch (const std::exception&) {
-      records.push_back({role, relative_identity_path(resolved_file, base), "", false});
-    }
-  };
-
-  const auto& config = loaded.config;
-  if (!config.workload_profile.empty()) {
-    add_file(config.workload_profile, "workload_profile");
-    if (!config.mapping_plan.empty()) {
-      add_file(config.mapping_plan, "mapping_plan");
-      try {
-        const auto profile = load_workload_profile(config.workload_profile);
-        const auto plan = load_mapping_plan(config.mapping_plan, profile);
-        if (!plan.accuracy_evidence_path.empty())
-          add_file(plan.accuracy_evidence_path, "mapping_accuracy_evidence");
-      } catch (const std::exception&) {
-        // The successful simulator run is the authority. A second-pass parse
-        // failure or changed file is reflected as incomplete provenance.
-        records.push_back({"mapping_resolution", relative_identity_path(config.mapping_plan, base), "", false});
-      }
-    }
+  for (const auto& input : captured_inputs) {
+    records.push_back({input.role, relative_identity_path(input.path, base),
+                       sha256_hex(input.bytes), true});
   }
-  if (!config.frame_arrival_trace.empty())
-    add_file(config.frame_arrival_trace, "frame_arrival_trace");
-  if (!config.frame_arrival_provenance.empty())
-    add_file(config.frame_arrival_provenance, "frame_arrival_provenance");
   return records;
 }
 
@@ -244,14 +217,36 @@ struct InputRecord {
 [[nodiscard]] Value make_identity_payload(const ConfigLoadResult& loaded,
                                           const std::filesystem::path& root_manifest,
                                           const std::filesystem::path& executable,
+                                          const std::vector<CapturedRuntimeInput>& captured_inputs,
                                           bool* complete) {
-  const auto inputs = collect_inputs(loaded, root_manifest);
+  const auto inputs = collect_inputs(loaded, root_manifest, captured_inputs);
   Array input_array;
   for (const auto& input : inputs) {
     if (!input.available) *complete = false;
     input_array.push_back(input_record(input));
   }
   if (loaded.source_files.empty()) *complete = false;
+  const auto has_captured = [&captured_inputs](const std::string& role) {
+    return std::any_of(captured_inputs.begin(), captured_inputs.end(), [&role](const auto& input) {
+      return input.role == role;
+    });
+  };
+  const auto& config = loaded.config;
+  if (config.frame_arrival_mode == "trace" &&
+      (!has_captured("frame_arrival_trace") || !has_captured("frame_arrival_provenance")))
+    *complete = false;
+  if (config.workload_mode == "profiled_graph" && !config.workload_profile.empty() &&
+      !has_captured("workload_profile")) *complete = false;
+  if (config.workload_mode == "profiled_graph" && !config.mapping_plan.empty() &&
+      !has_captured("mapping_plan")) *complete = false;
+  if (config.workload_mode == "profiled_graph" && !config.mapping_plan.empty()) {
+    const auto mapping = std::find_if(captured_inputs.begin(), captured_inputs.end(), [](const auto& input) {
+      return input.role == "mapping_plan";
+    });
+    if (mapping != captured_inputs.end() &&
+        mapping_plan_accuracy_evidence_path(mapping->path, mapping->bytes) &&
+        !has_captured("mapping_accuracy_evidence")) *complete = false;
+  }
 
   std::string executable_hash = "unknown";
   std::string executable_status = "unavailable";
@@ -297,7 +292,7 @@ struct InputRecord {
       {"authored_values_after_overrides", Value(std::move(authored_values))},
       {"configuration", config_json(loaded.config, config_root)},
       {"configuration_files", Value(std::move(input_array))},
-      {"input_verification", Object{{"status", Value("pending")}}},
+      {"input_verification", Object{{"status", Value("exact_bytes_captured_and_used")}}},
       {"explicit_cli_overrides", Value(std::move(overrides))},
       {"executable", Object{{"sha256", Value(executable_hash)}, {"status", Value(executable_status)}}},
       {"manifest", Object{{"path", Value(manifest_id)}, {"identity", root_file}}},
@@ -308,7 +303,7 @@ struct InputRecord {
                            {"model_version", Value(loaded.config.model_version)}}},
       {"source", Object{{"revision", Value(source_revision)},
                          {"tree_state", Value(source_state)}}},
-      {"schema_version", Value("axissim.run-provenance.v1")}};
+      {"schema_version", Value("axissim.run-provenance.v2")}};
 }
 
 [[nodiscard]] Value identity_record(Value payload, bool complete) {
@@ -319,56 +314,25 @@ struct InputRecord {
                 {"provenance", std::move(payload)}};
 }
 
-[[nodiscard]] bool input_snapshot_unchanged(
-    const Value& input_snapshot, const ConfigLoadResult& loaded,
-    const std::filesystem::path& root_manifest) {
-  try {
-    const auto& original_payload = input_snapshot.object().at("provenance");
-    const auto& original_inputs = original_payload.object().at("configuration_files").array();
-    const auto current_inputs = collect_inputs(loaded, root_manifest);
-    using Key = std::pair<std::string, std::string>;
-    std::map<Key, std::pair<std::string, std::string>> current;
-    for (const auto& input : current_inputs) {
-      current[{input.role, input.path}] = {
-          input.available ? input.hash : "unknown",
-          input.available ? "hashed" : "unavailable"};
-    }
-    if (current.size() != original_inputs.size()) return false;
-    for (const auto& input : original_inputs) {
-      const auto& fields = input.object();
-      const Key key{fields.at("role").string(), fields.at("path").string()};
-      const auto found = current.find(key);
-      if (found == current.end() ||
-          found->second.first != fields.at("sha256").string() ||
-          found->second.second != fields.at("status").string()) return false;
-    }
-    return true;
-  } catch (const std::exception&) {
-    return false;
-  }
-}
-
 }  // namespace
 
 Value make_run_provenance(const ConfigLoadResult& loaded,
                           const std::filesystem::path& root_manifest,
-                          const std::filesystem::path& executable) {
+                          const std::filesystem::path& executable,
+                          const std::vector<CapturedRuntimeInput>& captured_inputs) {
   bool complete = true;
-  auto payload = make_identity_payload(loaded, root_manifest, executable, &complete);
+  auto payload = make_identity_payload(loaded, root_manifest, executable, captured_inputs, &complete);
   return identity_record(std::move(payload), complete);
 }
 
 Value finalize_run_provenance(const Value& input_snapshot,
-                              const ConfigLoadResult& loaded,
-                              const std::filesystem::path& root_manifest,
                               const std::filesystem::path& result_json_path) {
   const auto& snapshot_record = input_snapshot.object();
   bool complete = snapshot_record.at("identity_status").string() == "complete";
   auto payload = snapshot_record.at("provenance");
   auto& fields = std::get<Object>(payload.storage);
-  const bool inputs_unchanged = input_snapshot_unchanged(input_snapshot, loaded, root_manifest);
-  fields["input_verification"] = Object{{"status", Value(inputs_unchanged ? "unchanged" : "changed_or_unavailable")}};
-  if (!inputs_unchanged) complete = false;
+  if (fields.at("input_verification").object().at("status").string() !=
+      "exact_bytes_captured_and_used") complete = false;
 
   try {
     const auto result_bytes = read_bytes(result_json_path);
@@ -386,17 +350,9 @@ std::string canonical_provenance_value(const Value& value) {
 
 std::string canonical_run_provenance(const ConfigLoadResult& loaded,
                                      const std::filesystem::path& root_manifest,
-                                     const std::filesystem::path& executable) {
-  return canonical_value(make_run_provenance(loaded, root_manifest, executable));
-}
-
-void write_run_provenance(const std::filesystem::path& result_json_path,
-                          const ConfigLoadResult& loaded,
-                          const std::filesystem::path& root_manifest,
-                          const std::filesystem::path& executable) {
-  const auto snapshot = make_run_provenance(loaded, root_manifest, executable);
-  write_run_provenance_record(result_json_path,
-      finalize_run_provenance(snapshot, loaded, root_manifest, result_json_path));
+                                     const std::filesystem::path& executable,
+                                     const std::vector<CapturedRuntimeInput>& captured_inputs) {
+  return canonical_value(make_run_provenance(loaded, root_manifest, executable, captured_inputs));
 }
 
 void write_run_provenance_record(const std::filesystem::path& result_json_path,
