@@ -32,8 +32,10 @@ def unresolved_windows_imports(
     imports: list[str],
     packaged_dlls: set[str],
     system_dlls: set[str],
+    *,
+    packaged_vc_redist_installer: bool = False,
 ) -> list[str]:
-    """Check normal imports while refusing a host-installed MSVC runtime fallback."""
+    """Check imports and require explicit evidence for the system VC runtime prerequisite."""
     missing = []
     for name in imports:
         key = name.casefold()
@@ -42,7 +44,11 @@ def unresolved_windows_imports(
         if key.startswith(("api-ms-win-", "ext-ms-win-")):
             continue
         if is_msvc_runtime_dll(name):
-            missing.append(f"{binary} -> {name} (MSVC runtime must be packaged)")
+            if packaged_vc_redist_installer and key in system_dlls:
+                continue
+            missing.append(
+                f"{binary} -> {name} (packaged VC redistributable prerequisite is missing or not installed)"
+            )
         elif key not in system_dlls:
             missing.append(f"{binary} -> {name}")
     return missing
@@ -97,9 +103,30 @@ def package_inventory_root(root: pathlib.Path, docs: pathlib.Path, layout: str) 
     return root if layout == "macos" else docs
 
 
-def check_windows_package_dependencies(root: pathlib.Path) -> str:
+def verify_windows_vc_redist(root: pathlib.Path, inventory: dict) -> pathlib.Path:
+    """Verify the declared Microsoft runtime prerequisite installer is packaged and intact."""
+    redistributable = inventory.get("windows_vc_redist")
+    if not isinstance(redistributable, dict):
+        raise AssertionError("Windows package does not declare its VC redistributable prerequisite")
+    if (redistributable.get("redistributable_family") != "microsoft-vc-runtime-14-x64" or
+            redistributable.get("purpose") != "system_runtime_prerequisite_installer"):
+        raise AssertionError("Windows package VC redistributable metadata is unsupported")
+    redistributable_path = package_member_path(
+        root, redistributable.get("path"), "VC redistributable installer"
+    )
+    installer = require_file(redistributable_path, "packaged VC redistributable installer")
+    if installer.name.lower() != "vc_redist.x64.exe" or sha256(installer) != redistributable.get("sha256"):
+        raise AssertionError("packaged VC redistributable installer identity or SHA-256 is invalid")
+    return installer
+
+
+def check_windows_package_dependencies(root: pathlib.Path, inventory: dict) -> str:
+    verify_windows_vc_redist(root, inventory)
+
     system_root = pathlib.Path(os.environ.get("SystemRoot", r"C:\Windows"))
-    system_dirs = [system_root / "System32", system_root / "SysWOW64"]
+    # The portable package is x64, so imports must resolve from the native x64
+    # system directory; SysWOW64 only contains 32-bit system libraries.
+    system_dirs = [system_root / "System32"]
     packaged_files = [path for path in root.rglob("*") if path.is_file()]
     dlls: dict[str, pathlib.Path] = {}
     binaries = []
@@ -129,7 +156,11 @@ def check_windows_package_dependencies(root: pathlib.Path) -> str:
     for binary, imports in binaries:
         missing.extend(
             unresolved_windows_imports(
-                str(binary.relative_to(root)), imports, set(dlls), system_dlls
+                str(binary.relative_to(root)),
+                imports,
+                set(dlls),
+                system_dlls,
+                packaged_vc_redist_installer=True,
             )
         )
     if missing:
@@ -140,12 +171,15 @@ def check_windows_package_dependencies(root: pathlib.Path) -> str:
         raise AssertionError("Windows package is missing the Qt qwindows platform plugin")
     return (
         f"Normal PE import closure verified for {len(binaries)} package executables/DLLs; "
-        "MSVC runtime imports resolve from the package and other OS imports resolve from the package or Windows. "
+        "the packaged VC redistributable installer and installed system runtime satisfy MSVC imports; "
+        "other OS imports resolve from the package or Windows. "
         "Delay-load imports and runtime LoadLibrary calls are outside this static check."
     )
 
 
-def check_dependencies(binary: pathlib.Path, platform: str, package_root: pathlib.Path) -> str:
+def check_dependencies(
+    binary: pathlib.Path, platform: str, package_root: pathlib.Path, inventory: dict
+) -> str:
     if platform == "linux":
         environment = runtime_environment(platform, package_root)
         result = subprocess.run(["ldd", str(binary)], capture_output=True, text=True,
@@ -154,7 +188,7 @@ def check_dependencies(binary: pathlib.Path, platform: str, package_root: pathli
             raise AssertionError(f"unresolved shared library for {binary.name}:\n{result.stdout}")
         return result.stdout
     if platform == "windows":
-        return check_windows_package_dependencies(package_root)
+        return check_windows_package_dependencies(package_root, inventory)
     return "macOS dependencies are checked by the package script with otool-based closure verification."
 
 
@@ -263,7 +297,7 @@ def main() -> int:
     manifest = require_file(data / "configs/baseline/manifest.conf", "bundled baseline manifest")
     inventory_path = require_file(docs / "third-party/qt-runtime-inventory.json", "runtime dependency inventory")
     inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
-    if inventory.get("schema_version") != "axissim.package-runtime-inventory.v1":
+    if inventory.get("schema_version") != "axissim.package-runtime-inventory.v2":
         raise AssertionError("runtime inventory schema is unsupported")
     if inventory.get("platform") != args.platform:
         raise AssertionError("runtime inventory platform does not match package platform")
@@ -312,7 +346,13 @@ def main() -> int:
         check_deb_qt_dependencies(args.deb_file.resolve(), root)
 
     dependencies = "\n".join(
-        filter(None, (check_dependencies(cli, args.platform, root), check_dependencies(gui, args.platform, root)))
+        filter(
+            None,
+            (
+                check_dependencies(cli, args.platform, root, inventory),
+                check_dependencies(gui, args.platform, root, inventory),
+            ),
+        )
     )
     with tempfile.TemporaryDirectory(prefix="axissim-extracted-package-") as temporary:
         workspace = pathlib.Path(temporary)

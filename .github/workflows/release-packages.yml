@@ -79,7 +79,7 @@ jobs:
             exit /b 1
           )
           echo VCINSTALLDIR=%VCINSTALLDIR%
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$packageScript" -BuildDir build/package-windows-release -ReleaseTag "%AXISSIM_RELEASE_TAG%"
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$packageScript" -BuildDir build/package-windows-release -ReleaseTag "%AXISSIM_RELEASE_TAG%" -InstallVcRuntimeForValidation
           exit /b %errorlevel%
           "@ | Set-Content -Encoding Ascii -Path $runnerCommand
           & cmd.exe /d /c $runnerCommand

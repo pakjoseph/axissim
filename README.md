@@ -208,14 +208,17 @@ Create and verify a native package with:
 ```
 
 The Windows script runs `windeployqt`, extracts its ZIP into a new directory,
-and verifies the packaged CLI, GUI, provenance, license files, and Qt runtime
-inventory. The Linux script verifies the extracted tarball and Debian package;
-the tarball uses system Qt, and the `.deb` declares Qt libraries and QPA plugin
-dependencies. The macOS script preserves the DMG relocation test, checks the
-relocated app's actual Mach-O dependency closure, and runs a native Cocoa GUI
-smoke test. These scripts create validation artifacts only. They do not publish
-a GitHub Release, sign/notarize a public macOS release, or establish that all
-LGPL source/relinking obligations have been met. See
+and verifies the packaged CLI, GUI, provenance, license files, Qt runtime
+inventory, and bundled `vc_redist.x64.exe`. The Windows package requires the
+Microsoft Visual C++ Redistributable (x64); install the included redistributable
+before launch if it is not already present. The Linux script verifies the
+extracted tarball and Debian package; the tarball uses system Qt, and the `.deb`
+declares Qt libraries and QPA plugin dependencies. The macOS script preserves
+the DMG relocation test, checks the relocated app's actual Mach-O dependency
+closure, and runs a native Cocoa GUI smoke test. These scripts create validation
+artifacts only. They do not publish a GitHub Release, sign/notarize a public
+macOS release, or establish that all LGPL source/relinking obligations have
+been met. See
 [package and licensing notes](docs/package-provenance-and-licensing.md).
 
 Untagged packages are labeled as validation builds. A release-labeled package

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
 import re
@@ -58,6 +59,9 @@ def main() -> int:
         raise AssertionError("package notices must preserve Qt redistribution limitations")
     if "not yet prove a complete per-runtime-file license mapping" not in normalized_notices:
         raise AssertionError("package notices must not overstate the installation SBOM as a runtime license map")
+    if ("vc_redist.x64.exe" not in normalized_notices or
+            "Microsoft Visual Studio license terms" not in normalized_notices):
+        raise AssertionError("package notices must disclose the bundled Microsoft runtime installer and license boundary")
     import sys
     sys.path.insert(0, str(root / "tools"))
     from verify_extracted_package import (
@@ -65,6 +69,7 @@ def main() -> int:
         package_inventory_root,
         package_member_path,
         unresolved_windows_imports,
+        verify_windows_vc_redist,
     )
     if not is_msvc_runtime_dll("VCRUNTIME140.dll") or not is_msvc_runtime_dll("msvcp140_2.dll"):
         raise AssertionError("MSVC compiler runtime DLLs must be classified as packaged dependencies")
@@ -74,13 +79,25 @@ def main() -> int:
     missing_runtime = unresolved_windows_imports(
         "AxisSim.exe", ["KERNEL32.dll", "VCRUNTIME140.dll"], set(), system_dlls
     )
-    if missing_runtime != ["AxisSim.exe -> VCRUNTIME140.dll (MSVC runtime must be packaged)"]:
-        raise AssertionError("a host-installed MSVC runtime must not satisfy the portable package check")
+    if missing_runtime != [
+        "AxisSim.exe -> VCRUNTIME140.dll (packaged VC redistributable prerequisite is missing or not installed)"
+    ]:
+        raise AssertionError("a host-installed MSVC runtime must not satisfy an undeclared package prerequisite")
     if unresolved_windows_imports(
         "AxisSim.exe", ["KERNEL32.dll", "VCRUNTIME140.dll"],
         {"vcruntime140.dll"}, system_dlls,
     ):
         raise AssertionError("a packaged MSVC runtime and Windows system import should resolve")
+    if unresolved_windows_imports(
+        "AxisSim.exe", ["KERNEL32.dll", "VCRUNTIME140.dll"], set(), system_dlls,
+        packaged_vc_redist_installer=True,
+    ):
+        raise AssertionError("a declared bundled VC redistributable and installed system runtime should resolve")
+    if not unresolved_windows_imports(
+        "AxisSim.exe", ["VCRUNTIME140.dll"], set(), {"kernel32.dll"},
+        packaged_vc_redist_installer=True,
+    ):
+        raise AssertionError("a declared redistributable must still be installed to satisfy the package imports")
 
     with tempfile.TemporaryDirectory(prefix="axissim-qt-inventory-") as temporary:
         fixture = pathlib.Path(temporary)
@@ -89,6 +106,8 @@ def main() -> int:
         (sbom_root / "qtbase.spdx").write_text("SPDXVersion: SPDX-2.3\n", encoding="utf-8")
         (sbom_root / "qtgui.spdx.json").write_text('{"spdxVersion":"SPDX-2.3"}\n', encoding="utf-8")
         (fixture / "Qt6Core.dll").write_bytes(b"synthetic runtime file")
+        redist_installer = fixture / "vc_redist.x64.exe"
+        redist_installer.write_bytes(b"synthetic VC redistributable installer")
         output_dir = fixture / "inventory-output"
         subprocess.run(
             [
@@ -99,6 +118,8 @@ def main() -> int:
             check=True, capture_output=True, text=True,
         )
         inventory = json.loads((output_dir / "qt-runtime-inventory.json").read_text(encoding="utf-8"))
+        if inventory.get("schema_version") != "axissim.package-runtime-inventory.v2":
+            raise AssertionError("runtime inventory must version its VC redistributable prerequisite contract")
         if inventory.get("qt_installation_sbom_status") != "included_installation_catalog_not_runtime_mapping":
             raise AssertionError("runtime inventory must label the SBOMs as a catalog, not a file mapping")
         sboms = inventory.get("qt_installation_sboms", [])
@@ -115,6 +136,21 @@ def main() -> int:
                 raise AssertionError("runtime inventory SBOM path must exist in the package root")
         if len(inventory.get("runtime_files", [])) != 1:
             raise AssertionError("runtime inventory must retain the exact native package file list")
+        redist_identity = inventory.get("windows_vc_redist")
+        if (not isinstance(redist_identity, dict) or
+                redist_identity.get("path") != "vc_redist.x64.exe" or
+                redist_identity.get("sha256") != hashlib.sha256(redist_installer.read_bytes()).hexdigest() or
+                redist_identity.get("redistributable_family") != "microsoft-vc-runtime-14-x64"):
+            raise AssertionError("Windows inventory must bind the packaged VC redist prerequisite by SHA-256")
+        if verify_windows_vc_redist(fixture, inventory) != redist_installer.resolve():
+            raise AssertionError("Windows verifier must resolve the inventoried VC redist within package root")
+        redist_installer.write_bytes(b"modified VC redistributable installer")
+        try:
+            verify_windows_vc_redist(fixture, inventory)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("Windows verifier accepted a changed VC redistributable hash")
         (fixture / "Qt6Core.dll").unlink()
         system_output = fixture / "system-inventory-output"
         subprocess.run(
@@ -128,7 +164,8 @@ def main() -> int:
         system_inventory = json.loads((system_output / "qt-runtime-inventory.json").read_text(encoding="utf-8"))
         if ({item.get("path") for item in system_inventory.get("qt_installation_sboms", [])} != expected_sbom_paths or
                 system_inventory.get("qt_installation_sbom_status") != "included_installation_catalog_not_runtime_mapping" or
-                system_inventory.get("runtime_files") != []):
+                system_inventory.get("runtime_files") != [] or
+                system_inventory.get("windows_vc_redist") is not None):
             raise AssertionError("system-Qt package assets must retain available SBOM hashes without inventing bundled libraries")
         deb_root = fixture / "deb-root"
         deb_docs = deb_root / "usr/share/doc/axissim"
@@ -196,9 +233,13 @@ def main() -> int:
         raise AssertionError("Windows package build must stay under the ignored build directory")
     if "VsDevCmd.bat" not in workflow or "VCINSTALLDIR" not in workflow:
         raise AssertionError("Windows package validation must run windeployqt in a C++ developer environment")
+    if "InstallVcRuntimeForValidation" not in workflow:
+        raise AssertionError("Windows package validation must exercise the bundled VC redistributable prerequisite")
     windows_script = (root / "scripts/package_windows.ps1").read_text(encoding="utf-8")
     if "$env:VCINSTALLDIR" not in windows_script:
         raise AssertionError("Windows package script must reject a missing Visual Studio runtime source")
+    if "vc_redist.x64.exe" not in windows_script:
+        raise AssertionError("Windows package script must require the bundled VC redistributable installer")
     if "runs-on: macos-15" not in workflow:
         raise AssertionError("Qt 6.8.3 package validation must avoid the incompatible macOS 26 SDK")
     if "upload-artifact" in workflow or "create-release" in workflow:

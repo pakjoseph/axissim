@@ -58,13 +58,31 @@ def main() -> int:
                     "sha256": digest(path),
                 })
 
+    windows_vc_redist = None
+    if args.platform == "windows":
+        installers = [
+            path for path in root.rglob("vc_redist.x64.exe")
+            if path.is_file()
+        ]
+        if len(installers) != 1:
+            raise SystemExit(
+                "Windows packages must contain exactly one official vc_redist.x64.exe prerequisite"
+            )
+        installer = installers[0]
+        windows_vc_redist = {
+            "path": installer.relative_to(root).as_posix(),
+            "sha256": digest(installer),
+            "redistributable_family": "microsoft-vc-runtime-14-x64",
+            "purpose": "system_runtime_prerequisite_installer",
+        }
+
     if args.runtime_mode == "bundled-dynamic" and not libraries:
         raise SystemExit("bundled Qt runtime was selected but no native shared libraries were found")
     if args.runtime_mode == "bundled-dynamic" and not sbom_files:
         raise SystemExit("bundled Qt runtime requires Qt installation SBOM files under third-party/qt-installation-sboms/")
 
     record = {
-        "schema_version": "axissim.package-runtime-inventory.v1",
+        "schema_version": "axissim.package-runtime-inventory.v2",
         "platform": args.platform,
         "qt_version": args.qt_version,
         "qt_runtime_mode": args.runtime_mode,
@@ -73,10 +91,12 @@ def main() -> int:
         ),
         "qt_installation_sboms": sbom_files,
         "runtime_files": libraries,
+        "windows_vc_redist": windows_vc_redist,
         "interpretation": (
             "runtime_files is the exact shipped native-file inventory. qt_installation_sboms are an installation-level "
             "license catalog and are not asserted to map one-to-one to runtime_files. This record is not a complete "
-            "license conclusion or a physical measurement."
+            "license conclusion or a physical measurement. On Windows, windows_vc_redist identifies the bundled "
+            "Microsoft Visual C++ Redistributable installer; the package requires its system runtime to be installed."
         ),
     }
     target = output_dir / "qt-runtime-inventory.json"

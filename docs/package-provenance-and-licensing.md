@@ -11,9 +11,13 @@ inventory of native runtime files and their SHA-256 values.
 The AxisSim GUI links Qt 6 Core, Gui, and Widgets. Windows and macOS use
 dynamically bundled Qt runtimes selected by `windeployqt` and `macdeployqt`.
 The Windows packaging command requires a Visual Studio developer environment
-with `VCINSTALLDIR` set. Its extracted-package check requires imported MSVC
-redistributable DLLs to be present in the package rather than silently
-accepting a runner-installed copy from `System32` or `SysWOW64`.
+with `VCINSTALLDIR` set. `windeployqt --compiler-runtime` stages
+`vc_redist.x64.exe`; the runtime inventory records its path and SHA-256. The
+ZIP does not contain app-local MSVC DLLs: install the bundled Microsoft Visual
+C++ Redistributable (x64, 14.x) if the target system does not already have it.
+The verifier requires the installer record and hash and confirms the declared
+runtime DLL imports resolve on the validation host. It does not count a
+host-installed runtime as evidence that the package is self-contained.
 Linux packages intentionally use system Qt libraries and platform plugins;
 the portable tarball documents that dependency, and the Debian package uses
 the shared-library dependency scan plus explicit dependencies for every
@@ -72,9 +76,11 @@ and the QPA plugins installed on the host. macOS packaging needs Qt 6,
 `macdeployqt`, `codesign`, `hdiutil`, and a working Cocoa session for the
 native GUI smoke test. The Windows static dependency check covers normal PE
 imports; delay-load imports and dependencies opened through runtime
-`LoadLibrary` calls still need separate analysis. Package-validation files are
-checked and then discarded with their native CI runner workspaces; they are
-not retained as downloadable workflow artifacts.
+`LoadLibrary` calls still need separate analysis. The package-validation job
+installs the included Windows redistributable in its ephemeral runner before
+the extracted-package smoke tests. Package-validation files are checked and
+then discarded with their native CI runner workspaces; they are not retained as
+downloadable workflow artifacts.
 
 ## Qt references
 
@@ -83,3 +89,4 @@ not retained as downloadable workflow artifacts.
 - [Qt software bill of materials](https://doc.qt.io/qt-6/sbom.html)
 - [Qt 6 licensing](https://doc.qt.io/qt-6/licensing.html)
 - [GNU LGPL version 3 text](https://www.gnu.org/licenses/lgpl-3.0.html)
+- [Microsoft Visual C++ redistributable files](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files?view=msvc-170)

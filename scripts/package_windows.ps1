@@ -1,6 +1,10 @@
 # Creates a portable Windows ZIP after a native Qt 6/MSVC build. Run from a
 # Developer PowerShell with windeployqt available on PATH.
-param([string]$BuildDir = "build/package-windows-release", [string]$ReleaseTag = "")
+param(
+  [string]$BuildDir = "build/package-windows-release",
+  [string]$ReleaseTag = "",
+  [switch]$InstallVcRuntimeForValidation
+)
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $BuildDir = Join-Path $Root $BuildDir
@@ -18,6 +22,19 @@ cmake --build $BuildDir --target axissim-gui --config Release --parallel
 if ($LASTEXITCODE -ne 0) { throw "CMake build failed with exit code $LASTEXITCODE" }
 windeployqt (Join-Path $Stage "AxisSim.exe") --release --no-translations --compiler-runtime
 if ($LASTEXITCODE -ne 0) { throw "windeployqt failed with exit code $LASTEXITCODE" }
+$RedistInstallers = @(Get-ChildItem -Path $Stage -Filter "vc_redist.x64.exe" -File -Recurse)
+if ($RedistInstallers.Count -ne 1) {
+  throw "windeployqt must stage exactly one vc_redist.x64.exe prerequisite; found $($RedistInstallers.Count)"
+}
+if ($InstallVcRuntimeForValidation) {
+  Write-Output "Installing the VC redistributable bundled with this validation package"
+  $InstallProcess = Start-Process -FilePath $RedistInstallers[0].FullName `
+    -ArgumentList @("/install", "/quiet", "/norestart") -Wait -PassThru
+  if ($InstallProcess.ExitCode -notin @(0, 3010, 1638)) {
+    throw "Bundled VC redistributable installation failed with exit code $($InstallProcess.ExitCode)"
+  }
+  Write-Output "VC redistributable installer exited with $($InstallProcess.ExitCode)"
+}
 $Revision = (git -C $Root rev-parse HEAD).Trim()
 python (Join-Path $Root "tools/generate_package_runtime_inventory.py") `
   --root $Stage --platform windows --qt-version (python -c "import json,pathlib,sys; print(json.loads(pathlib.Path(sys.argv[1]).read_text()).get('build',{}).get('qt_version','unknown'))" (Join-Path $BuildDir "package-assets/package-provenance.json")) `
