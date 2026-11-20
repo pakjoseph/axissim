@@ -11,9 +11,17 @@ $BuildDir = Join-Path $Root $BuildDir
 $Stage = Join-Path $BuildDir "portable"
 $Archive = Join-Path $BuildDir "AxisSim-windows-x64.zip"
 trap {
+  $Failure = $_
+  Write-Host "Windows package failure: $($Failure.Exception.Message)"
+  if ($Failure.InvocationInfo -and $Failure.InvocationInfo.PositionMessage) {
+    Write-Host $Failure.InvocationInfo.PositionMessage
+  }
+  if ($Failure.ScriptStackTrace) {
+    Write-Host $Failure.ScriptStackTrace
+  }
   if (Test-Path $Archive) { Remove-Item $Archive -Force -ErrorAction SilentlyContinue }
   if (Test-Path $Stage) { Remove-Item $Stage -Recurse -Force -ErrorAction SilentlyContinue }
-  throw
+  throw $Failure
 }
 if (Test-Path $Archive) { Remove-Item $Archive -Force }
 if (Test-Path $Stage) { Remove-Item $Stage -Recurse -Force }
@@ -61,7 +69,8 @@ Compress-Archive -Path (Join-Path $Stage "*") -DestinationPath $Archive
 $Extracted = Join-Path ([System.IO.Path]::GetTempPath()) ("axissim-windows-package-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $Extracted | Out-Null
 try {
-  Expand-Archive -Path $Archive -DestinationPath $Extracted
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  [System.IO.Compression.ZipFile]::ExtractToDirectory($Archive, $Extracted)
   python (Join-Path $Root "tools/verify_extracted_package.py") --root $Extracted --platform windows --layout portable `
     --expected-source-revision $Revision --gui-smoke
   if ($LASTEXITCODE -ne 0) { throw "freshly extracted Windows ZIP verification failed with exit code $LASTEXITCODE" }

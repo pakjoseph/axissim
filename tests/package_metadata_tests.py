@@ -252,6 +252,10 @@ def main() -> int:
         raise AssertionError("Windows package script must reject a missing Visual Studio runtime source")
     if "vc_redist.x64.exe" not in windows_script:
         raise AssertionError("Windows package script must require the bundled VC redistributable installer")
+    if "[System.IO.Compression.ZipFile]::ExtractToDirectory($Archive, $Extracted)" not in windows_script:
+        raise AssertionError("Windows package verification must use the portable two-argument ZIP extraction API")
+    if "Expand-Archive" in windows_script:
+        raise AssertionError("Windows package verification must not depend on the runner-specific Expand-Archive overload")
     for script_name in ("package_linux.sh", "package_macos.sh", "package_windows.ps1"):
         script_text = (root / "scripts" / script_name).read_text(encoding="utf-8")
         if "AXISSIM_PACKAGE_BUILD=ON" not in script_text:
