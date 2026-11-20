@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,8 @@ namespace axissim {
 [[nodiscard]] gemm_json::Value finalize_run_provenance(
     const gemm_json::Value& input_snapshot,
     const std::filesystem::path& result_json_path);
+[[nodiscard]] std::optional<std::string> run_provenance_completeness_issue(
+    const gemm_json::Value& provenance_record);
 [[nodiscard]] std::string canonical_provenance_value(const gemm_json::Value& value);
 [[nodiscard]] std::string canonical_run_provenance(
     const ConfigLoadResult& loaded, const std::filesystem::path& root_manifest,

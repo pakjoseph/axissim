@@ -172,7 +172,10 @@ def main() -> int:
     if metadata.get("source_revision") != args.expected_source_revision:
         raise AssertionError("package source revision differs from the expected checkout")
     if metadata.get("source_tree_state") != "clean":
-        raise AssertionError("package source tree was not clean at configure time")
+        raise AssertionError(
+            "package source tree was not clean at configure time: "
+            f"state={metadata.get('source_tree_state')!r}, package_id={metadata.get('package_id')!r}"
+        )
     if metadata.get("artifact_kind") not in ("validation", "release"):
         raise AssertionError("package artifact kind must be explicitly validation or release")
     if metadata["artifact_kind"] == "release":

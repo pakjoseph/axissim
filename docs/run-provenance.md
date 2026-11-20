@@ -42,6 +42,11 @@ field status where relevant) and forces `incomplete`. A result can still be a
 valid simulation when its provenance is incomplete; it must not be described
 as a verified reproducible identity. The sidecar is evidence about inputs and
 build identity, not a measured hardware record or a model-validation claim.
+The GUI and Python verifier check the fields behind a `complete` claim,
+including source revision/tree state, compiler, executable hash, root and
+transitive input hashes, resolved configuration, result hash, and schema-specific
+input-capture status. Recomputing the sidecar's own identity hash does not by
+itself make an incomplete identity complete.
 
 The result JSON schema (including historical schema 1.2 outputs) is not
 modified. GUI result export writes both the JSON and the adjacent provenance

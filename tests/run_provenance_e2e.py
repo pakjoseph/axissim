@@ -13,7 +13,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "tools"))
-from provenance_contract import parse_run_provenance
+from provenance_contract import RawNumber, canonical_json, parse_run_provenance
 
 
 def run(binary: pathlib.Path, config: pathlib.Path, output: pathlib.Path, *overrides: str) -> dict:
@@ -92,11 +92,34 @@ def main() -> int:
             raise AssertionError("test fixture did not contain an identifiable identity status")
         try:
             parse_run_provenance(tampered_status)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("changing identity status was accepted without a valid complete claim or identity hash")
+
+        forged = json.loads(first["sidecar_text"], parse_int=RawNumber, parse_float=RawNumber)
+        forged["identity_status"] = "complete"
+        forged_payload = forged["provenance"]
+        forged_payload["source"].update({"revision": "unknown", "tree_state": "unknown"})
+        forged_payload["build"].update({"compiler_id": "unknown", "compiler_version": "unknown"})
+        forged_payload["executable"].update({"status": "unavailable", "sha256": "unknown"})
+        forged_payload["manifest"]["identity"].update({"status": "unavailable", "sha256": "unknown"})
+        for input_record in forged_payload["configuration_files"]:
+            input_record.update({"status": "unavailable", "sha256": "unknown"})
+        forged["identity_sha256"] = hashlib.sha256(canonical_json({
+            "identity_status": "complete", "provenance": forged_payload
+        }).encode("utf-8")).hexdigest()
+        try:
+            parse_run_provenance(
+                canonical_json(forged), result_json_bytes=(temp / "baseline-a.json").read_bytes(),
+                require_complete=True,
+            )
         except ValueError as error:
-            if "SHA-256" not in str(error):
+            if "source revision" not in str(error):
                 raise
         else:
-            raise AssertionError("changing identity status was accepted under the old identity hash")
+            raise AssertionError("a self-hashed complete claim with unavailable source/tool/config identity was accepted")
+
         tampered_result = first["result"].copy()
         tampered_result["scenario_name"] = "tampered_result"
         try:

@@ -51,11 +51,18 @@ jobs:
         with:
           version: '6.8.3'
           arch: win64_msvc2022_64
+      - name: Verify clean source checkout
+        shell: pwsh
+        run: git status --short --untracked-files=all
       - name: Build, extract, and verify the Windows portable ZIP
         shell: pwsh
         env:
           AXISSIM_RELEASE_TAG: ${{ inputs.release_tag }}
         run: ./scripts/package_windows.ps1 -BuildDir build/package-windows-release -ReleaseTag $env:AXISSIM_RELEASE_TAG
+      - name: Report source checkout status after packaging
+        if: always()
+        shell: pwsh
+        run: git status --short --untracked-files=all
 
   linux:
     runs-on: ubuntu-latest
@@ -69,10 +76,15 @@ jobs:
           python-version: '3.10'
       - name: Install Qt and Debian packaging tools
         run: sudo env DEBIAN_FRONTEND=noninteractive apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends qt6-base-dev qt6-qpa-plugins dpkg-dev
+      - name: Verify clean source checkout
+        run: git status --short --untracked-files=all
       - name: Build and verify extracted Linux packages
         env:
           AXISSIM_RELEASE_TAG: ${{ inputs.release_tag }}
         run: ./scripts/package_linux.sh build/package-linux-release "$AXISSIM_RELEASE_TAG"
+      - name: Report source checkout status after packaging
+        if: always()
+        run: git status --short --untracked-files=all
 
   macos:
     # This Qt 6.8.3 package links the legacy AGL framework; the macOS 26 SDK
@@ -90,7 +102,12 @@ jobs:
         with:
           version: '6.8.3'
           arch: clang_64
+      - name: Verify clean source checkout
+        run: git status --short --untracked-files=all
       - name: Build, relocate, and verify the native macOS application
         env:
           AXISSIM_RELEASE_TAG: ${{ inputs.release_tag }}
         run: ./scripts/package_macos.sh build/package-macos-release "$AXISSIM_RELEASE_TAG"
+      - name: Report source checkout status after packaging
+        if: always()
+        run: git status --short --untracked-files=all

@@ -2410,6 +2410,8 @@ class AxisSimWindow final : public QMainWindow {
               axissim::gemm_json::Object{{"identity_status", status_it->second}, {"provenance", payload_it->second}}))) != identity_it->second.string()) {
         throw std::runtime_error("run provenance identity status or hash is invalid");
       }
+      if (const auto completeness_issue = axissim::run_provenance_completeness_issue(provenance_record))
+        throw std::runtime_error(*completeness_issue);
       last_run_identity_status_ = QString::fromStdString(status_it->second.string());
     } catch (const std::exception& error) {
       finishProcess(false, "Run provenance invalid");

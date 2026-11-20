@@ -344,6 +344,158 @@ Value finalize_run_provenance(const Value& input_snapshot,
   return identity_record(std::move(payload), complete);
 }
 
+std::optional<std::string> run_provenance_completeness_issue(const Value& provenance_record) {
+  const auto* top = std::get_if<Object>(&provenance_record.storage);
+  if (top == nullptr) return "run provenance record is not an object";
+  const auto status_it = top->find("identity_status");
+  if (status_it == top->end() || !status_it->second.is_string())
+    return "run provenance identity status is missing";
+  if (status_it->second.string() != "complete") return std::nullopt;
+  const auto payload_it = top->find("provenance");
+  if (payload_it == top->end() || !payload_it->second.is_object())
+    return "complete run provenance payload is missing";
+  const auto& payload = payload_it->second.object();
+  const auto field = [](const Object& object, const std::string& key) -> const Value* {
+    const auto found = object.find(key);
+    return found == object.end() ? nullptr : &found->second;
+  };
+  const auto object_field = [&field](const Object& object, const std::string& key) -> const Object* {
+    const auto* value = field(object, key);
+    return value != nullptr && value->is_object() ? &value->object() : nullptr;
+  };
+  const auto string_field = [&field](const Object& object, const std::string& key) -> std::string {
+    const auto* value = field(object, key);
+    return value != nullptr && value->is_string() ? value->string() : std::string{};
+  };
+  const auto known = [](const std::string& value) {
+    return !value.empty() && value != "unknown";
+  };
+  const auto is_sha256 = [](const std::string& value) {
+    return value.size() == 64 && std::all_of(value.begin(), value.end(), [](unsigned char c) {
+      return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+    });
+  };
+  const auto is_revision = [](const std::string& value) {
+    return (value.size() == 40 || value.size() == 64) && std::all_of(value.begin(), value.end(), [](unsigned char c) {
+      return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+    });
+  };
+
+  const auto* source = object_field(payload, "source");
+  if (source == nullptr || !is_revision(string_field(*source, "revision")))
+    return "complete run provenance has no valid source revision";
+  if (string_field(*source, "tree_state") != "clean")
+    return "complete run provenance does not identify a clean source tree";
+
+  const auto* build = object_field(payload, "build");
+  if (build == nullptr || !known(string_field(*build, "compiler_id")) ||
+      !known(string_field(*build, "compiler_version")) ||
+      string_field(*build, "cxx_standard") != "20" ||
+      !known(string_field(*build, "build_type")) ||
+      !known(string_field(*build, "platform")) ||
+      !known(string_field(*build, "cmake_version")))
+    return "complete run provenance has incomplete build/toolchain identity";
+
+  const auto* executable = object_field(payload, "executable");
+  if (executable == nullptr || string_field(*executable, "status") != "hashed" ||
+      !is_sha256(string_field(*executable, "sha256")))
+    return "complete run provenance has no verified executable hash";
+
+  const auto* manifest = object_field(payload, "manifest");
+  const auto* manifest_identity = manifest == nullptr ? nullptr : object_field(*manifest, "identity");
+  if (manifest == nullptr || !known(string_field(*manifest, "path")) ||
+      manifest_identity == nullptr || string_field(*manifest_identity, "role") != "root_configuration" ||
+      string_field(*manifest_identity, "status") != "hashed" ||
+      !is_sha256(string_field(*manifest_identity, "sha256")))
+    return "complete run provenance has no hashed root configuration manifest";
+
+  const auto* files_value = field(payload, "configuration_files");
+  if (files_value == nullptr || !files_value->is_array() || files_value->array().empty())
+    return "complete run provenance has no configuration file inventory";
+  const Object* root_file = nullptr;
+  for (const auto& item : files_value->array()) {
+    if (!item.is_object()) return "complete run provenance has a malformed input record";
+    const auto& entry = item.object();
+    if (!known(string_field(entry, "role")) || !known(string_field(entry, "path")) ||
+        string_field(entry, "status") != "hashed" || !is_sha256(string_field(entry, "sha256")))
+      return "complete run provenance has an unavailable or malformed input hash";
+    if (string_field(entry, "role") == "root_configuration") {
+      if (root_file != nullptr) return "complete run provenance has multiple root configuration records";
+      root_file = &entry;
+    }
+  }
+  if (root_file == nullptr || string_field(*root_file, "path") != string_field(*manifest_identity, "path") ||
+      string_field(*root_file, "sha256") != string_field(*manifest_identity, "sha256"))
+    return "complete run provenance root manifest does not match its input inventory";
+
+  const auto* config = object_field(payload, "configuration");
+  constexpr std::string_view required_config_fields[] = {
+      "ambient_temp_c", "arithmetic_voltage_ratio", "base_area_mm2", "control_deadline_us",
+      "control_ops", "control_period_us", "deadline_us", "deployment_hours", "deployment_xpu_count",
+      "dma_byte_pj", "dma_double_buffering", "dma_setup_us", "dram_bandwidth_gbps", "dram_byte_pj",
+      "dram_interface_static_power_w", "electricity_cost_per_kwh", "frame_arrival_mode",
+      "frame_arrival_provenance", "frame_arrival_trace", "frame_period_us", "frames", "gemm_k",
+      "gemm_m", "gemm_n", "input_bytes", "it_power_budget_w", "mapping_plan", "max_area_mm2",
+      "max_junction_temp_c", "model_version", "npu_accumulator_bytes", "npu_area_per_mac_mm2",
+      "npu_arithmetic_energy_scale", "npu_element_bytes", "npu_frequency_ghz", "npu_mac_pj", "npu_macs",
+      "npu_static_power_per_mac_w", "npu_tile_k", "npu_tile_m", "npu_tile_n", "npu_weights_resident",
+      "postprocess_bytes", "postprocess_elements", "postprocess_ops_per_element", "preprocess_elements",
+      "preprocess_ops_per_element", "preprocess_output_bytes", "pue", "reliability_fit_rate",
+      "reliability_voltage_fit_multiplier", "rvv_affine_overhead_cycles", "rvv_area_per_lane_mm2",
+      "rvv_chunk_elements", "rvv_compute_cycle_scale", "rvv_frequency_ghz", "rvv_lanes", "rvv_lmul",
+      "rvv_memory_accounting", "rvv_memory_bytes_per_element", "rvv_ops_per_lane_cycle", "rvv_sew_bits",
+      "rvv_static_power_per_lane_w", "rvv_stripmine_overhead_cycles", "rvv_timing_model", "rvv_vlen_bits",
+      "scenario_name", "scheduler_ordering_policy", "scheduler_policy", "sram_area_per_kib_mm2",
+      "sram_capacity_bytes", "sram_static_power_per_kib_w", "static_power_w", "thermal_capacitance_j_per_c",
+      "thermal_resistance_c_per_w", "vector_op_pj", "weight_sram_capacity_bytes", "workload_mode",
+      "workload_profile"};
+  constexpr std::string_view config_string_fields[] = {
+      "scenario_name", "model_version", "workload_mode", "workload_profile", "mapping_plan",
+      "scheduler_policy", "scheduler_ordering_policy", "frame_arrival_mode", "frame_arrival_trace",
+      "frame_arrival_provenance", "rvv_timing_model", "rvv_memory_accounting"};
+  if (config == nullptr || std::any_of(std::begin(required_config_fields), std::end(required_config_fields),
+      [&field, config](std::string_view key) { return field(*config, std::string(key)) == nullptr; }))
+    return "complete run provenance lacks resolved architecture or timing configuration";
+  for (const auto key : config_string_fields) {
+    const auto* value = field(*config, std::string(key));
+    if (value == nullptr || !value->is_string())
+      return "complete run provenance has invalid resolved configuration string fields";
+  }
+  for (const auto key : required_config_fields) {
+    bool is_string_field = false;
+    for (const auto string_key : config_string_fields) is_string_field = is_string_field || key == string_key;
+    const auto* value = field(*config, std::string(key));
+    if (!is_string_field && (value == nullptr || !value->is_number()))
+      return "complete run provenance has invalid resolved configuration numeric fields";
+  }
+  const auto* scenario = object_field(payload, "scenario");
+  if (scenario == nullptr || string_field(*scenario, "name") != string_field(*config, "scenario_name") ||
+      string_field(*scenario, "model_version") != string_field(*config, "model_version"))
+    return "complete run provenance scenario does not match the resolved configuration";
+
+  const auto* package = object_field(payload, "package");
+  const auto package_kind = package == nullptr ? std::string{} : string_field(*package, "kind");
+  const auto package_id = package == nullptr ? std::string{} : string_field(*package, "id");
+  if (package == nullptr || (package_kind != "validation" && package_kind != "release") || !known(package_id))
+    return "complete run provenance has incomplete package identity";
+  if (package_kind == "release" &&
+      (!known(string_field(*package, "release_tag")) || package_id != string_field(*package, "release_tag")))
+    return "complete run provenance release identity is inconsistent";
+
+  const auto schema = string_field(payload, "schema_version");
+  const auto* input_verification = object_field(payload, "input_verification");
+  const auto expected_input_status = schema == "axissim.run-provenance.v1"
+      ? "unchanged" : "exact_bytes_captured_and_used";
+  if ((schema != "axissim.run-provenance.v1" && schema != "axissim.run-provenance.v2") ||
+      input_verification == nullptr || string_field(*input_verification, "status") != expected_input_status)
+    return "complete run provenance does not prove input stability";
+  const auto* result = object_field(payload, "result");
+  if (result == nullptr || string_field(*result, "status") != "hashed" ||
+      !is_sha256(string_field(*result, "sha256")))
+    return "complete run provenance has no hashed result";
+  return std::nullopt;
+}
+
 std::string canonical_provenance_value(const Value& value) {
   return canonical_value(value);
 }

@@ -90,6 +90,15 @@ int main() {
             : "complete";
     require(field(first, "identity_status").string() == expected_build_status,
             "identity status must reflect embedded build identity completeness");
+    auto forged_complete = first;
+    auto& forged_fields = std::get<gemm_json::Object>(forged_complete.storage);
+    forged_fields["identity_status"] = gemm_json::Value("complete");
+    auto& forged_payload = std::get<gemm_json::Object>(forged_fields.at("provenance").storage);
+    auto& forged_source = std::get<gemm_json::Object>(forged_payload.at("source").storage);
+    forged_source["revision"] = gemm_json::Value("unknown");
+    const auto completeness_issue = run_provenance_completeness_issue(forged_complete);
+    require(completeness_issue && completeness_issue->find("source revision") != std::string::npos,
+            "a self-consistent status claim with unavailable source identity must not be treated as complete");
 
     const auto arrival_loaded = load_config_with_sources(arrival_config.string());
     const auto arrival_captured = capture_runtime_inputs(arrival_loaded.config);

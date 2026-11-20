@@ -26,6 +26,7 @@ if(Git_FOUND)
       set(AXISSIM_SOURCE_TREE_STATE "clean")
     else()
       set(AXISSIM_SOURCE_TREE_STATE "modified")
+      message(STATUS "AxisSim source tree was not clean at configure time; provenance will be marked modified")
     endif()
     # Regenerate the embedded build identity when any tracked source input
     # changes after the initial configure. Package scripts also reconfigure
