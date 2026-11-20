@@ -73,7 +73,9 @@ jobs:
         run: ./scripts/package_linux.sh build-release "$AXISSIM_RELEASE_TAG"
 
   macos:
-    runs-on: macos-latest
+    # This Qt 6.8.3 package links the legacy AGL framework; the macOS 26 SDK
+    # used by macos-latest fails that link. Keep package validation on macOS 15.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
         with:

@@ -33,7 +33,14 @@ python3 "$root/tools/verify_extracted_package.py" --root "$verify_tar" --platfor
   --expected-source-revision "$revision" --gui-smoke
 cpak_config="$build_dir/CPackConfig.cmake"
 test -f "$cpak_config"
-(cd "$build_dir" && cpack --config "$cpak_config" -G DEB)
+if ! (cd "$build_dir" && cpack --config "$cpak_config" -G DEB); then
+  preinstall_log=$(find "$build_dir/_CPack_Packages" -type f -name PreinstallOutput.log -print -quit)
+  if [[ -n "$preinstall_log" ]]; then
+    echo "CPack preinstall diagnostics ($preinstall_log):" >&2
+    cat "$preinstall_log" >&2
+  fi
+  exit 1
+fi
 deb=$(find "$build_dir" -maxdepth 1 -type f -name '*.deb' -print -quit)
 test -n "$deb"
 dpkg-deb -x "$deb" "$verify_deb"
