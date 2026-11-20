@@ -94,7 +94,7 @@ if(AXISSIM_BUILD_GUI)
                                  ${AXISSIM_PORTABLE_DIR}/axissim-data/reference_data
                          COMMENT "Bundling portable AxisSim CLI, scenarios, and reference data")
     endif()
-    target_link_libraries(axissim-gui PRIVATE Qt6::Widgets)
+    target_link_libraries(axissim-gui PRIVATE Qt6::Widgets axissim-core)
     # Developer builds may run the GUI from a CTest working directory that is
     # neither the source tree nor the portable application layout. Keep that
     # layout explicit while preserving the runtime search used by packages.
@@ -420,6 +420,8 @@ if(BUILD_TESTING)
     set_tests_properties(desktop_gui_initializes PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_test(NAME desktop_gui_runs_model COMMAND axissim-gui --smoke-test-run)
     set_tests_properties(desktop_gui_runs_model PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 15)
+    add_test(NAME desktop_gui_results_workbench_contract COMMAND axissim-gui --results-workbench-smoke-test-run)
+    set_tests_properties(desktop_gui_results_workbench_contract PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 20)
     add_test(NAME desktop_gui_guided_first_run COMMAND axissim-gui --tutorial-smoke-test-run)
     set_tests_properties(desktop_gui_guided_first_run PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 15)
     add_test(NAME desktop_gui_mapping_lab_runs_public_policy_set COMMAND axissim-gui --mapping-lab-smoke-test-run)

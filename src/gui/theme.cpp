@@ -124,6 +124,11 @@ QLabel#statusText[state="busy"] { color: #77CCD1; }
 QLabel#statusText[state="success"] { color: #7DD7AF; }
 QLabel#statusText[state="warning"] { color: #F0BF74; }
 QLabel#statusText[state="error"] { color: #F0969A; }
+QLabel#runStatusText { color: @RUN_IDLE@; font-size: 12px; font-weight: 600; }
+QLabel#runStatusText[state="busy"] { color: @RUN_BUSY@; }
+QLabel#runStatusText[state="success"] { color: @RUN_SUCCESS@; }
+QLabel#runStatusText[state="warning"] { color: @RUN_WARNING@; }
+QLabel#runStatusText[state="error"] { color: @RUN_ERROR@; }
 QFrame#navRail { background: #151D26; border: none; border-right: 2px solid @BORDER_STRONG@; }
 QFrame#headerPanel { background: #151D26; border: 2px solid @BORDER_STRONG@; border-radius: 8px; }
 QFrame#commandPanel, QFrame#editorPanel, QFrame#contentPanel {
@@ -147,6 +152,8 @@ QLabel#tutorialTitle { color: @TEXT@; font-size: 14px; font-weight: 600; }
 QLabel#tutorialText { color: @SECONDARY@; font-size: 13px; }
 QWidget[tutorialTarget="true"] { border: 2px solid @ACCENT@; border-radius: 6px; }
 QLabel#metricTitle { color: @SECONDARY@; font-size: 12px; font-weight: 600; }
+QLabel#inspectorValue { color: @TEXT@; font-size: 13px; font-weight: 500; }
+QLabel#inspectorBody { color: @SECONDARY@; font-size: 12px; }
 QLabel#metricValue {
   color: @TEXT@;
   font-family: "IBM Plex Mono";
@@ -315,6 +322,11 @@ QPushButton#advancedManifestButton { text-align: left; font-weight: 500; }
   const QString accent_text = dark ? "#F0A58D" : kAccentHover;
   const QString primary_text = dark ? "#171918" : "#FFFFFF";
   const QString chart_background = dark ? "#343A40" : kChartBackground;
+  const QString run_idle = dark ? "#D6DEE3" : kTextSecondary;
+  const QString run_busy = dark ? "#77CCD1" : "#147D85";
+  const QString run_success = dark ? "#7DD7AF" : "#237B5B";
+  const QString run_warning = dark ? "#F0BF74" : "#9B6219";
+  const QString run_error = dark ? "#F0969A" : "#B93F46";
   return sheet.replace("@CANVAS@", canvas)
       .replace("@SURFACE@", surface)
       .replace("@MUTED_SURFACE@", muted_surface)
@@ -329,7 +341,12 @@ QPushButton#advancedManifestButton { text-align: left; font-weight: 500; }
       .replace("@ACCENT_TEXT@", accent_text)
       .replace("@ACCENT@", accent)
       .replace("@PRIMARY_TEXT@", primary_text)
-      .replace("@CHART_BG@", chart_background);
+      .replace("@CHART_BG@", chart_background)
+      .replace("@RUN_IDLE@", run_idle)
+      .replace("@RUN_BUSY@", run_busy)
+      .replace("@RUN_SUCCESS@", run_success)
+      .replace("@RUN_WARNING@", run_warning)
+      .replace("@RUN_ERROR@", run_error);
 }
 
 QColor chartDma() { return QColor(g_dark ? "#46AAB0" : kChartDma); }

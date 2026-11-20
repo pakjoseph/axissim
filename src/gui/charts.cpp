@@ -59,7 +59,7 @@ void EnergyBreakdownWidget::paintEvent(QPaintEvent* event) {
     return;
   }
 
-  const QRectF track(content.left(), 42, content.width(), 22);
+  const QRectF track(content.left(), 36, content.width(), 22);
   painter.setPen(Qt::NoPen);
   painter.setBrush(AxisTheme::chartBackground());
   painter.drawRoundedRect(track, 7, 7);
@@ -78,23 +78,24 @@ void EnergyBreakdownWidget::paintEvent(QPaintEvent* event) {
   legend_font.setPointSize(10);
   painter.setFont(legend_font);
   int legend_x = content.left();
-  int legend_y = 88;
+  int legend_y = 76;
   const QFontMetrics metrics(legend_font);
   for (const auto& segment : segments_) {
     const QString text = QString("%1  %2 µJ  (%3%)")
                              .arg(segment.label)
                              .arg(segment.value, 0, 'f', 2)
                              .arg(100.0 * segment.value / total, 0, 'f', 1);
-    const int item_width = 20 + metrics.horizontalAdvance(text) + 28;
+    const int item_width = std::min(content.width(), 20 + metrics.horizontalAdvance(text) + 28);
     if (legend_x > content.left() && legend_x + item_width > content.right() + 1) {
       legend_x = content.left();
-      legend_y += 28;
+      legend_y += 24;
     }
     painter.setPen(Qt::NoPen);
     painter.setBrush(segment.color);
     painter.drawRoundedRect(QRectF(legend_x, legend_y + 5, 10, 10), 3, 3);
     painter.setPen(AxisTheme::textSecondary());
-    painter.drawText(QRect(legend_x + 18, legend_y, item_width - 18, 22), Qt::AlignLeft | Qt::AlignVCenter, text);
+    const QString legend_text = metrics.elidedText(text, Qt::ElideRight, std::max(0, item_width - 18));
+    painter.drawText(QRect(legend_x + 18, legend_y, std::max(0, item_width - 18), 22), Qt::AlignLeft | Qt::AlignVCenter, legend_text);
     legend_x += item_width;
   }
 }
@@ -146,7 +147,8 @@ void ResourceTimelineWidget::paintEvent(QPaintEvent* event) {
   painter.setFont(end_font);
   painter.drawText(QRect(content.left(), 0, content.width(), 26), Qt::AlignRight | Qt::AlignVCenter,
                    QString("0 → %1 µs").arg(end_us, 0, 'f', 2));
-  const QRectF plot(content.left() + 102, 38, std::max(10, content.width() - 118), std::max(10, height() - 76));
+  const QRectF plot(content.left() + 102, 38, std::max(10, content.width() - 118), std::max(10, height() - 88));
+  const double time_scale = end_us > 0.0 ? end_us : 1.0;
   const double lane_height = plot.height() / resources.size();
   QFont label_font = font();
   label_font.setPointSize(10);
@@ -161,16 +163,22 @@ void ResourceTimelineWidget::paintEvent(QPaintEvent* event) {
   for (const auto& item : events_) {
     const int lane = resources.indexOf(item.resource);
     if (lane < 0) continue;
-    const double x = plot.left() + plot.width() * item.start_us / end_us;
-    const double right = plot.left() + plot.width() * item.end_us / end_us;
+    const double x = plot.left() + plot.width() * item.start_us / time_scale;
+    const double right = plot.left() + plot.width() * item.end_us / time_scale;
     const QRectF bar(x, plot.top() + lane * lane_height + 10, std::max(2.0, right - x), lane_height - 20);
     painter.setPen(Qt::NoPen);
     painter.setBrush(item.color);
     painter.drawRoundedRect(bar, 3, 3);
-    if (bar.width() > 110) {
+    QFont bar_font = font();
+    bar_font.setPointSize(9);
+    if (bar.width() > 54 && bar.height() >= QFontMetrics(bar_font).height() + 2) {
+      painter.setFont(bar_font);
       painter.setPen(AxisTheme::canvas());
-      painter.drawText(bar.adjusted(6, 0, -6, 0), Qt::AlignCenter | Qt::TextSingleLine,
-                       QString(item.task).replace('_', ' ') + QString(" · %1 µs").arg(item.end_us - item.start_us, 0, 'f', 1));
+      const QString label = QString("%1 · %2 µs").arg(QString(item.task).replace('_', ' '))
+                                .arg(item.end_us - item.start_us, 0, 'f', 1);
+      const QFontMetrics bar_metrics(bar_font);
+      const QString fitted = bar_metrics.elidedText(label, Qt::ElideRight, std::max(0, static_cast<int>(bar.width()) - 12));
+      painter.drawText(bar.adjusted(6, 0, -6, 0), Qt::AlignCenter | Qt::TextSingleLine, fitted);
     }
   }
   painter.setPen(QPen(AxisTheme::border(), 1));
@@ -181,11 +189,13 @@ void ResourceTimelineWidget::paintEvent(QPaintEvent* event) {
     painter.setPen(QPen(AxisTheme::border(), 1));
     painter.drawLine(QPointF(x, plot.bottom()), QPointF(x, plot.bottom() + 5));
     painter.setPen(AxisTheme::textSecondary());
-    painter.drawText(QRectF(x - 30, plot.bottom() + 6, 60, 18), Qt::AlignCenter,
+    const double label_x = std::clamp(x - 30.0, static_cast<double>(content.left()),
+                                      static_cast<double>(content.right() + 1 - 60));
+    painter.drawText(QRectF(label_x, plot.bottom() + 5, 60, 17), Qt::AlignCenter,
                      QString::number(ratio * end_us, 'f', 0));
   }
   painter.setPen(AxisTheme::textSecondary());
-  painter.drawText(QRectF(plot.left(), plot.bottom() + 25, plot.width(), 18), Qt::AlignCenter, "Modeled frame time (µs)");
+  painter.drawText(QRectF(plot.left(), plot.bottom() + 24, plot.width(), 18), Qt::AlignCenter, "Modeled frame time (µs)");
 }
 
 void SweepChartWidget::setPoints(QVector<SweepPoint> points) {
