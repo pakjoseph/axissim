@@ -10,6 +10,10 @@ inventory of native runtime files and their SHA-256 values.
 
 The AxisSim GUI links Qt 6 Core, Gui, and Widgets. Windows and macOS use
 dynamically bundled Qt runtimes selected by `windeployqt` and `macdeployqt`.
+The Windows packaging command requires a Visual Studio developer environment
+with `VCINSTALLDIR` set. Its extracted-package check requires imported MSVC
+redistributable DLLs to be present in the package rather than silently
+accepting a runner-installed copy from `System32` or `SysWOW64`.
 Linux packages intentionally use system Qt libraries and platform plugins;
 the portable tarball documents that dependency, and the Debian package uses
 the shared-library dependency scan plus explicit dependencies for every
@@ -66,7 +70,11 @@ against a fresh extraction or relocation. The Windows and macOS packages
 bundle Qt dynamically. Linux needs Qt development/runtime packages, `dpkg-dev`,
 and the QPA plugins installed on the host. macOS packaging needs Qt 6,
 `macdeployqt`, `codesign`, `hdiutil`, and a working Cocoa session for the
-native GUI smoke test.
+native GUI smoke test. The Windows static dependency check covers normal PE
+imports; delay-load imports and dependencies opened through runtime
+`LoadLibrary` calls still need separate analysis. Package-validation files are
+checked and then discarded with their native CI runner workspaces; they are
+not retained as downloadable workflow artifacts.
 
 ## Qt references
 

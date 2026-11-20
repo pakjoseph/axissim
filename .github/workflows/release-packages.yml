@@ -61,7 +61,29 @@ jobs:
         shell: pwsh
         env:
           AXISSIM_RELEASE_TAG: ${{ inputs.release_tag }}
-        run: ./scripts/package_windows.ps1 -BuildDir build/package-windows-release -ReleaseTag $env:AXISSIM_RELEASE_TAG
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          if (-not (Test-Path $vswhere)) { throw "Visual Studio locator not found: $vswhere" }
+          $vsInstall = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vsInstall) { throw 'No Visual Studio installation with x64 C++ tools was found' }
+          $developerCommand = Join-Path $vsInstall 'Common7/Tools/VsDevCmd.bat'
+          if (-not (Test-Path $developerCommand)) { throw "Visual Studio developer command not found: $developerCommand" }
+          $packageScript = (Resolve-Path './scripts/package_windows.ps1').Path
+          $runnerCommand = Join-Path $env:RUNNER_TEMP 'run-axissim-windows-package.cmd'
+          @"
+          @echo off
+          call "$developerCommand" -no_logo -arch=x64 -host_arch=x64
+          if errorlevel 1 exit /b
+          if not defined VCINSTALLDIR (
+            echo VCINSTALLDIR was not set by VsDevCmd.bat 1>&2
+            exit /b 1
+          )
+          echo VCINSTALLDIR=%VCINSTALLDIR%
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$packageScript" -BuildDir build/package-windows-release -ReleaseTag "%AXISSIM_RELEASE_TAG%"
+          exit /b %errorlevel%
+          "@ | Set-Content -Encoding Ascii -Path $runnerCommand
+          & cmd.exe /d /c $runnerCommand
+          if ($LASTEXITCODE -ne 0) { throw "Windows package validation failed with exit code $LASTEXITCODE" }
       - name: Report source checkout status after packaging
         if: always()
         shell: pwsh

@@ -16,6 +16,37 @@ import tempfile
 from provenance_contract import parse_run_provenance
 from windows_pe import PEFormatError, imports_from_file
 
+_MSVC_RUNTIME_DLL = re.compile(
+    r"^(?:vcruntime|msvcp|concrt|vccorlib)\d+(?:_[a-z0-9]+)*\.dll$",
+    re.IGNORECASE,
+)
+
+
+def is_msvc_runtime_dll(name: str) -> bool:
+    """Identify redistributable MSVC runtime DLLs that must ship in the ZIP."""
+    return _MSVC_RUNTIME_DLL.fullmatch(name) is not None
+
+
+def unresolved_windows_imports(
+    binary: str,
+    imports: list[str],
+    packaged_dlls: set[str],
+    system_dlls: set[str],
+) -> list[str]:
+    """Check normal imports while refusing a host-installed MSVC runtime fallback."""
+    missing = []
+    for name in imports:
+        key = name.casefold()
+        if key in packaged_dlls:
+            continue
+        if key.startswith(("api-ms-win-", "ext-ms-win-")):
+            continue
+        if is_msvc_runtime_dll(name):
+            missing.append(f"{binary} -> {name} (MSVC runtime must be packaged)")
+        elif key not in system_dlls:
+            missing.append(f"{binary} -> {name}")
+    return missing
+
 
 def sha256(path: pathlib.Path) -> str:
     value = hashlib.sha256()
@@ -89,22 +120,29 @@ def check_windows_package_dependencies(root: pathlib.Path) -> str:
     if not binaries:
         raise AssertionError("portable Windows package contains no PE executables or DLLs")
 
+    system_dlls = set()
+    for directory in system_dirs:
+        if directory.is_dir():
+            system_dlls.update(path.name.casefold() for path in directory.glob("*.dll"))
+
     missing = []
     for binary, imports in binaries:
-        for name in imports:
-            key = name.casefold()
-            if key in dlls:
-                continue
-            if key.startswith(("api-ms-win-", "ext-ms-win-")):
-                continue
-            if any((directory / name).is_file() for directory in system_dirs):
-                continue
-            missing.append(f"{binary.relative_to(root)} -> {name}")
+        missing.extend(
+            unresolved_windows_imports(
+                str(binary.relative_to(root)), imports, set(dlls), system_dlls
+            )
+        )
     if missing:
-        raise AssertionError("unresolved Windows PE imports outside package/System32:\n" + "\n".join(missing))
+        raise AssertionError(
+            "unresolved Windows PE imports outside package/Windows system DLLs:\n" + "\n".join(missing)
+        )
     if not (root / "platforms/qwindows.dll").is_file():
         raise AssertionError("Windows package is missing the Qt qwindows platform plugin")
-    return f"Normal PE import closure verified for {len(binaries)} package executables/DLLs; only package and OS DLLs resolve. Delay-load imports and runtime LoadLibrary calls are outside this static check."
+    return (
+        f"Normal PE import closure verified for {len(binaries)} package executables/DLLs; "
+        "MSVC runtime imports resolve from the package and other OS imports resolve from the package or Windows. "
+        "Delay-load imports and runtime LoadLibrary calls are outside this static check."
+    )
 
 
 def check_dependencies(binary: pathlib.Path, platform: str, package_root: pathlib.Path) -> str:

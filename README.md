@@ -190,8 +190,9 @@ When Qt 6 Widgets is available, Windows and Linux builds also create a
 `portable/` layout containing the desktop workbench, authoritative CLI, and
 the required `axissim-data/` scenarios and reference data. This means the GUI
 does not depend on a checked-out source tree after packaging.
-The package-validation workflow creates CI artifacts for verification; it does
-not publish downloadable releases.
+The package-validation workflow builds and verifies packages in native runner
+workspaces. It does not retain them as downloadable Actions artifacts or publish
+releases.
 
 Create and verify a native package with:
 
@@ -199,7 +200,7 @@ Create and verify a native package with:
 # Linux (native Qt 6 build host; GUI uses system Qt and QPA plugins)
 ./scripts/package_linux.sh
 
-# Windows (Developer PowerShell with Qt's windeployqt on PATH)
+# Windows (Visual Studio Developer PowerShell with VCINSTALLDIR and Qt's windeployqt on PATH)
 .\scripts\package_windows.ps1
 
 # macOS (Qt 6, macdeployqt, codesign, hdiutil, and Cocoa required)

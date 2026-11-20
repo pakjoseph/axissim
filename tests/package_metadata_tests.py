@@ -60,7 +60,28 @@ def main() -> int:
         raise AssertionError("package notices must not overstate the installation SBOM as a runtime license map")
     import sys
     sys.path.insert(0, str(root / "tools"))
-    from verify_extracted_package import package_inventory_root, package_member_path
+    from verify_extracted_package import (
+        is_msvc_runtime_dll,
+        package_inventory_root,
+        package_member_path,
+        unresolved_windows_imports,
+    )
+    if not is_msvc_runtime_dll("VCRUNTIME140.dll") or not is_msvc_runtime_dll("msvcp140_2.dll"):
+        raise AssertionError("MSVC compiler runtime DLLs must be classified as packaged dependencies")
+    if is_msvc_runtime_dll("kernel32.dll") or is_msvc_runtime_dll("ucrtbase.dll"):
+        raise AssertionError("Windows OS runtime DLLs must not be classified as MSVC redistributables")
+    system_dlls = {"kernel32.dll", "vcruntime140.dll"}
+    missing_runtime = unresolved_windows_imports(
+        "AxisSim.exe", ["KERNEL32.dll", "VCRUNTIME140.dll"], set(), system_dlls
+    )
+    if missing_runtime != ["AxisSim.exe -> VCRUNTIME140.dll (MSVC runtime must be packaged)"]:
+        raise AssertionError("a host-installed MSVC runtime must not satisfy the portable package check")
+    if unresolved_windows_imports(
+        "AxisSim.exe", ["KERNEL32.dll", "VCRUNTIME140.dll"],
+        {"vcruntime140.dll"}, system_dlls,
+    ):
+        raise AssertionError("a packaged MSVC runtime and Windows system import should resolve")
+
     with tempfile.TemporaryDirectory(prefix="axissim-qt-inventory-") as temporary:
         fixture = pathlib.Path(temporary)
         sbom_root = fixture / "third-party/qt-installation-sboms/share/qt/sbom"
@@ -167,16 +188,24 @@ def main() -> int:
     workflow = (root / ".github/workflows/release-packages.yml").read_text(encoding="utf-8")
     if 'run: ./scripts/package_linux.sh build/package-linux-release "$AXISSIM_RELEASE_TAG"' not in workflow:
         raise AssertionError("Linux release tag must enter the shell through an environment variable")
-    if "ReleaseTag $env:AXISSIM_RELEASE_TAG" not in workflow:
-        raise AssertionError("Windows release tag must enter PowerShell through an environment variable")
+    if 'ReleaseTag "%AXISSIM_RELEASE_TAG%"' not in workflow:
+        raise AssertionError("Windows release tag must enter the developer-shell package process through an environment variable")
     if 'run: ./scripts/package_macos.sh build/package-macos-release "$AXISSIM_RELEASE_TAG"' not in workflow:
         raise AssertionError("macOS release tag must enter the shell through an environment variable")
     if "build/package-windows-release" not in workflow:
         raise AssertionError("Windows package build must stay under the ignored build directory")
+    if "VsDevCmd.bat" not in workflow or "VCINSTALLDIR" not in workflow:
+        raise AssertionError("Windows package validation must run windeployqt in a C++ developer environment")
+    windows_script = (root / "scripts/package_windows.ps1").read_text(encoding="utf-8")
+    if "$env:VCINSTALLDIR" not in windows_script:
+        raise AssertionError("Windows package script must reject a missing Visual Studio runtime source")
     if "runs-on: macos-15" not in workflow:
         raise AssertionError("Qt 6.8.3 package validation must avoid the incompatible macOS 26 SDK")
     if "upload-artifact" in workflow or "create-release" in workflow:
         raise AssertionError("package validation workflow must not publish or upload package outputs")
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    if "does not retain them as downloadable Actions artifacts" not in readme:
+        raise AssertionError("README must distinguish in-run package files from retained Actions artifacts")
 
     with tempfile.TemporaryDirectory(prefix="axissim-tag-mismatch-") as temporary:
         temporary_root = pathlib.Path(temporary)

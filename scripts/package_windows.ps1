@@ -7,6 +7,11 @@ $BuildDir = Join-Path $Root $BuildDir
 $Stage = Join-Path $BuildDir "portable"
 $Archive = Join-Path $BuildDir "AxisSim-windows-x64.zip"
 
+if ([string]::IsNullOrWhiteSpace($env:VCINSTALLDIR) -or -not (Test-Path $env:VCINSTALLDIR)) {
+  throw "VCINSTALLDIR must identify an installed Visual Studio C++ toolchain; run from a Visual Studio developer shell."
+}
+Write-Output "Using Visual Studio C++ runtime source: $env:VCINSTALLDIR"
+
 cmake -S $Root -B $BuildDir -DCMAKE_BUILD_TYPE=Release -DAXISSIM_BUILD_GUI=ON "-DAXISSIM_RELEASE_TAG=$ReleaseTag"
 if ($LASTEXITCODE -ne 0) { throw "CMake configure failed with exit code $LASTEXITCODE" }
 cmake --build $BuildDir --target axissim-gui --config Release --parallel
