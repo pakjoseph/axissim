@@ -8,15 +8,15 @@ import struct
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "tools"))
-from windows_pe import PEFormatError, imports_from_bytes
+from windows_pe import PEFormatError, imports_from_bytes, machine_from_bytes, require_amd64
 
 
-def fixture_pe(import_name: str = "Qt6Core.dll") -> bytes:
+def fixture_pe(import_name: str = "Qt6Core.dll", machine: int = 0x8664) -> bytes:
     data = bytearray(0x400)
     data[0:2] = b"MZ"
     struct.pack_into("<I", data, 0x3C, 0x80)
     data[0x80:0x84] = b"PE\0\0"
-    struct.pack_into("<HHIIIHH", data, 0x84, 0x8664, 1, 0, 0, 0, 240, 0x2022)
+    struct.pack_into("<HHIIIHH", data, 0x84, machine, 1, 0, 0, 0, 240, 0x2022)
     optional = 0x98
     struct.pack_into("<H", data, optional, 0x20B)
     struct.pack_into("<I", data, optional + 60, 0x200)
@@ -37,10 +37,23 @@ def must_reject(data: bytes, label: str) -> None:
     raise AssertionError(f"malformed PE fixture was accepted: {label}")
 
 
+def must_reject_non_amd64(data: bytes, label: str) -> None:
+    try:
+        require_amd64(data)
+    except PEFormatError:
+        return
+    raise AssertionError(f"non-AMD64 PE fixture was accepted: {label}")
+
+
 def main() -> int:
     expected = ("Qt6Core.dll",)
-    if imports_from_bytes(fixture_pe()) != expected:
+    valid_amd64 = fixture_pe()
+    if imports_from_bytes(valid_amd64) != expected:
         raise AssertionError("PE parser did not map the import RVA to its DLL name")
+    if machine_from_bytes(valid_amd64) != 0x8664:
+        raise AssertionError("PE parser did not report the AMD64 COFF machine value")
+    require_amd64(valid_amd64)
+    must_reject_non_amd64(fixture_pe(machine=0x014C), "x86 machine in x64 package")
     must_reject(b"not a PE", "missing DOS header")
     malformed = bytearray(fixture_pe())
     struct.pack_into("<I", malformed, 0x3C, 0x3F0)

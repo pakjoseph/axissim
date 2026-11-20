@@ -231,6 +231,8 @@ def main() -> int:
         raise AssertionError("macOS release tag must enter the shell through an environment variable")
     if "build/package-windows-release" not in workflow:
         raise AssertionError("Windows package build must stay under the ignored build directory")
+    if "      - 'src/**'" not in workflow:
+        raise AssertionError("native package verification must run when any packaged C++ source changes")
     if "VsDevCmd.bat" not in workflow or "VCINSTALLDIR" not in workflow:
         raise AssertionError("Windows package validation must run windeployqt in a C++ developer environment")
     if "InstallVcRuntimeForValidation" not in workflow:

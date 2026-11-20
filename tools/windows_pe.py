@@ -10,6 +10,9 @@ class PEFormatError(ValueError):
     pass
 
 
+IMAGE_FILE_MACHINE_AMD64 = 0x8664
+
+
 def _u16(data: bytes, offset: int) -> int:
     if offset < 0 or offset + 2 > len(data):
         raise PEFormatError("truncated PE 16-bit field")
@@ -20,6 +23,24 @@ def _u32(data: bytes, offset: int) -> int:
     if offset < 0 or offset + 4 > len(data):
         raise PEFormatError("truncated PE 32-bit field")
     return struct.unpack_from("<I", data, offset)[0]
+
+
+def machine_from_bytes(data: bytes) -> int:
+    """Return the COFF machine value for a structurally valid PE header."""
+    if len(data) < 0x40 or data[:2] != b"MZ":
+        raise PEFormatError("missing DOS MZ header")
+    pe_offset = _u32(data, 0x3C)
+    if pe_offset + 24 > len(data) or data[pe_offset:pe_offset + 4] != b"PE\0\0":
+        raise PEFormatError("missing PE signature or truncated COFF header")
+    return _u16(data, pe_offset + 4)
+
+
+def require_amd64(data: bytes) -> None:
+    machine = machine_from_bytes(data)
+    if machine != IMAGE_FILE_MACHINE_AMD64:
+        raise PEFormatError(
+            f"expected AMD64 PE machine 0x{IMAGE_FILE_MACHINE_AMD64:04x}, got 0x{machine:04x}"
+        )
 
 
 def _rva_offset(rva: int, sections: list[tuple[int, int, int, int]],

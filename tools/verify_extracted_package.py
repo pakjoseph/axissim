@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 
 from provenance_contract import parse_run_provenance
-from windows_pe import PEFormatError, imports_from_file
+from windows_pe import PEFormatError, imports_from_bytes, require_amd64
 
 _MSVC_RUNTIME_DLL = re.compile(
     r"^(?:vcruntime|msvcp|concrt|vccorlib)\d+(?:_[a-z0-9]+)*\.dll$",
@@ -134,9 +134,13 @@ def check_windows_package_dependencies(root: pathlib.Path, inventory: dict) -> s
         if path.suffix.lower() not in (".exe", ".dll"):
             continue
         try:
-            imports = imports_from_file(path)
+            pe_bytes = path.read_bytes()
+            require_amd64(pe_bytes)
+            imports = imports_from_bytes(pe_bytes)
         except PEFormatError as error:
-            raise AssertionError(f"invalid packaged PE image {path.relative_to(root)}: {error}") from error
+            raise AssertionError(
+                f"invalid or non-AMD64 packaged PE image {path.relative_to(root)}: {error}"
+            ) from error
         binaries.append((path, imports))
         if path.suffix.lower() == ".dll":
             key = path.name.casefold()

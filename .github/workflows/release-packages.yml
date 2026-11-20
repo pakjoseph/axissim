@@ -23,6 +23,7 @@ on:
       - 'tools/verify_extracted_package.py'
       - 'tools/verify_macos_bundle.py'
       - 'tools/windows_pe.py'
+      - 'src/**'
       - 'src/build_info.hpp.in'
       - 'src/cli/main.cpp'
       - 'src/config.*'
