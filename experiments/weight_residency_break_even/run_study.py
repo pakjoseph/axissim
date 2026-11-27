@@ -137,7 +137,7 @@ def _read_result_artifacts(output_dir: pathlib.Path, run_id: str) -> dict[str, A
                    if entry.get("status") == "hashed"}
     if not {"root_configuration", "workload_profile", "mapping_plan"}.issubset(input_roles):
         raise StudyError(f"{run_id} provenance does not hash the root config, workload profile, and mapping plan")
-    study = {
+    return {
         "run_id": run_id,
         "result_path": result_path,
         "provenance_path": provenance_path,
