@@ -249,9 +249,10 @@ class WeightResidencyBreakEvenTests(unittest.TestCase):
                              [subprocess.check_output(["git", "-C", str(self.root), "rev-parse", "HEAD"], text=True).strip()])
             self.assertEqual(study["provenance"]["executable_sha256s"],
                              [hashlib.sha256(self.binary.read_bytes()).hexdigest()])
-            outcomes = {item["id"]: item["outcome"] for item in self.study.hypothesis_outcomes(study)}
+            outcomes = {item["id"]: item["outcome"] for item in study["hypotheses"]}
             self.assertEqual(set(outcomes), {"H1", "H2", "H3", "H4", "H5"})
             self.assertNotIn("not_evaluable", outcomes.values())
+            self.assertEqual(study["hypotheses"], self.study.hypothesis_outcomes(study))
 
             with (output / "summary.csv").open(newline="", encoding="utf-8") as source:
                 rows = list(csv.DictReader(source))

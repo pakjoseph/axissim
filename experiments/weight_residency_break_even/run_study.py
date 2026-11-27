@@ -13,7 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 
@@ -137,7 +137,7 @@ def _read_result_artifacts(output_dir: pathlib.Path, run_id: str) -> dict[str, A
                    if entry.get("status") == "hashed"}
     if not {"root_configuration", "workload_profile", "mapping_plan"}.issubset(input_roles):
         raise StudyError(f"{run_id} provenance does not hash the root config, workload profile, and mapping plan")
-    return {
+    study = {
         "run_id": run_id,
         "result_path": result_path,
         "provenance_path": provenance_path,
@@ -444,7 +444,7 @@ def _run_manifest(manifest: dict[str, Any], binary: pathlib.Path, output_dir: pa
         else:
             summarized_runs[run_id] = {key: value for key, value in run.items() if key not in {"result", "provenance", "provenance_envelope"}}
 
-    return {
+    study = {
         "schema_id": "axissim.weight-residency-break-even-results.v1",
         "study_id": manifest["study_id"],
         "study_status": study_status,
@@ -464,6 +464,8 @@ def _run_manifest(manifest: dict[str, Any], binary: pathlib.Path, output_dir: pa
         "runs": summarized_runs,
         "scientific_limits": manifest["scientific_limits"],
     }
+    study["hypotheses"] = hypothesis_outcomes(study)
+    return study
 
 
 CSV_COLUMNS = [
@@ -526,11 +528,26 @@ def hypothesis_outcomes(study: dict[str, Any]) -> list[dict[str, str]]:
              item["no_residency"]["first_frame_logical_bytes"] == item["persistent_residency"]["first_frame_logical_bytes"] and
              item["no_residency"]["steady_frame_logical_bytes"] - item["persistent_residency"]["steady_frame_logical_bytes"] == expected_steady_saving
              for item in comparisons)
-    h3 = all(item["total_dynamic_energy_saved_pj"] == item["dram_dynamic_energy_saved_pj"] + item["dma_dynamic_energy_saved_pj"]
+
+    def decimal_value(value: Any) -> Decimal:
+        if isinstance(value, bool) or not isinstance(value, (int, Decimal, str)):
+            raise StudyError("hypothesis metric is not a serialized decimal value")
+        try:
+            parsed = Decimal(value)
+        except InvalidOperation as error:
+            raise StudyError("hypothesis metric is not a valid decimal value") from error
+        if not parsed.is_finite():
+            raise StudyError("hypothesis metric is not finite")
+        return parsed
+
+    h3 = all(decimal_value(item["total_dynamic_energy_saved_pj"]) ==
+             decimal_value(item["dram_dynamic_energy_saved_pj"]) + decimal_value(item["dma_dynamic_energy_saved_pj"])
              for item in comparisons)
-    h4 = all(item["mean_latency_reduction_us"] >= 0 and item["p99_latency_reduction_us"] >= 0 and
+    h4 = all(decimal_value(item["mean_latency_reduction_us"]) >= 0 and
+             decimal_value(item["p99_latency_reduction_us"]) >= 0 and
              item["deadline_misses_avoided"] >= 0 for item in comparisons)
-    h5 = all(item["maximum_additional_unpriced_sram_energy_pj_over_observation"] > 0 for item in comparisons)
+    h5 = all(decimal_value(item["maximum_additional_unpriced_sram_energy_pj_over_observation"]) > 0
+             for item in comparisons)
     return [
         {"id": "H1", "outcome": "supported" if h1 else "not_supported", "reason": "first-frame payload equality across all coefficient settings"},
         {"id": "H2", "outcome": "supported" if h2 else "not_supported", "reason": "first-frame, steady-state ledger, and total-run traffic aggregates reconcile with the declared weight reuse"},
@@ -568,7 +585,7 @@ def write_report(study: dict[str, Any], path: pathlib.Path) -> None:
         ]
         lines.append("| " + " | ".join(values) + " |")
 
-    outcomes = hypothesis_outcomes(study)
+    outcomes = study["hypotheses"] if "hypotheses" in study else hypothesis_outcomes(study)
     lines += ["", "## Primary pair details", ""]
     base = next((case for case in cases if case["case_id"] == "base"), None)
     if base and base.get("comparison"):
