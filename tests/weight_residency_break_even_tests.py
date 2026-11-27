@@ -258,8 +258,10 @@ class WeightResidencyBreakEvenTests(unittest.TestCase):
                 rows = list(csv.DictReader(source))
             self.assertEqual(len(rows), 5)
             base = next(row for row in rows if row["case_id"] == "base")
-            self.assertEqual(base["max_additional_unpriced_sram_energy_pj_over_observation"], "6507600.0")
-            self.assertEqual(base["max_additional_unpriced_sram_energy_pj_per_completed_frame"], "216920.0")
+            self.assertEqual(Decimal(base["max_additional_unpriced_sram_energy_pj_over_observation"]),
+                             Decimal("6507600"))
+            self.assertEqual(Decimal(base["max_additional_unpriced_sram_energy_pj_per_completed_frame"]),
+                             Decimal("216920"))
             report = (output / "report.md").read_text(encoding="utf-8")
             self.assertIn("6.5076", report)
             self.assertIn("0.21692", report)
