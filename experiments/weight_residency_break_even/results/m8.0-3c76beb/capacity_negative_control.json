@@ -1,0 +1,10 @@
+{
+  "configured_capacity_bytes": 8192,
+  "process_return_code": 1,
+  "required_capacity_bytes": 13600,
+  "result_json_emitted": false,
+  "run_id": "capacity_negative_control",
+  "status": "rejected_as_expected",
+  "stderr": "error: Mapping-plan persistent weights require 13600 bytes of weight SRAM; configured capacity is 8192\n",
+  "trace_csv_emitted": false
+}

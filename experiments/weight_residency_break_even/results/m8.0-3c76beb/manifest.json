@@ -1,0 +1,49 @@
+{
+  "schema_id": "axissim.weight-residency-break-even.v1",
+  "study_id": "mnist12_persistent_weight_residency_break_even",
+  "workload": {
+    "scenario_config": "configs/workloads/mnist12_profiled.conf",
+    "profile": "reference_data/workloads/mnist12_profile.json",
+    "frames": 30,
+    "frame_period_us": 33333,
+    "deadline_us": 33333,
+    "measurement_protocol": "finite_completed_frames"
+  },
+  "architecture_controls": {
+    "weight_sram_capacity_bytes": 16384,
+    "no_residency_mapping": "configs/mappings/mnist12_baseline.json",
+    "persistent_mapping": "configs/mappings/mnist12_persistent_weights.json",
+    "expected_persistent_weight_bytes": 13600,
+    "expected_persistent_operator_count": 2,
+    "capacity_negative_control_bytes": 8192
+  },
+  "static_power_overrides_w": {
+    "static_power_w": "0",
+    "npu_static_power_per_mac_w": "0",
+    "rvv_static_power_per_lane_w": "0",
+    "sram_static_power_per_kib_w": "0",
+    "dram_interface_static_power_w": "0"
+  },
+  "energy_sensitivity": {
+    "base_dram_byte_pj": "15.0",
+    "base_dma_byte_pj": "1.5",
+    "one_at_a_time_multipliers": ["0.5", "1", "2"],
+    "include_base_pair": true,
+    "additional_repeats_per_base_arm": 1,
+    "interpretation": "Declared arithmetic sensitivity points only; not a physical uncertainty range."
+  },
+  "acceptance_invariants": {
+    "first_frame_bytes_equal": true,
+    "expected_steady_frame_bytes_saved": 13600,
+    "completed_frames": 30,
+    "expected_total_transfer_bytes_saved": 394400,
+    "compare_only_complete_pairs": true,
+    "require_complete_provenance": true,
+    "same_binary_repeat_identity": ["result_json", "provenance_json", "trace_csv"]
+  },
+  "scientific_limits": [
+    "No resident-weight SRAM access or static-energy coefficient is modeled.",
+    "The simulator exposes one logical transfer-byte count that is priced by both DRAM and DMA energy coefficients; it does not expose independent physical DMA traffic.",
+    "No physical memory commands, measured hardware performance, or silicon energy claims are supported."
+  ]
+}
