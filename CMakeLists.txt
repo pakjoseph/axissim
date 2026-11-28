@@ -489,6 +489,10 @@ if(BUILD_TESTING)
       add_test(NAME mnist12_study_power_overlay_preserves_legacy_config
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/check_mnist12_power_overlay.py
                        ${CMAKE_SOURCE_DIR} $<TARGET_FILE:axissim>)
+      add_test(NAME weight_residency_break_even_contract
+               COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/weight_residency_break_even_tests.py
+                       --source-root ${CMAKE_SOURCE_DIR}
+                       --binary $<TARGET_FILE:axissim>)
       add_test(NAME run_provenance_cli_contract
                COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/run_provenance_e2e.py
                        --source-root ${CMAKE_SOURCE_DIR} --binary $<TARGET_FILE:axissim>)
