@@ -22,6 +22,9 @@ ROOT = HERE.parents[1]
 DEFAULT_MANIFEST = HERE / "manifest.json"
 DEFAULT_TIMEOUT_SECONDS = 45
 
+sys.path.insert(0, str(ROOT / "tools"))
+from provenance_contract import parse_run_provenance
+
 
 class StudyError(RuntimeError):
     pass
@@ -119,7 +122,9 @@ def _read_result_artifacts(output_dir: pathlib.Path, run_id: str) -> dict[str, A
     provenance_path = output_dir / "runs" / f"{run_id}.json.provenance.json"
     trace_path = output_dir / "runs" / f"{run_id}.trace.csv"
     result = load_json(result_path)
-    provenance_envelope = load_json(provenance_path)
+    provenance_envelope = parse_run_provenance(
+        provenance_path.read_text(encoding="utf-8"), result_json_bytes=result_path.read_bytes()
+    )
     provenance = provenance_envelope.get("provenance", {})
     if provenance_envelope.get("identity_status") != "complete":
         raise StudyError(f"{run_id} has incomplete run provenance")

@@ -5,12 +5,12 @@ from __future__ import annotations
 
 import argparse
 import copy
+import csv
 import hashlib
 import importlib.util
 import json
 import pathlib
 import subprocess
-import csv
 import tempfile
 import unittest
 from decimal import Decimal
@@ -281,6 +281,46 @@ class WeightResidencyBreakEvenTests(unittest.TestCase):
             self.assertIn("study.json", listed)
             self.assertIn("summary.csv", listed)
             self.assertIn("report.md", listed)
+
+    def test_runner_validates_provenance_seal_and_result_binding(self):
+        bundle = self.root / "experiments/weight_residency_break_even/results/m8.0-3c76beb"
+        study = self.study.load_json(bundle / "study.json")
+        successful_runs = [run_id for run_id, record in study["runs"].items()
+                           if record.get("status") == "completed"]
+        self.assertEqual(len(successful_runs), 12)
+        for run_id in successful_runs:
+            self.study._read_result_artifacts(bundle, run_id)
+
+        def copy_artifact(source_run: str, target_dir: pathlib.Path, target_run: str,
+                          result_source_run: str | None = None, corrupt_seal: bool = False) -> None:
+            result_name = result_source_run or source_run
+            runs_dir = target_dir / "runs"
+            runs_dir.mkdir(parents=True, exist_ok=True)
+            result_path = runs_dir / f"{target_run}.json"
+            provenance_path = pathlib.Path(str(result_path) + ".provenance.json")
+            trace_path = runs_dir / f"{target_run}.trace.csv"
+            result_path.write_bytes((bundle / "runs" / f"{result_name}.json").read_bytes())
+            provenance_source = bundle / "runs" / f"{source_run}.json.provenance.json"
+            provenance_bytes = provenance_source.read_bytes()
+            if corrupt_seal:
+                envelope = json.loads(provenance_bytes)
+                envelope["identity_sha256"] = "0" * 64
+                provenance_bytes = json.dumps(envelope).encode("utf-8")
+            provenance_path.write_bytes(provenance_bytes)
+            trace_path.write_bytes((bundle / "runs" / f"{source_run}.trace.csv").read_bytes())
+
+        with tempfile.TemporaryDirectory(prefix="axissim-m8-provenance-negative-") as temp_name:
+            root = pathlib.Path(temp_name)
+            corrupt_dir = root / "corrupt-seal"
+            copy_artifact("base_no_residency", corrupt_dir, "tampered", corrupt_seal=True)
+            with self.assertRaisesRegex(ValueError, "canonical SHA-256 identity"):
+                self.study._read_result_artifacts(corrupt_dir, "tampered")
+
+            mismatched_dir = root / "mismatched-result"
+            copy_artifact("base_no_residency", mismatched_dir, "mismatched",
+                          result_source_run="base_persistent_residency")
+            with self.assertRaisesRegex(ValueError, "does not match its provenance SHA-256 identity"):
+                self.study._read_result_artifacts(mismatched_dir, "mismatched")
 
 
 def main() -> int:
